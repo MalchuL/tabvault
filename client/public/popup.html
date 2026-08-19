@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TabVault fast save</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup-shell">
+      <button
+        id="open-workspace"
+        class="workspace-link"
+        type="button"
+        title="Open the TabVault side panel in this browser window"
+      >
+        <span class="brand-mark" aria-hidden="true">▮</span>
+        <span>Open TabVault workspace</span>
+        <span aria-hidden="true">↗</span>
+      </button>
+
+      <section class="selection-panel" aria-labelledby="selection-title">
+        <div class="eyebrow-row">
+          <span class="eyebrow">Fast save</span>
+          <span id="tab-count" class="count">Loading tabs…</span>
+        </div>
+        <h1 id="selection-title">Choose what to clear.</h1>
+        <p id="selection-copy" class="selection-copy">
+          Select a direction, then save it to Inbox and close those tabs.
+        </p>
+
+        <div class="direction-group" aria-label="Choose tabs to save and close">
+          <button
+            class="direction-button"
+            type="button"
+            data-selection="left"
+            title="Select every tab to the left of the active tab"
+            aria-label="Select tabs to the left of the active tab"
+          >
+            <span class="arrow" aria-hidden="true">←</span>
+            <span>Left</span>
+          </button>
+          <button
+            class="direction-button is-active"
+            type="button"
+            data-selection="all"
+            title="Select all tabs in the current browser window"
+            aria-label="Select all tabs in the current browser window"
+            aria-pressed="true"
+          >
+            <span class="arrow" aria-hidden="true">↔</span>
+            <span>All</span>
+          </button>
+          <button
+            class="direction-button"
+            type="button"
+            data-selection="right"
+            title="Select every tab to the right of the active tab"
+            aria-label="Select tabs to the right of the active tab"
+          >
+            <span class="arrow" aria-hidden="true">→</span>
+            <span>Right</span>
+          </button>
+        </div>
+
+        <button
+          id="use-chrome-selection"
+          class="selection-source"
+          type="button"
+          title="Use the tabs you have highlighted in Chrome instead of a directional selection"
+        >
+          Use Chrome selection
+        </button>
+      </section>
+
+      <section class="save-panel" aria-live="polite">
+        <div id="selection-summary" class="selection-summary">
+          All tabs are selected.
+        </div>
+        <button id="save-selected" class="save-button" type="button">
+          Save selected &amp; close
+        </button>
+        <p class="helper-copy">
+          Saved tabs go to Inbox. Chrome internal pages stay open and are
+          skipped.
+        </p>
+        <p id="result" class="result" hidden></p>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
