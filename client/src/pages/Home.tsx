@@ -61,10 +61,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-const logoUrl = "/manus-storage/tabvault-logo_133db831.png";
-const archiveVisual = "/manus-storage/tabvault-archive_79c11784.jpg";
-const semanticVisual = "/manus-storage/tabvault-semantic_b15e90c2.jpg";
-const validationVisual = "/manus-storage/tabvault-validation_fed8a176.jpg";
+const logoUrl = "/icon-128.png";
 
 type GroupId = string;
 
@@ -1947,12 +1944,7 @@ export default function Home() {
 
         <div className="mx-auto max-w-[1540px] px-5 py-7 sm:px-7 lg:px-9 lg:py-9">
           <section className="rise-in relative overflow-hidden border-b border-[#dcd7cc] pb-8">
-            <div className="absolute right-0 top-0 hidden h-[156px] w-[360px] overflow-hidden rounded-lg border border-[#e4ded1] bg-[#eee8dd] lg:block">
-              <img
-                src={archiveVisual}
-                alt="Catalog evidence for saved web research"
-                className="h-full w-full object-cover opacity-85 mix-blend-multiply"
-              />
+            <div className="absolute right-0 top-0 hidden h-[156px] w-[360px] overflow-hidden rounded-lg border border-[#e4ded1] bg-[#eee8dd] paper-grain lg:block">
               <div className="absolute inset-0 bg-gradient-to-l from-transparent via-[#f6f3ec]/25 to-[#f6f3ec]" />
               <div className="absolute left-0 top-0 flex items-center gap-2 border-b border-r border-[#213a2f]/15 bg-[#fffdf8]/90 px-3 py-1.5 font-mono text-[8px] uppercase tracking-[0.14em] text-[#536057]">
                 <BrandMark className="h-3.5 w-3.5" /> evidence / shelf 01
@@ -2314,12 +2306,7 @@ export default function Home() {
 
             <aside className="space-y-5 xl:pt-7">
               <section className="overflow-hidden border border-[#ded9cd] bg-[#fffdf8] shadow-[0_9px_25px_rgba(24,38,31,0.035)]">
-                <div className="relative h-[110px] overflow-hidden border-b border-[#e4ded3] bg-[#e7e0d3]">
-                  <img
-                    src={semanticVisual}
-                    alt="Semantic search visual"
-                    className="h-full w-full object-cover mix-blend-multiply"
-                  />
+                <div className="relative h-[110px] overflow-hidden border-b border-[#e4ded3] bg-[#e7e0d3] paper-grain">
                   <div className="absolute inset-0 bg-gradient-to-r from-[#e7e0d3]/20 to-transparent" />
                   <div className="absolute bottom-0 left-0 border-r border-t border-[#314337]/15 bg-[#fffdf8]/90 px-2.5 py-1 font-mono text-[8px] uppercase tracking-[0.12em] text-[#536057]">
                     query sample / indexed note
@@ -2395,11 +2382,6 @@ export default function Home() {
                 </div>
               </section>
               <section className="relative overflow-hidden border border-[#ded9cd] bg-[#fffdf8] p-4 shadow-[0_9px_25px_rgba(24,38,31,0.035)]">
-                <img
-                  src={validationVisual}
-                  alt="Data validation visual"
-                  className="pointer-events-none absolute -right-10 -top-3 h-28 w-32 object-cover opacity-[0.16] mix-blend-multiply"
-                />
                 <span className="pointer-events-none absolute right-3 top-3 border border-[#cfc8ba] bg-[#fffdf8]/90 px-1.5 py-1 font-mono text-[7px] uppercase tracking-[0.1em] text-[#6b7269]">
                   field map / v1
                 </span>

@@ -6,12 +6,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: [
-      "dist/**",
-      "node_modules/**",
-      "mcp-server/**",
-      "client/public/__manus__/**",
-    ],
+    ignores: ["dist/**", "node_modules/**", "mcp-server/**"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

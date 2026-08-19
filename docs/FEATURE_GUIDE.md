@@ -8,15 +8,11 @@ TabVault is a **local-first tab library** that can operate entirely in browser s
 
 Small outlined question-mark buttons appear beside the controls that usually need explanation first: collections, API connection, Semantic model, Index health, Local alerts, search, saved views, and tab-view/reorder controls. Select a marker to open a short explanation and practical tip. The markers are regular keyboard-focusable buttons; press **Enter** or **Space** to open a tip, then press **Escape** or click outside it to dismiss it. [1]
 
-![TabVault dashboard: the collection rail, active tab list, semantic lens, API connection, semantic-model status, index-health controls, and local alerts](/manus-storage/tabvault-dashboard_4a54e92c.png)
-
 _Figure 1. The working TabVault dashboard. Orange marks the active collection, primary save/import actions, semantic query actions, and verified system signals._
 
 ## How the parts work together
 
 TabVault has three useful operating modes. The static web application retains its library in browser `localStorage`; the Chrome extension persists the same kind of library in `chrome.storage.local`; and either client can connect to the server with an endpoint and bearer key. The server is the source of truth for its JSON library, while the semantic vector index is a rebuildable derived cache rather than a second canonical database. [2] [3]
-
-![TabVault system map: browser and Chrome extension sync to the authenticated FastAPI service; the server uses a local semantic index and is exposed to AI agents through the MCP bridge](/manus-storage/tabvault-system-map_0017074b.png)
 
 _Figure 2. The repository’s implemented data paths. Browser and extension persistence continue to function when the API is intentionally unavailable or temporarily unreachable._
 

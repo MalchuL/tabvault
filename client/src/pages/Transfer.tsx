@@ -26,7 +26,7 @@ import {
 } from "@/lib/extension";
 import { BrowserStorageAdapter } from "@/lib/persistence";
 
-const logoUrl = "/manus-storage/tabvault-logo_133db831.png";
+const logoUrl = "/icon-128.png";
 
 type TransferVault = {
   tabs?: Array<Record<string, unknown>>;

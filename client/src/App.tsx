@@ -5,13 +5,25 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Route, Router, Switch, type BaseLocationHook } from "wouter";
+import { useBrowserLocation } from "wouter/use-browser-location";
+import { useHashLocation } from "wouter/use-hash-location";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Transfer from "./pages/Transfer";
 
-function Router() {
+function isExtensionPage() {
+  return window.location.protocol === "chrome-extension:";
+}
+
+const useNormalizedBrowserLocation: BaseLocationHook = () => {
+  const [location, setLocation] = useBrowserLocation();
+  const path = location.replace(/\/index\.html\/?$/, "") || "/";
+  return [path, setLocation];
+};
+
+function AppRoutes() {
   return (
     <Switch>
       <Route path="/" component={Home} />
@@ -28,7 +40,13 @@ export default function App() {
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster position="bottom-right" richColors />
-          <Router />
+          <Router
+            hook={
+              isExtensionPage() ? useHashLocation : useNormalizedBrowserLocation
+            }
+          >
+            <AppRoutes />
+          </Router>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
