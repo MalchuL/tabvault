@@ -2,7 +2,7 @@
 
 TabVault is a **local-first tab library** that can operate entirely in browser storage or connect to an authenticated FastAPI service for shared data, semantic search, import/export, scheduled index checks, and agent access. This guide documents the capabilities that are implemented in the current repository and distinguishes the interactive interface from the server and MCP surfaces. [1] [2]
 
-> **Start here.** The left rail is the primary orientation system. Select a collection to read its tabs; use the Research chevron only to reveal or collapse its child collections. The web interface remains useful offline, while the Chrome extension adds active-tab capture and local health-alert delivery.
+> **Start here.** **All Tabs** is the unified library destination. Switch between Standard, Compact, Instant Preview, and Group board views; use the in-list collection drop shelf or the per-tab menu to organize links. The web interface remains useful offline, while the Chrome extension adds active-tab capture and local health-alert delivery.
 
 ### First-time help markers
 
@@ -21,21 +21,21 @@ _Figure 2. The repository’s implemented data paths. Browser and extension pers
 | **Static web application** | Browse, organize, search, and connect to a remote API                                   | Browser `localStorage`                           | A hosted interface or offline personal library.                                |
 | **Chrome MV3 extension**   | Capture the active browser tab and show the side-panel workspace                        | `chrome.storage.local` plus optional server sync | A personal Chrome workflow with keyboard capture and notifications.            |
 | **FastAPI server**         | Shared library, validation, import/export, semantic search, and health-check scheduling | Versioned JSON document and derived vector cache | Any reachable private-network or public HTTP(S) deployment.                    |
-| **TypeScript MCP bridge**  | Let an MCP-compatible agent use the same library through typed tools                    | No duplicate copy; it proxies to the API         | An AI assistant needs structured tab, collection, search, or transfer actions. |
+| **Python MCP bridge**      | Let an MCP-compatible agent use the same library through official SDK typed tools       | No duplicate copy; it proxies to the API         | An AI assistant needs structured tab, collection, search, or transfer actions. |
 
 ## Library workspace
 
 ### Collections, tabs, tags, and ordering
 
-The **Collections** section is not just a folder list. Selecting a parent collection shows the tabs from that collection and its descendants; this makes Research useful as an aggregate view while its nested shelves remain individually addressable. The chevron beside Research controls only expansion, avoiding the common problem where selecting a collection accidentally opens or closes it. [1]
+Collections are organization metadata inside the unified **All Tabs** workspace rather than separate navigation destinations. The Group board summarizes each top-level collection, while the search scope control filters the same library in place. Parent collections include descendant tabs where collection operations need an aggregate view. [1]
 
-Within the active collection, the list supports two distinct drag behaviors. Dragging a row by its handle uses dnd-kit to reorder it **within the same collection** and leaves an insertion gap so the final placement is visible before release. Dropping a tab on a collection in the left rail moves it there instead. The per-row collection menu provides a keyboard- and pointer-friendly alternative for moves. [1]
+The list supports two distinct drag behaviors. Dragging a row by its handle uses dnd-kit to reorder it **within the same collection** and leaves an insertion gap so the final placement is visible before release. Dropping a tab on the **Drop tab into** collection shelf moves it to that collection; the per-row collection menu provides a keyboard- and pointer-friendly alternative. [1]
 
 | Control                              | What it does                                  | Notes                                                                                                                                                                               |
 | ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Save active tab** (extension only) | Creates a saved tab in Inbox                  | This control appears only in the Chrome extension side panel, where it captures the active HTTP(S) tab. The hosted web application intentionally does not simulate browser capture. |
-| **Collection row**                   | Selects the library scope                     | Parent collections include nested child collection tabs.                                                                                                                            |
-| **Collection chevron**               | Expands or collapses nested shelves           | It does not change the selected collection.                                                                                                                                         |
+| **Group board card**                 | Filters All Tabs to one collection            | It changes the active in-place collection scope without a separate route.                                                                                                           |
+| **Drop tab into shelf**              | Moves a dragged tab between collections       | Every collection, including empty ones, remains a visible drop target.                                                                                                              |
 | **Edit collection**                  | Renames a collection                          | The edit affordance appears on hover/focus.                                                                                                                                         |
 | **New collection**                   | Adds a top-level shelf                        | The new shelf becomes the selected collection.                                                                                                                                      |
 | **Tag directory**                    | Adds, renames, describes, or removes tags     | Renaming or removing a tag updates linked tabs in the client library.                                                                                                               |
@@ -68,7 +68,7 @@ The sidebar contains controls that are easy to mistake for application modes. Th
 
 ## Server-backed workflows
 
-Every API route requires `Authorization: Bearer <key>`. The server accepts a startup key through `TABVAULT_API_KEY`, defaults to `admin` for initial development, binds to `0.0.0.0` by default, and can restrict browser origins through `TABVAULT_CORS_ORIGINS`. Use a unique key and TLS termination before exposing it publicly. [2] [3]
+Every API route requires `Authorization: Bearer <key>`. The server accepts a startup key through `TABVAULT_API_KEY`, defaults to `admin` for initial development, binds to `127.0.0.1` by default, and can restrict browser origins through `TABVAULT_CORS_ORIGINS`. Use a unique key and TLS termination before exposing it publicly. [2] [3]
 
 The client stores the endpoint and bearer key in browser or Chrome extension storage. Its `HybridStorageAdapter` writes to browser storage and uses the server when available; when the server cannot be reached, offline edits remain usable locally until a later connection is configured. [2]
 

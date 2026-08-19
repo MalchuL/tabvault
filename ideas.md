@@ -83,3 +83,8 @@ The wordmark pairs a strong compact sans with a custom orange bookmark-tab symbo
 - The orange bookmark-tab glyph is visible in the active collection context and system state surfaces, not only on primary buttons.
 - Active collection rows use a left orange index rule and the bookmark-tab glyph; inactive collection colors remain muted evidence, not competing brand accents.
 - Verified semantic status and on-device query cues use TabVault Orange, while imagery receives a catalog code or evidence label at its edge.
+- Semantic search is presented as a local, explainable lens in the input itself: matching mode and verified-or-cache status remain visible without adding a second promotional panel.
+- The central research index remains the focus; supporting search and transfer actions are kept in place while duplicate right-rail promos and stale drag-to-file affordances are omitted.
+- Daily library work is limited to finding, reviewing, and organizing tabs; storage, index, and health detail belongs on the dedicated Dashboard.
+- The semantic lens remains visible in the search surface even before a query, using plain mode language such as “keyword + tags” or “meaning ready.”
+- Desktop library pages retain the persistent rail as the primary orientation device. The bookmark-tab glyph signals active context, saved-state status, and primary TabVault actions only.

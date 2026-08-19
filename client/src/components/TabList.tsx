@@ -1,24 +1,10 @@
 /**
  * Signal Library design reminder: Compact mode is a pure favicon-and-title index.
  * Instant Preview is a Telegram-like stream of individual link cards; movement keeps
- * the physical index-rail gap while the drag overlay remains centered under the pointer.
+ * the physical index-rail gap while the drag overlay preserves the user’s grab point.
  */
 import {
-  closestCenter,
-  DndContext,
-  DragEndEvent,
-  DragOverlay,
-  DragStartEvent,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import { snapCenterToCursor } from "@dnd-kit/modifiers";
-import {
-  arrayMove,
   SortableContext,
-  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
@@ -26,11 +12,16 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ArrowUpRight,
   BookOpenText,
+  ChevronDown,
+  ChevronRight,
+  FolderOpen,
   GripVertical,
   LoaderCircle,
   MoreHorizontal,
   Pencil,
   RefreshCw,
+  Share2,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { parseReadableArticle, type ReadableArticle } from "@/lib/readability";
@@ -54,20 +45,23 @@ type Props = {
   tabs: TabListItem[];
   viewMode: TabViewMode;
   query: string;
+  selectionEnabled?: boolean;
+  collapsibleGroups?: boolean;
+  collapsedGroupIds?: Set<string>;
+  onToggleGroup?: (groupId: string) => void;
   activeResultIndex: number;
   selectedResultIds: Set<string>;
   semanticScores: Map<string, number>;
   fallbackMode?: "text_fallback" | "semantic";
   onActiveIndex: (index: number) => void;
   onToggleSelection: (id: string) => void;
-  onReorder: (
-    sourceId: string,
-    targetId: string,
-    position: "before" | "after"
-  ) => void;
   onMove: (id: string, groupId: string) => void;
   onEdit: (tab: TabListItem) => void;
+  onDelete: (tab: TabListItem) => void;
   onOpenTagManager: () => void;
+  onOpenGroup?: (groupId: string) => void;
+  onShareGroup?: (groupId: string) => void;
+  onDeleteGroup?: (groupId: string) => void;
   groups: Array<{ id: string; name: string }>;
 };
 
@@ -75,99 +69,155 @@ export function TabList({
   tabs,
   viewMode,
   query,
+  selectionEnabled = false,
+  collapsibleGroups = false,
+  collapsedGroupIds = new Set(),
+  onToggleGroup,
   activeResultIndex,
   selectedResultIds,
   semanticScores,
   fallbackMode,
   onActiveIndex,
   onToggleSelection,
-  onReorder,
   onMove,
   onEdit,
+  onDelete,
   onOpenTagManager,
+  onOpenGroup,
+  onShareGroup,
+  onDeleteGroup,
   groups,
 }: Props) {
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  const tabGroups = useMemo(
+    () =>
+      Array.from(
+        tabs.reduce<Map<string, TabListItem[]>>((groupsById, tab) => {
+          const groupTabs = groupsById.get(tab.groupId) ?? [];
+          groupTabs.push(tab);
+          groupsById.set(tab.groupId, groupTabs);
+          return groupsById;
+        }, new Map())
+      ),
+    [tabs]
   );
-  const activeTab = useMemo(
-    () => tabs.find(tab => tab.id === activeId) ?? null,
-    [tabs, activeId]
-  );
-
-  const handleDragStart = ({ active }: DragStartEvent) =>
-    setActiveId(String(active.id));
-  const handleDragEnd = ({ active, over }: DragEndEvent) => {
-    setActiveId(null);
-    if (!over || active.id === over.id) return;
-    const oldIndex = tabs.findIndex(tab => tab.id === active.id);
-    const newIndex = tabs.findIndex(tab => tab.id === over.id);
-    const source = tabs[oldIndex];
-    const target = tabs[newIndex];
-    if (!source || !target || source.groupId !== target.groupId) return;
-    const projected = arrayMove(tabs, oldIndex, newIndex);
-    const projectedIndex = projected.findIndex(tab => tab.id === source.id);
-    const targetIndex = projected.findIndex(tab => tab.id === target.id);
-    onReorder(
-      source.id,
-      target.id,
-      projectedIndex > targetIndex ? "after" : "before"
-    );
-  };
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragStart={handleDragStart}
-      onDragCancel={() => setActiveId(null)}
-      onDragEnd={handleDragEnd}
+    <div
+      data-testid="tab-list"
+      className={`catalog-rule overflow-hidden border-t border-[#dcd7cc] ${viewMode === "compact" ? "pl-2 sm:pl-3" : "pl-3 sm:pl-4"}`}
     >
       <SortableContext
         items={tabs.map(tab => tab.id)}
         strategy={verticalListSortingStrategy}
       >
-        <div
-          data-testid="tab-list"
-          className={`catalog-rule overflow-hidden border-t border-[#dcd7cc] ${viewMode === "compact" ? "pl-2 sm:pl-3" : "pl-3 sm:pl-4"}`}
-        >
-          {tabs.map((tab, index) => (
-            <SortableTabRow
-              key={tab.id}
-              tab={tab}
-              index={index}
-              viewMode={viewMode}
-              query={query}
-              isSelected={selectedResultIds.has(tab.id)}
-              isKeyboardActive={query.length > 0 && activeResultIndex === index}
-              score={semanticScores.get(tab.id)}
-              fallbackMode={fallbackMode}
-              onActiveIndex={onActiveIndex}
-              onToggleSelection={onToggleSelection}
-              onMove={onMove}
-              onEdit={onEdit}
-              onOpenTagManager={onOpenTagManager}
-              groups={groups}
-            />
-          ))}
-        </div>
+        {tabGroups.map(([groupId, groupTabs]) => {
+          const groupName =
+            groups.find(group => group.id === groupId)?.name ?? "Collection";
+          const showGroupLabel = tabGroups.length > 1;
+          const isCollapsed = collapsedGroupIds.has(groupId);
+          return (
+            <section key={groupId} data-testid={`tab-group-${groupId}`}>
+              {showGroupLabel && (
+                <div className="flex items-center justify-between gap-3 border-b border-[#dfdbd0] bg-[#f9f7f1] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.1em] text-[#777d75]">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    {collapsibleGroups ? (
+                      <button
+                        onClick={() => onToggleGroup?.(groupId)}
+                        className="inline-flex min-w-0 items-center gap-1.5 truncate hover:text-[#e95224]"
+                        aria-expanded={!isCollapsed}
+                      >
+                        {isCollapsed ? (
+                          <ChevronRight className="h-3 w-3 shrink-0" />
+                        ) : (
+                          <ChevronDown className="h-3 w-3 shrink-0" />
+                        )}
+                        <span className="truncate">{groupName}</span>
+                      </button>
+                    ) : (
+                      <span>{groupName}</span>
+                    )}
+                    {collapsibleGroups && (
+                      <div
+                        className="flex shrink-0 items-center gap-0.5 border-l border-[#d9d3c6] pl-1.5"
+                        aria-label={`${groupName} collection actions`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onOpenGroup?.(groupId)}
+                          className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+                          aria-label={`Open all tabs in ${groupName}`}
+                          title="Open all tabs"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onShareGroup?.(groupId)}
+                          className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+                          aria-label={`Copy ${groupName} as Markdown`}
+                          title="Copy as Markdown"
+                        >
+                          <Share2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteGroup?.(groupId)}
+                          disabled={groupId === "inbox"}
+                          className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] disabled:cursor-not-allowed disabled:opacity-35"
+                          aria-label={
+                            groupId === "inbox"
+                              ? "Inbox cannot be deleted"
+                              : `Delete ${groupName}`
+                          }
+                          title={
+                            groupId === "inbox"
+                              ? "Inbox is protected"
+                              : "Delete collection"
+                          }
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <span className="shrink-0">{groupTabs.length} tabs</span>
+                </div>
+              )}
+              {!isCollapsed && (
+                <>
+                  {groupTabs.map(tab => {
+                    const index = tabs.findIndex(item => item.id === tab.id);
+                    return (
+                      <SortableTabRow
+                        key={tab.id}
+                        tab={tab}
+                        index={index}
+                        viewMode={viewMode}
+                        query={query}
+                        selectionEnabled={selectionEnabled}
+                        isSelected={selectedResultIds.has(tab.id)}
+                        isKeyboardActive={
+                          query.length > 0 && activeResultIndex === index
+                        }
+                        score={semanticScores.get(tab.id)}
+                        fallbackMode={fallbackMode}
+                        onActiveIndex={onActiveIndex}
+                        onToggleSelection={onToggleSelection}
+                        onMove={onMove}
+                        onEdit={onEdit}
+                        onDelete={onDelete}
+                        onOpenTagManager={onOpenTagManager}
+                        groups={groups}
+                      />
+                    );
+                  })}
+                </>
+              )}
+            </section>
+          );
+        })}
       </SortableContext>
-      <DragOverlay
-        modifiers={[snapCenterToCursor]}
-        dropAnimation={{
-          duration: 180,
-          easing: "cubic-bezier(0.23, 1, 0.32, 1)",
-        }}
-      >
-        {activeTab ? (
-          <div className="flex h-full w-full items-center justify-center">
-            <DragCard tab={activeTab} />
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+    </div>
   );
 }
 
@@ -176,6 +226,7 @@ function SortableTabRow({
   index,
   viewMode,
   query,
+  selectionEnabled,
   isSelected,
   isKeyboardActive,
   score,
@@ -184,6 +235,7 @@ function SortableTabRow({
   onToggleSelection,
   onMove,
   onEdit,
+  onDelete,
   onOpenTagManager,
   groups,
 }: {
@@ -191,6 +243,7 @@ function SortableTabRow({
   index: number;
   viewMode: TabViewMode;
   query: string;
+  selectionEnabled: boolean;
   isSelected: boolean;
   isKeyboardActive: boolean;
   score?: number;
@@ -199,6 +252,7 @@ function SortableTabRow({
   onToggleSelection: (id: string) => void;
   onMove: (id: string, groupId: string) => void;
   onEdit: (tab: TabListItem) => void;
+  onDelete: (tab: TabListItem) => void;
   onOpenTagManager: () => void;
   groups: Array<{ id: string; name: string }>;
 }) {
@@ -209,12 +263,19 @@ function SortableTabRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: tab.id });
+  } = useSortable({
+    id: tab.id,
+    animateLayoutChanges: ({ isSorting, wasDragging }) =>
+      isSorting || !wasDragging,
+  });
   const compact = viewMode === "compact";
   const instantPreview = viewMode === "preview";
-  const style = { transform: CSS.Transform.toString(transform), transition };
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    ...(isDragging ? {} : { transition }),
+  };
   const rowState = isDragging
-    ? "my-3 scale-[0.985] bg-[#fff4ee] opacity-35 shadow-[0_0_0_8px_#f6f3ec]"
+    ? "bg-[#fff4ee] opacity-30 outline outline-2 outline-[#eaa889]"
     : isSelected
       ? "bg-[#edf2ea] outline outline-1 outline-[#b7cbb4]"
       : isKeyboardActive
@@ -232,12 +293,9 @@ function SortableTabRow({
       onMouseEnter={() => {
         if (query) onActiveIndex(index);
       }}
-      {...(compact ? attributes : {})}
-      {...(compact ? listeners : {})}
-      aria-label={compact ? `Reorder ${tab.title}` : undefined}
-      className={`group relative border-b border-[#dfdbd0] transition-[transform,opacity,margin,background-color] duration-200 ${compact ? "flex cursor-grab items-center gap-2.5 px-2 py-2.5 active:cursor-grabbing" : "flex gap-3 pr-2 sm:px-2 " + (instantPreview ? "py-3" : "py-4")} ${rowState}`}
+      className={`group relative border-b border-[#dfdbd0] ${isDragging ? "transition-none" : "transition-[opacity,margin,background-color] duration-200"} ${compact ? "flex items-center gap-2.5 px-2 py-2.5" : "flex gap-3 pr-2 sm:px-2 " + (instantPreview ? "py-3" : "py-4")} ${rowState}`}
     >
-      {query && (
+      {(query || selectionEnabled) && (
         <label
           className={`${compact ? "" : "mt-1"} flex h-4 w-4 shrink-0 items-center justify-center`}
           onPointerDown={event => event.stopPropagation()}
@@ -265,6 +323,15 @@ function SortableTabRow({
 
       {compact ? (
         <>
+          <button
+            {...attributes}
+            {...listeners}
+            data-testid={`tab-drag-handle-${tab.id}`}
+            aria-label={`Reorder ${tab.title}`}
+            className="shrink-0 touch-none cursor-grab p-0.5 text-[#b3b4ac] transition hover:text-[#e95224] active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#e95224]"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
           <TabFavicon tab={tab} size="compact" />
           <a
             href={tab.url}
@@ -276,6 +343,13 @@ function SortableTabRow({
           >
             {tab.title}
           </a>
+          <span
+            {...attributes}
+            {...listeners}
+            data-testid={`tab-drag-space-${tab.id}`}
+            aria-label={`Reorder ${tab.title} from empty row space`}
+            className="hidden h-6 min-w-5 flex-1 touch-none cursor-grab sm:block"
+          />
           <button
             type="button"
             onClick={event => {
@@ -288,6 +362,19 @@ function SortableTabRow({
             title={`Edit ${tab.title}`}
           >
             <MoreHorizontal className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={event => {
+              event.stopPropagation();
+              onDelete(tab);
+            }}
+            onPointerDown={event => event.stopPropagation()}
+            className="shrink-0 rounded p-1 text-[#92958d] hover:bg-[#fff0ea] hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#e95224]"
+            aria-label={`Archive ${tab.title}`}
+            title={`Archive ${tab.title}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
         </>
       ) : instantPreview ? (
@@ -327,6 +414,14 @@ function SortableTabRow({
               >
                 <MoreHorizontal className="h-4 w-4" />
               </button>
+              <button
+                onClick={() => onDelete(tab)}
+                className="rounded p-0.5 text-[#aaa9a1] hover:bg-[#fff0ea] hover:text-[#c84b26]"
+                aria-label={`Archive ${tab.title}`}
+                title={`Archive ${tab.title}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
             </div>
           </div>
         </div>
@@ -342,7 +437,7 @@ function SortableTabRow({
       )}
 
       {!compact && !instantPreview && (
-        <div className="hidden items-start gap-2 pt-0.5 sm:flex">
+        <div className="hidden items-start gap-2 pt-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:flex">
           <select
             aria-label={`Move ${tab.title}`}
             value={tab.groupId}
@@ -361,6 +456,14 @@ function SortableTabRow({
             aria-label={`Edit ${tab.title}`}
           >
             <MoreHorizontal className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => onDelete(tab)}
+            className="mt-0.5 rounded p-0.5 text-[#aaa9a1] hover:bg-[#fff0ea] hover:text-[#c84b26]"
+            aria-label={`Archive ${tab.title}`}
+            title={`Archive ${tab.title}`}
+          >
+            <Trash2 className="h-4 w-4" />
           </button>
         </div>
       )}
@@ -615,21 +718,6 @@ function ReaderHeader({ tab, label }: { tab: TabListItem; label: string }) {
       </div>
       <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#758077]">
         {label}
-      </span>
-    </div>
-  );
-}
-
-function DragCard({ tab }: { tab: TabListItem }) {
-  return (
-    <div
-      data-testid="drag-overlay"
-      className="flex w-[min(560px,80vw)] items-center gap-3 border border-[#eaa889] bg-[#fffaf4] px-4 py-3 shadow-[0_18px_36px_rgba(24,38,31,0.22)]"
-    >
-      <GripVertical className="h-4 w-4 text-[#e95224]" />
-      <TabFavicon tab={tab} size="standard" />
-      <span className="min-w-0 truncate text-[12px] font-bold text-[#26342c]">
-        {tab.title}
       </span>
     </div>
   );

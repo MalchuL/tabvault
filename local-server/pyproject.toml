@@ -9,11 +9,13 @@ description = "Local-first HTTP server for the TabVault Chrome extension and MCP
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.110",
-  "uvicorn[standard]>=0.29"
+  "mcp[cli]>=2.0.0",
+  "uvicorn[standard]>=0.29",
 ]
 
 [project.scripts]
 tabvault-server = "tabvault_server.main:main"
+tabvault-mcp = "tabvault_server.mcp:main"
 
 [tool.setuptools.packages.find]
 include = ["tabvault_server*"]

@@ -63,6 +63,7 @@ test-results/
 playwright-report/
 .pytest_cache/
 *.*egg-info/
+__pycache__/
 
 # TypeScript cache
 *.tsbuildinfo
@@ -116,4 +117,6 @@ temp/
 
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
+
+.project-config.json
 

@@ -1,3 +1,5 @@
+import { canonicalizeTabUrl } from "./url-canonical.js";
+
 chrome.runtime.onInstalled.addListener(() => {
   restoreHealthAlarm().catch(() => undefined);
 });
@@ -7,6 +9,9 @@ const HEALTH_ALARM_NAME = "tabvault-index-health";
 const VAULT_STORAGE_KEY = "tabvault-v1";
 const SERVER_URL_KEY = "tabvault-local-server-url";
 const API_KEY_STORAGE_KEY = "tabvault-api-key";
+const STORAGE_MODE_KEY = "tabvault-storage-mode";
+const SYNC_STATUS_KEY = "tabvault-sync-status";
+const DEFAULT_SERVER_URL = "http://127.0.0.1:4817";
 
 function defaultVault() {
   return {
@@ -30,20 +35,6 @@ function defaultVault() {
   };
 }
 
-function normaliseUrl(value) {
-  try {
-    const url = new URL(value);
-    const query = [...url.searchParams.entries()].sort((a, b) =>
-      a[0].localeCompare(b[0])
-    );
-    url.hash = "";
-    url.search = new URLSearchParams(query).toString();
-    return url.toString();
-  } catch {
-    return value;
-  }
-}
-
 function domainFor(url) {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
@@ -53,7 +44,7 @@ function domainFor(url) {
 }
 
 function buildSavedTab(tab) {
-  const url = normaliseUrl(tab.url);
+  const url = canonicalizeTabUrl(tab.url);
   return {
     id: crypto.randomUUID(),
     groupId: "inbox",
@@ -72,9 +63,10 @@ async function syncQuickTabs(tabs) {
   const stored = await chrome.storage.local.get([
     SERVER_URL_KEY,
     API_KEY_STORAGE_KEY,
+    STORAGE_MODE_KEY,
   ]);
-  const baseUrl = stored[SERVER_URL_KEY];
-  if (!baseUrl) return false;
+  if (stored[STORAGE_MODE_KEY] !== "backend") return false;
+  const baseUrl = stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL;
   const apiKey = stored[API_KEY_STORAGE_KEY] || "admin";
   const requests = tabs.map(tab =>
     fetch(`${baseUrl.replace(/\/+$/, "")}/v1/tabs`, {
@@ -93,9 +85,17 @@ async function syncQuickTabs(tabs) {
     })
   );
   const results = await Promise.allSettled(requests);
-  return results.every(
+  const serverSynced = results.every(
     result => result.status === "fulfilled" && result.value.ok
   );
+  await chrome.storage.local.set({
+    [SYNC_STATUS_KEY]: {
+      state: serverSynced ? "synced" : "pending",
+      localSavedAt: Date.now(),
+      ...(serverSynced ? { serverSyncedAt: Date.now() } : {}),
+    },
+  });
+  return serverSynced;
 }
 
 async function saveAndCloseTabs(sourceTabs) {
@@ -119,15 +119,25 @@ async function saveAndCloseTabs(sourceTabs) {
   const savedTabs = [];
   for (const sourceTab of validTabs) {
     const existing = vault.tabs.find(
-      tab => normaliseUrl(tab.url) === normaliseUrl(sourceTab.url)
+      tab => canonicalizeTabUrl(tab.url) === canonicalizeTabUrl(sourceTab.url)
     );
     if (existing) {
-      existing.tags = [...new Set([...(existing.tags || []), "quick save"])];
+      if (existing.archived) {
+        existing.archived = false;
+        existing.archivedAt = null;
+        vault.tabOrders[existing.groupId] ||= [];
+        vault.tabOrders[existing.groupId] = [
+          existing.id,
+          ...vault.tabOrders[existing.groupId].filter(id => id !== existing.id),
+        ];
+      }
       existing.updated = "now";
       savedTabs.push(existing);
       continue;
     }
     const nextTab = buildSavedTab(sourceTab);
+    nextTab.archived = false;
+    nextTab.archivedAt = null;
     vault.tabs.unshift(nextTab);
     vault.tabOrders.inbox = [
       nextTab.id,
@@ -138,6 +148,18 @@ async function saveAndCloseTabs(sourceTabs) {
 
   await chrome.storage.local.set({ [VAULT_STORAGE_KEY]: vault });
   const serverSynced = await syncQuickTabs(savedTabs).catch(() => false);
+  if (!serverSynced) {
+    const storageMode = await chrome.storage.local.get(STORAGE_MODE_KEY);
+    await chrome.storage.local.set({
+      [SYNC_STATUS_KEY]: {
+        state:
+          storageMode[STORAGE_MODE_KEY] === "backend"
+            ? "pending"
+            : "local_only",
+        localSavedAt: Date.now(),
+      },
+    });
+  }
   const closeIds = validTabs.map(tab => tab.id).filter(Boolean);
   let closedCount = 0;
   try {
@@ -185,6 +207,25 @@ async function fetchReadablePage(url) {
   }
 }
 
+async function openVaultTabs(urls) {
+  const validUrls = [...new Set(urls || [])].filter(url =>
+    /^https?:\/\//i.test(url)
+  );
+  let openedCount = 0;
+  for (const url of validUrls) {
+    try {
+      await chrome.tabs.create({ url, active: false });
+      openedCount += 1;
+    } catch {
+      // Continue opening the remainder and return an accurate completed count.
+    }
+  }
+  return {
+    openedCount,
+    requestedCount: validUrls.length,
+  };
+}
+
 async function restoreHealthAlarm() {
   const stored = await chrome.storage.local.get(HEALTH_ALERT_KEY);
   const settings = stored[HEALTH_ALERT_KEY];
@@ -224,6 +265,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             error instanceof Error
               ? error.message
               : "The extension could not retrieve this page.",
+        })
+      );
+    return true;
+  }
+  if (message?.type === "TABVAULT_OPEN_TABS") {
+    void openVaultTabs(message.urls)
+      .then(sendResponse)
+      .catch(error =>
+        sendResponse({
+          openedCount: 0,
+          requestedCount: Array.isArray(message.urls) ? message.urls.length : 0,
+          error: String(error),
         })
       );
     return true;

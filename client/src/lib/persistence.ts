@@ -6,7 +6,9 @@ import {
   mergeLibraryToServer,
   readExtensionVault,
   readLibraryFromServer,
+  writeSyncStatus,
   writeExtensionVault,
+  type SyncStatus,
 } from "./extension";
 
 export type PersistenceMode = "browser" | "server" | "hybrid";
@@ -53,7 +55,8 @@ export class HybridStorageAdapter<
     private readonly browser: BrowserStorageAdapter<T>,
     private readonly server: ServerStorageAdapter<S> | null,
     private readonly toServer: (value: T) => S,
-    private readonly fromServer: (value: S) => T
+    private readonly fromServer: (value: S) => T,
+    private readonly backendPreferred = false
   ) {}
   async load() {
     const browserValue = await this.browser.load();
@@ -65,13 +68,32 @@ export class HybridStorageAdapter<
     }
   }
   async save(value: T) {
+    await this.saveWithStatus(value);
+  }
+  async saveWithStatus(value: T): Promise<SyncStatus> {
     await this.browser.save(value);
-    if (this.server) {
-      try {
-        await this.server.save(this.toServer(value));
-      } catch {
-        /* Browser storage is the explicit offline fallback. */
-      }
+    const localSavedAt = Date.now();
+    if (!this.server) {
+      const status: SyncStatus = {
+        state: this.backendPreferred ? "pending" : "local_only",
+        localSavedAt,
+      };
+      await writeSyncStatus(status);
+      return status;
+    }
+    try {
+      await this.server.save(this.toServer(value));
+      const status: SyncStatus = {
+        state: "synced",
+        localSavedAt,
+        serverSyncedAt: Date.now(),
+      };
+      await writeSyncStatus(status);
+      return status;
+    } catch {
+      const status: SyncStatus = { state: "pending", localSavedAt };
+      await writeSyncStatus(status);
+      return status;
     }
   }
 }

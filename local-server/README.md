@@ -1,6 +1,6 @@
 # TabVault API Server
 
-This package is the deployable HTTP source of truth for TabVault. It binds to `0.0.0.0` by default, stores its JSON data under `~/.local/share/tabvault/`, and creates a timestamped backup before a destructive `replace` import. It can be hosted locally, on a private network, or behind a public HTTPS domain.
+This package is the deployable HTTP source of truth for TabVault. It binds to `127.0.0.1` by default, stores its JSON data under `~/.local/share/tabvault/`, and creates a timestamped backup before a destructive `replace` import. It can be hosted locally, on a private network, or behind a public HTTPS domain when explicitly configured.
 
 ## Run the authenticated API
 
@@ -9,10 +9,10 @@ Use uv to create the managed virtual environment, install the runtime plus quali
 ```bash
 cd local-server
 uv sync --group dev
-TABVAULT_HOST=0.0.0.0 TABVAULT_PORT=4817 TABVAULT_API_KEY=admin uv run tabvault-server
+TABVAULT_PORT=4817 TABVAULT_API_KEY=admin uv run tabvault-server
 ```
 
-Every endpoint requires `Authorization: Bearer <TABVAULT_API_KEY>`. The development key defaults to `admin`; change it before public deployment. Set `TABVAULT_CORS_ORIGINS` to a comma-separated list of deployed web-app or extension origins, `TABVAULT_DATA_DIR` for a different storage directory, and `TABVAULT_HOST` or `TABVAULT_PORT` for network binding. The CORS default of `*` is intended only for development.
+Every endpoint requires `Authorization: Bearer <TABVAULT_API_KEY>`. The development key defaults to `admin`; change it before public deployment. Set `TABVAULT_CORS_ORIGINS` to a comma-separated list of deployed web-app or extension origins, `TABVAULT_DATA_DIR` for a different storage directory, and `TABVAULT_HOST` or `TABVAULT_PORT` for network binding. The CORS default of `*` is intended only for development. To accept private-network clients, set `TABVAULT_HOST=0.0.0.0` and a restrictive CORS origin list; do not expose this unaudited local API directly to the public internet.
 
 ## Quality commands
 
@@ -24,6 +24,8 @@ The API package uses uv to run every Python development tool from its managed en
 | ------------------------ | ------------------------------------------------------------------------------------------- |
 | `GET /health`            | Verify server availability and schema version.                                              |
 | `GET /v1/library`        | Read the complete local document.                                                           |
+| `GET /v1/schema`         | Read the machine-readable current JSON Schema.                                              |
+| `GET /v1/errors`         | Read the machine-readable import and validation error catalog.                              |
 | `POST /v1/tabs`          | Save an HTTP/HTTPS tab with URL deduplication.                                              |
 | `GET /v1/export`         | Export a complete or filtered JSON/Markdown document.                                       |
 | `POST /v1/import`        | Run `upload` or backup-protected `replace` imports.                                         |
@@ -32,6 +34,45 @@ The API package uses uv to run every Python development tool from its managed en
 | `POST /v1/index/rebuild` | Rebuild the derived local vector cache from the JSON source of truth.                       |
 
 The server returns all discovered import errors in a single response. Each issue includes a stable code, object path, expected value, received value, human explanation, and suggested fix.
+
+## Official Python MCP bridge
+
+`tabvault-mcp` is the canonical agent bridge. It is built with the official [Model Context Protocol Python SDK](https://github.com/modelcontextprotocol/python-sdk), communicates over stdio, and never keeps a second copy of your library. It forwards typed MCP tool calls to the same authenticated FastAPI URL used by TabVault.
+
+Start the FastAPI server first, then start the MCP bridge in a separate process:
+
+```bash
+cd local-server
+TABVAULT_SERVER_URL=http://127.0.0.1:4817 TABVAULT_API_KEY=admin uv run tabvault-mcp
+```
+
+The bridge exposes tab, collection, tag, search, import/export, schema, and error-catalog operations. It adds explicit `archive_tab` and permanently guarded `delete_tab` operations so agent writes follow TabVault's archive-first lifecycle. Configure an MCP host with the equivalent command and environment; the URL can point to a private-network FastAPI instance rather than localhost.
+
+```json
+{
+  "mcpServers": {
+    "tabvault": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/tabvault/local-server",
+        "run",
+        "tabvault-mcp"
+      ],
+      "env": {
+        "TABVAULT_SERVER_URL": "http://127.0.0.1:4817",
+        "TABVAULT_API_KEY": "replace-admin-before-sharing"
+      }
+    }
+  }
+}
+```
+
+The legacy TypeScript bridge remains in `../mcp-server` for compatibility, but new agent integrations should use `tabvault-mcp`.
+
+## Chrome extension connection
+
+In TabVault Settings, enter the FastAPI URL and bearer key, then select **Backend preferred**. The MV3 service worker immediately writes quick saves to browser storage, posts them to `POST /v1/tabs`, and records **synced** or **pending** state. The normal side-panel library uses the same authenticated import/read API for complete document synchronization. If the FastAPI server is offline, tabs stay in browser storage and the UI reports pending sync rather than silently dropping data.
 
 ## On-device semantic search
 

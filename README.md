@@ -4,7 +4,7 @@ TabVault is a **server-capable tab library** with browser-local resilience. The 
 
 ## Feature documentation
 
-Read the illustrated [TabVault Feature Guide](docs/FEATURE_GUIDE.md) for an implementation-verified explanation of the collection rail, semantic status, Manual checks, Quiet mode, search, recovery, sync, import/export, extension behavior, and MCP tools.
+Read the illustrated [TabVault Feature Guide](docs/FEATURE_GUIDE.md) for an implementation-verified explanation of the collection rail, semantic status, Manual checks, Quiet mode, search, recovery, sync, import/export, extension behavior, and MCP tools. The precise [Storage and Archive Lifecycle](docs/STORAGE_AND_ARCHIVE_LIFECYCLE.md) explains Local only versus Backend preferred storage, URL uniqueness, recovery, and permanent deletion.
 
 | Mode                   | What runs                         | Where data lives                                | Server required                                                   |
 | ---------------------- | --------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------- |
@@ -21,7 +21,7 @@ The Chrome extension can manage a personal tab library entirely offline. It stor
 3. Select `dist/public/`.
 4. Open TabVault from its toolbar icon, save tabs, and organize them locally.
 
-> When no API is configured or reachable, TabVault deliberately uses browser-local storage. This is not a failed deployment: capture, editing, collections, dnd-kit reordering, saved views, bulk actions, undo, and compact/instant-preview layouts continue to work offline.
+> In **Local only** mode, TabVault deliberately keeps all changes in browser storage. In **Backend preferred** mode, it writes locally first and pushes to the configured API when reachable. Neither mode loses a link because a server is temporarily offline. Removing an active tab archives it; adding the same normalized URL restores its existing record and metadata.
 
 ## Deploy the API server
 
@@ -56,7 +56,7 @@ The MV3 manifest requests only the permissions needed for the product: `tabs` fo
 
 ## dnd-kit ordering and tab views
 
-Saved tabs use [dnd-kit](https://dndkit.com/) sortable sensors. Drag from the handle to reorder within a collection; the active row leaves a visible archival-space gap while its compact overlay remains centered under the pointer. The view switcher offers:
+Saved tabs use [dnd-kit](https://dndkit.com/) sortable sensors. Drag from the handle to reorder within a collection; the active row leaves a visible archival-space gap while the dragged card preserves the exact point at which it was grabbed. The view switcher offers:
 
 | View                | Best for                                                                                              |
 | ------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -82,6 +82,6 @@ Point an MCP client at `node /absolute/path/to/tabvault-ai-tab-manager/mcp-serve
 make check
 ```
 
-The root command runs the web application’s Prettier, ESLint, TypeScript, and production-build checks; the MCP bridge’s Prettier, ESLint, and TypeScript checks; and the API package’s uv-managed Ruff and mypy checks. Run `pnpm format`, `pnpm lint:fix`, `cd mcp-server && pnpm format`, or `make -C local-server format` to apply the corresponding formatter or safe lint fixes locally. Run `pnpm test:e2e` to execute Playwright coverage for pointer-aligned reordering, visible insertion feedback, and ordered drops at desktop and compact breakpoints.
+The root command runs the web application’s Prettier, ESLint, TypeScript, and production-build checks; the MCP bridge’s Prettier, ESLint, and TypeScript checks; and the API package’s uv-managed Ruff and mypy checks. Run `pnpm format`, `pnpm lint:fix`, `cd mcp-server && pnpm format`, or `make -C local-server format` to apply the corresponding formatter or safe lint fixes locally. Run `pnpm test:e2e` to execute Playwright coverage for grab-point-preserving reordering, visible insertion feedback, and ordered drops at desktop and compact breakpoints.
 
 The API, web app, extension, and MCP bridge remain separate deployable processes by design. They share one authenticated API contract while browser storage remains a deliberate resilient fallback, not a localhost restriction.

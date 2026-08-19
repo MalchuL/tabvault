@@ -1,7 +1,7 @@
 .PHONY: check frontend-check mcp-check api-check
 
 frontend-check:
-	pnpm validate
+	pnpm validate && pnpm test:extension
 
 mcp-check:
 	pnpm --dir mcp-server validate

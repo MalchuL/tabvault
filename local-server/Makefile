@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix format format-check typecheck check run
+.PHONY: lint lint-fix format format-check typecheck test check run
 
 lint:
 	uv run ruff check .
@@ -15,7 +15,10 @@ format-check:
 typecheck:
 	uv run mypy tabvault_server
 
-check: format-check lint typecheck
+test:
+	uv run python -m unittest discover -s tests
+
+check: format-check lint typecheck test
 
 run:
 	uv run tabvault-server

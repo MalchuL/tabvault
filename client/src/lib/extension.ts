@@ -16,6 +16,7 @@ type ChromeStorageArea = {
 };
 
 type ChromeRuntime = {
+  id?: string;
   onMessage: {
     addListener: (listener: (message: unknown) => void) => void;
     removeListener: (listener: (message: unknown) => void) => void;
@@ -30,6 +31,10 @@ type ChromeApi = {
       active: boolean;
       currentWindow: boolean;
     }) => Promise<ChromeTabSnapshot[]>;
+    create: (createProperties: {
+      url: string;
+      active?: boolean;
+    }) => Promise<unknown>;
   };
   runtime?: ChromeRuntime;
 };
@@ -43,8 +48,23 @@ declare global {
 export const TABVAULT_STORAGE_KEY = "tabvault-v1";
 export const TABVAULT_SERVER_URL_KEY = "tabvault-local-server-url";
 export const TABVAULT_API_KEY_KEY = "tabvault-api-key";
+export const TABVAULT_SYNC_STATUS_KEY = "tabvault-sync-status";
+export const TABVAULT_STORAGE_MODE_KEY = "tabvault-storage-mode";
 export const DEFAULT_TABVAULT_SERVER_URL = "http://127.0.0.1:4817";
 export const DEFAULT_TABVAULT_API_KEY = "admin";
+
+export type SyncStatus = {
+  state: "local_only" | "synced" | "pending";
+  localSavedAt: number;
+  serverSyncedAt?: number;
+};
+
+export type StorageMode = "local" | "backend";
+
+type OpenTabsResponse = {
+  openedCount: number;
+  requestedCount: number;
+};
 
 export type LocalServerTab = {
   id: string;
@@ -97,7 +117,7 @@ export type IndexHealthCheck = {
 };
 
 export function isExtensionContext() {
-  return Boolean(window.chrome?.storage?.local && window.chrome?.tabs?.query);
+  return Boolean(window.chrome?.runtime?.id && window.chrome?.storage?.local);
 }
 
 export type ReadablePageSource = {
@@ -137,6 +157,40 @@ export async function fetchReadablePageSource(
   return { html, url: response.url || url };
 }
 
+export async function openTabUrls(urls: string[]): Promise<OpenTabsResponse> {
+  const validUrls = Array.from(
+    new Set(urls.filter(url => /^https?:\/\//i.test(url)))
+  );
+  if (isExtensionContext() && window.chrome?.tabs?.create) {
+    let openedCount = 0;
+    for (const url of validUrls) {
+      try {
+        await window.chrome.tabs.create({ url, active: false });
+        openedCount += 1;
+      } catch {
+        // Continue opening the remainder and report the completed count.
+      }
+    }
+    return { openedCount, requestedCount: validUrls.length };
+  }
+  if (isExtensionContext() && window.chrome?.runtime?.sendMessage) {
+    return window.chrome.runtime.sendMessage<OpenTabsResponse>({
+      type: "TABVAULT_OPEN_TABS",
+      urls: validUrls,
+    });
+  }
+  // Activate anchors synchronously inside the original click gesture. This is
+  // more consistently treated as navigation than repeated popup calls by
+  // hosted-browser popup blockers, while the extension path above retains
+  // authoritative chrome.tabs.create counts.
+  let openedCount = 0;
+  for (const url of validUrls) {
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (opened) openedCount += 1;
+  }
+  return { openedCount, requestedCount: validUrls.length };
+}
+
 export async function readExtensionVault<T>() {
   const stored = await window.chrome?.storage?.local?.get(TABVAULT_STORAGE_KEY);
   if (stored?.[TABVAULT_STORAGE_KEY]) return stored[TABVAULT_STORAGE_KEY] as T;
@@ -153,6 +207,57 @@ export async function writeExtensionVault<T>(vault: T) {
   if (window.chrome?.storage?.local)
     await window.chrome.storage.local.set({ [TABVAULT_STORAGE_KEY]: vault });
   else window.localStorage.setItem(TABVAULT_STORAGE_KEY, JSON.stringify(vault));
+}
+
+export async function readSyncStatus() {
+  const stored = await window.chrome?.storage?.local?.get(
+    TABVAULT_SYNC_STATUS_KEY
+  );
+  const saved =
+    stored?.[TABVAULT_SYNC_STATUS_KEY] ??
+    window.localStorage.getItem(TABVAULT_SYNC_STATUS_KEY);
+  if (typeof saved === "string") {
+    try {
+      return JSON.parse(saved) as SyncStatus;
+    } catch {
+      return undefined;
+    }
+  }
+  if (saved && typeof saved === "object") return saved as SyncStatus;
+  return undefined;
+}
+
+export async function writeSyncStatus(status: SyncStatus) {
+  if (window.chrome?.storage?.local) {
+    await window.chrome.storage.local.set({
+      [TABVAULT_SYNC_STATUS_KEY]: status,
+    });
+  } else {
+    window.localStorage.setItem(
+      TABVAULT_SYNC_STATUS_KEY,
+      JSON.stringify(status)
+    );
+  }
+}
+
+export async function readStorageMode(): Promise<StorageMode> {
+  const stored = await window.chrome?.storage?.local?.get(
+    TABVAULT_STORAGE_MODE_KEY
+  );
+  const configured =
+    stored?.[TABVAULT_STORAGE_MODE_KEY] ??
+    window.localStorage.getItem(TABVAULT_STORAGE_MODE_KEY);
+  return configured === "backend" ? "backend" : "local";
+}
+
+export async function writeStorageMode(mode: StorageMode) {
+  if (window.chrome?.storage?.local) {
+    await window.chrome.storage.local.set({
+      [TABVAULT_STORAGE_MODE_KEY]: mode,
+    });
+  } else {
+    window.localStorage.setItem(TABVAULT_STORAGE_MODE_KEY, mode);
+  }
 }
 
 export async function readLocalServerUrl() {

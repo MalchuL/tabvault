@@ -13,6 +13,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "test:extension": "node --test tests/extension-sync.test.mjs",
     "test:e2e": "playwright test",
     "validate": "pnpm format:check && pnpm lint && pnpm check && pnpm build"
   },
