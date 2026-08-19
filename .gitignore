@@ -62,6 +62,7 @@ jspm_packages/
 test-results/
 playwright-report/
 .pytest_cache/
+*.*egg-info/
 
 # TypeScript cache
 *.tsbuildinfo
