@@ -43,6 +43,9 @@ export class ServerStorageAdapter<T extends Record<string, unknown>>
   async save(value: T) {
     await mergeLibraryToServer(this.url, value, this.apiKey);
   }
+  async merge(value: T) {
+    return mergeLibraryToServer(this.url, value, this.apiKey);
+  }
 }
 
 export class HybridStorageAdapter<
@@ -62,6 +65,9 @@ export class HybridStorageAdapter<
     const browserValue = await this.browser.load();
     if (!this.server) return browserValue;
     try {
+      if (!browserValue) return this.fromServer(await this.server.load());
+      const merged = await this.server.merge(this.toServer(browserValue));
+      if (merged.document) return this.fromServer(merged.document as S);
       return this.fromServer(await this.server.load());
     } catch {
       return browserValue;

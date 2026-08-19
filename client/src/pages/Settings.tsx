@@ -9,24 +9,39 @@ import {
   BellRing,
   BrainCircuit,
   CheckCircle2,
+  Eraser,
+  RefreshCw,
   Server,
   ShieldCheck,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   checkLocalServer,
+  clearBrowserLibrary,
+  clearLibraryOnServer,
+  configureExtensionLibraryRefresh,
   configureIndexHealthCheck,
   DEFAULT_TABVAULT_API_KEY,
   DEFAULT_TABVAULT_SERVER_URL,
   readApiKey,
+  readLibraryRefreshInterval,
   readLocalServerUrl,
   readStorageMode,
+  refreshLibraryFromServer,
   writeApiKey,
+  writeLibraryRefreshInterval,
   writeLocalServerUrl,
   writeStorageMode,
   type SemanticIndexStatus,
   type StorageMode,
 } from "@/lib/extension";
+import {
+  emptyBrowserVault,
+  LIBRARY_REFRESH_INTERVALS,
+  type PersistedVault,
+} from "@/lib/library";
+import { BrowserStorageAdapter } from "@/lib/persistence";
 
 const logoUrl = "/icon-128.png";
 
@@ -40,18 +55,30 @@ export default function Settings() {
     null
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [isRefreshingLibrary, setIsRefreshingLibrary] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState(0);
+  const [pendingClear, setPendingClear] = useState<
+    "browser" | "server" | "both" | null
+  >(null);
+  const [isClearing, setIsClearing] = useState(false);
 
-  const refresh = async (url = serverUrl, key = apiKey) => {
+  const refresh = async (url = serverUrl, key = apiKey, announce = true) => {
     try {
       const health = await checkLocalServer(url, key);
       setOnline(health.status === "ok");
       setIndexStatus(health.semanticIndex ?? null);
-      if (health.status !== "ok")
+      if (!announce) return;
+      if (health.status === "ok") {
+        toast.success("TabVault server is connected", {
+          description: `Schema v${health.schemaVersion} is ready at ${url}.`,
+        });
+      } else {
         toast.error("The TabVault server is unavailable");
+      }
     } catch {
       setOnline(false);
       setIndexStatus(null);
-      toast.error("The TabVault server is unavailable");
+      if (announce) toast.error("The TabVault server is unavailable");
     }
   };
 
@@ -60,10 +87,12 @@ export default function Settings() {
       readLocalServerUrl(),
       readApiKey(),
       readStorageMode(),
-    ]).then(async ([url, key, mode]) => {
+      readLibraryRefreshInterval(),
+    ]).then(async ([url, key, mode, interval]) => {
       setServerUrl(url);
       setApiKey(key);
       setStorageMode(mode);
+      setRefreshInterval(interval);
       try {
         const health = await checkLocalServer(url, key);
         setOnline(health.status === "ok");
@@ -81,7 +110,7 @@ export default function Settings() {
       await writeLocalServerUrl(serverUrl);
       await writeApiKey(apiKey);
       await writeStorageMode(storageMode);
-      await refresh();
+      await refresh(serverUrl, apiKey, false);
       toast.success("Connection settings saved");
     } finally {
       setIsSaving(false);
@@ -125,6 +154,79 @@ export default function Settings() {
       );
     } catch {
       toast.error("Could not update local alerts");
+    }
+  };
+
+  const refreshLibrary = async () => {
+    if (!online) {
+      toast.error("Connect the TabVault server before refreshing the library");
+      return;
+    }
+    setIsRefreshingLibrary(true);
+    try {
+      const local =
+        (await new BrowserStorageAdapter<PersistedVault>().load()) ??
+        emptyBrowserVault();
+      const { vault } = await refreshLibraryFromServer(
+        serverUrl,
+        apiKey,
+        local
+      );
+      await new BrowserStorageAdapter<PersistedVault>().save(vault);
+      toast.success("Library refreshed", {
+        description: `${vault.tabs.length} tabs and ${vault.vaultGroups.length} collections are merged with the server.`,
+      });
+    } catch {
+      toast.error("Could not refresh tabs and collections");
+    } finally {
+      setIsRefreshingLibrary(false);
+    }
+  };
+
+  const saveRefreshInterval = async (seconds: number) => {
+    setRefreshInterval(seconds);
+    await writeLibraryRefreshInterval(seconds);
+    await configureExtensionLibraryRefresh(seconds);
+    toast.success(
+      seconds
+        ? `Automatic refresh every ${seconds >= 3600 ? `${seconds / 3600}h` : `${seconds / 60}m`}`
+        : "Automatic library refresh disabled"
+    );
+  };
+
+  const clearData = async () => {
+    if (!pendingClear) return;
+    setIsClearing(true);
+    try {
+      const shouldClearServer =
+        pendingClear === "server" || pendingClear === "both";
+      const shouldClearBrowser =
+        pendingClear === "browser" || pendingClear === "both";
+      if (shouldClearServer) {
+        if (!online) {
+          toast.error("Connect the TabVault server before clearing it");
+          if (!shouldClearBrowser) return;
+        } else {
+          await clearLibraryOnServer(serverUrl, apiKey);
+        }
+      }
+      if (shouldClearBrowser) {
+        await clearBrowserLibrary();
+      }
+      toast.success(
+        pendingClear === "both"
+          ? online
+            ? "Browser and server libraries were cleared"
+            : "Browser library was cleared; the server was unavailable"
+          : pendingClear === "server"
+            ? "Server library was cleared"
+            : "Browser library was cleared"
+      );
+      setPendingClear(null);
+    } catch {
+      toast.error("Could not clear the selected library");
+    } finally {
+      setIsClearing(false);
     }
   };
 
@@ -323,6 +425,107 @@ export default function Settings() {
               Alerts stay local to the configured TabVault service and browser
               context.
             </p>
+          </section>
+
+          <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
+            <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
+              <RefreshCw className="h-3.5 w-3.5" /> Library refresh
+            </p>
+            <h2 className="mt-2 text-[16px] font-bold">
+              {refreshInterval
+                ? `Every ${refreshInterval >= 3600 ? `${refreshInterval / 3600} hour` : `${refreshInterval / 60} min`}`
+                : "Manual refresh"}
+            </h2>
+            <p className="mt-4 text-[12px] leading-5 text-[#697068]">
+              Pull the server library and merge it with tabs and collections
+              already stored in this browser or extension.
+            </p>
+            <div className="mt-5 grid grid-cols-5 gap-2">
+              {LIBRARY_REFRESH_INTERVALS.map(({ seconds, label }) => (
+                <button
+                  key={String(seconds)}
+                  onClick={() => void saveRefreshInterval(seconds)}
+                  className={`border px-2 py-2 font-mono text-[9px] uppercase ${refreshInterval === seconds || (!seconds && !refreshInterval) ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => void refreshLibrary()}
+              disabled={isRefreshingLibrary || !online}
+              className="mt-5 rounded bg-[#e95224] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-white hover:bg-[#d94a1e] disabled:bg-[#c8c1b6]"
+            >
+              {isRefreshingLibrary ? "Refreshing…" : "Refresh library now"}
+            </button>
+          </section>
+
+          <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)] lg:col-span-2">
+            <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
+              <Trash2 className="h-3.5 w-3.5" /> Clear data
+            </p>
+            <h2 className="mt-2 text-[16px] font-bold">
+              Remove saved tabs and collections
+            </h2>
+            <p className="mt-4 max-w-2xl text-[12px] leading-5 text-[#697068]">
+              Clearing the browser library empties this profile. Refreshing
+              later can restore the server copy. Clearing the server writes an
+              empty library after a backup; this browser can upload its copy
+              again on the next sync. Use Clear both to wipe both copies.
+              Connection settings are kept.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                onClick={() => setPendingClear("browser")}
+                className="inline-flex items-center gap-1.5 border border-[#ded9cd] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#c95f46] hover:text-[#c95f46]"
+              >
+                <Eraser className="h-3.5 w-3.5" /> Clear browser library
+              </button>
+              <button
+                onClick={() => setPendingClear("server")}
+                className="inline-flex items-center gap-1.5 border border-[#ded9cd] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#c95f46] hover:text-[#c95f46]"
+              >
+                <Server className="h-3.5 w-3.5" /> Clear server library
+              </button>
+              <button
+                onClick={() => setPendingClear("both")}
+                className="inline-flex items-center gap-1.5 border border-[#c95f46] bg-[#fff0ea] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[#c84b26] hover:bg-[#ffe4d8]"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Clear both
+              </button>
+            </div>
+            {pendingClear && (
+              <div className="mt-5 border border-[#e8cfc4] bg-[#fff7f3] p-4">
+                <p className="text-[13px] font-bold text-[#8a3a28]">
+                  {pendingClear === "both"
+                    ? "Clear this browser and the server library?"
+                    : pendingClear === "server"
+                      ? "Clear every tab and collection on the server?"
+                      : "Clear every tab and collection in this browser?"}
+                </p>
+                <p className="mt-2 text-[12px] leading-5 text-[#7a5348]">
+                  This cannot be undone from Settings
+                  {pendingClear !== "browser"
+                    ? ", though the server keeps a timestamped backup."
+                    : "."}
+                </p>
+                <div className="mt-4 flex gap-3">
+                  <button
+                    onClick={() => void clearData()}
+                    disabled={isClearing}
+                    className="rounded bg-[#c95f46] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-white hover:bg-[#b4533e] disabled:bg-[#c8c1b6]"
+                  >
+                    {isClearing ? "Clearing…" : "Confirm clear"}
+                  </button>
+                  <button
+                    onClick={() => setPendingClear(null)}
+                    className="font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:text-[#e95224]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
         </div>
 

@@ -156,9 +156,18 @@ export default function Transfer() {
   const refresh = async () => {
     try {
       const health = await checkLocalServer(serverUrl, apiKey);
-      setServerOnline(health.status === "ok");
+      const online = health.status === "ok";
+      setServerOnline(online);
+      if (online) {
+        toast.success("TabVault server is connected", {
+          description: `Schema v${health.schemaVersion} is ready at ${serverUrl}.`,
+        });
+      } else {
+        toast.error("The TabVault server is unavailable");
+      }
     } catch {
       setServerOnline(false);
+      toast.error("The TabVault server is unavailable");
     }
   };
 

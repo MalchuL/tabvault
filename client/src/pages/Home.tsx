@@ -32,10 +32,12 @@ import {
   isExtensionContext,
   openTabUrls,
   readApiKey,
+  readLibraryRefreshInterval,
   readLocalServerUrl,
   readStorageMode,
   readSyncStatus,
   rebuildSemanticIndex,
+  refreshLibraryFromServer,
   restoreTabsOnLocalServer,
   runIndexHealthCheck,
   saveTabToLocalServer,
@@ -49,6 +51,7 @@ import {
   type StorageMode,
   type SyncStatus,
 } from "@/lib/extension";
+import { fromServerDocument, toServerDocument } from "@/lib/library";
 import { TabList, type TabViewMode } from "@/components/TabList";
 import { ContextHelp } from "@/components/ContextHelp";
 import { canonicalizeTabUrl } from "@/lib/url";
@@ -70,6 +73,7 @@ import {
   LayoutList,
   LayoutDashboard,
   Plus,
+  RefreshCw,
   Rows3,
   Save,
   Search,
@@ -132,93 +136,6 @@ type UndoSnapshot = {
   tabOrders: Record<GroupId, string[]>;
   tagCatalog: Record<string, string>;
 };
-
-function toServerDocument(vault: PersistedVault): Record<string, unknown> {
-  return {
-    schemaVersion: 1,
-    tags: Object.entries(vault.tagCatalog).map(([name, description]) => ({
-      name,
-      description,
-    })),
-    groups: vault.vaultGroups.map((group, position) => ({
-      id: group.id,
-      name: group.name,
-      parentId: group.parent ?? null,
-      color: group.accent,
-      position,
-    })),
-    tabs: vault.tabs.map(tab => ({
-      id: tab.id,
-      url: tab.url,
-      title: tab.title,
-      note: tab.note,
-      tags: tab.tags,
-      groupId: tab.groupId,
-      archived: Boolean(tab.archived),
-      archivedAt: tab.archivedAt ?? null,
-      position: vault.tabOrders[tab.groupId]?.indexOf(tab.id) ?? 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: tab.updated,
-    })),
-  };
-}
-
-function fromServerDocument(
-  document: Record<string, unknown>,
-  fallback: PersistedVault
-): PersistedVault {
-  const remoteTabs = Array.isArray(document.tabs)
-    ? (document.tabs as Array<Record<string, unknown>>)
-    : [];
-  if (!remoteTabs.length) return fallback;
-  const remoteGroups = Array.isArray(document.groups)
-    ? (document.groups as Array<Record<string, unknown>>)
-    : [];
-  const remoteTags = Array.isArray(document.tags)
-    ? (document.tags as Array<Record<string, unknown>>)
-    : [];
-  const vaultGroups = remoteGroups.map(group => ({
-    id: String(group.id),
-    name: String(group.name),
-    parent: typeof group.parentId === "string" ? group.parentId : undefined,
-    accent: typeof group.color === "string" ? group.color : "#829b65",
-  }));
-  const tabs = remoteTabs.map(tab => ({
-    id: String(tab.id),
-    groupId: typeof tab.groupId === "string" ? tab.groupId : "inbox",
-    title: String(tab.title),
-    url: String(tab.url),
-    domain: normaliseUrl(String(tab.url)),
-    note: typeof tab.note === "string" ? tab.note : "",
-    tags: Array.isArray(tab.tags) ? tab.tags.map(String) : [],
-    color: "#6b8c7e",
-    icon: String(tab.title).slice(0, 1).toUpperCase() || "T",
-    updated: typeof tab.updatedAt === "string" ? "synced" : "server",
-    archived: Boolean(tab.archived),
-    archivedAt: typeof tab.archivedAt === "string" ? tab.archivedAt : null,
-  }));
-  const tabOrders = tabs.reduce<Record<string, string[]>>(
-    (orders, tab) => ({
-      ...orders,
-      [tab.groupId]: [...(orders[tab.groupId] ?? []), tab.id],
-    }),
-    {}
-  );
-  return {
-    ...fallback,
-    tabs,
-    vaultGroups: vaultGroups.length ? vaultGroups : fallback.vaultGroups,
-    tagCatalog: remoteTags.reduce<Record<string, string>>(
-      (catalog, tag) => ({
-        ...catalog,
-        [String(tag.name)]:
-          typeof tag.description === "string" ? tag.description : "",
-      }),
-      {}
-    ),
-    tabOrders,
-  };
-}
 
 const initialGroups: VaultGroup[] = [
   { id: "inbox", name: "Inbox", accent: "#F05A28" },
@@ -665,6 +582,13 @@ export default function Home() {
     null
   );
   const [storageReady, setStorageReady] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState(0);
+  const [isRefreshingLibrary, setIsRefreshingLibrary] = useState(false);
+  const libraryRefreshInFlight = useRef(false);
+  const vaultRef = useRef<PersistedVault | null>(null);
+  const refreshLibraryRef = useRef<
+    (options?: { silent?: boolean }) => Promise<void>
+  >(async () => undefined);
 
   const descendantCollectionIds = (id: GroupId) => {
     const ids = new Set<GroupId>([id]);
@@ -680,6 +604,25 @@ export default function Home() {
     }
     return ids;
   };
+
+  const currentVault = (): PersistedVault => ({
+    tabs,
+    vaultGroups,
+    tagCatalog,
+    tabOrders,
+    savedSearches,
+    tabView,
+  });
+
+  const applyVault = (vault: PersistedVault) => {
+    setTabs(vault.tabs);
+    setVaultGroups(vault.vaultGroups);
+    setTagCatalog(vault.tagCatalog);
+    setTabOrders(vault.tabOrders);
+    setSavedSearches(vault.savedSearches ?? []);
+    setTabView(vault.tabView ?? "standard");
+  };
+  vaultRef.current = currentVault();
 
   const sortByStoredOrder = useCallback(
     (items: VaultTab[]) =>
@@ -786,9 +729,11 @@ export default function Home() {
       new BrowserStorageAdapter<PersistedVault>().load(),
       readSyncStatus(),
       readStorageMode(),
+      readLibraryRefreshInterval(),
     ])
-      .then(([saved, savedSyncStatus, savedStorageMode]) => {
+      .then(([saved, savedSyncStatus, savedStorageMode, interval]) => {
         if (cancelled) return;
+        setRefreshInterval(interval);
         if (
           saved?.tabs &&
           saved.vaultGroups &&
@@ -912,6 +857,32 @@ export default function Home() {
   }, [serverOnline, localServerUrl, serverApiKey]);
 
   useEffect(() => {
+    if (!storageReady || storageMode !== "backend" || !serverOnline) return;
+    void refreshLibraryRef.current({ silent: true });
+  }, [storageReady, storageMode, serverOnline, localServerUrl, serverApiKey]);
+
+  useEffect(() => {
+    if (
+      !storageReady ||
+      storageMode !== "backend" ||
+      !serverOnline ||
+      refreshInterval < 60
+    )
+      return;
+    const timer = window.setInterval(() => {
+      void refreshLibraryRef.current({ silent: true });
+    }, refreshInterval * 1000);
+    return () => window.clearInterval(timer);
+  }, [
+    storageReady,
+    storageMode,
+    serverOnline,
+    refreshInterval,
+    localServerUrl,
+    serverApiKey,
+  ]);
+
+  useEffect(() => {
     const searchTerm = query.trim();
     if (!searchTerm) {
       setRemoteSearch(null);
@@ -996,6 +967,37 @@ export default function Home() {
     }
   };
 
+  const refreshLibrary = async (options?: { silent?: boolean }) => {
+    if (
+      storageMode !== "backend" ||
+      !serverOnline ||
+      libraryRefreshInFlight.current
+    )
+      return;
+    libraryRefreshInFlight.current = true;
+    if (!options?.silent) setIsRefreshingLibrary(true);
+    try {
+      const { vault } = await refreshLibraryFromServer(
+        localServerUrl,
+        serverApiKey,
+        vaultRef.current ?? currentVault()
+      );
+      applyVault(vault);
+      if (!options?.silent) {
+        toast.success("Library refreshed", {
+          description: `${vault.tabs.length} tabs merged with the server.`,
+        });
+      }
+    } catch {
+      if (!options?.silent)
+        toast.error("Could not refresh tabs and collections");
+    } finally {
+      libraryRefreshInFlight.current = false;
+      if (!options?.silent) setIsRefreshingLibrary(false);
+    }
+  };
+  refreshLibraryRef.current = refreshLibrary;
+
   const saveConnectionSettings = async () => {
     let normalizedUrl: string;
     try {
@@ -1025,19 +1027,12 @@ export default function Home() {
         savedSearches,
         tabView,
       };
-      const remote = await new ServerStorageAdapter<Record<string, unknown>>(
+      const { vault: hydrated } = await refreshLibraryFromServer(
         normalizedUrl,
-        apiKey
-      ).load();
-      const hydrated = fromServerDocument(remote, fallback);
-      if (hydrated !== fallback) {
-        setTabs(hydrated.tabs);
-        setVaultGroups(hydrated.vaultGroups);
-        setTagCatalog(hydrated.tagCatalog);
-        setTabOrders(hydrated.tabOrders);
-        setSavedSearches(hydrated.savedSearches ?? []);
-        setTabView(hydrated.tabView ?? "standard");
-      }
+        apiKey,
+        fallback
+      );
+      applyVault(hydrated);
       setShowConnectionSettings(false);
       toast.success("Server connection saved", {
         description: `Authenticated API access is active at ${normalizedUrl}.`,
@@ -1631,7 +1626,10 @@ export default function Home() {
       };
       if (captureMessage.type === "TABVAULT_CAPTURE_ACTIVE")
         void captureCurrentTabRef.current(captureMessage.tab);
-      if (captureMessage.type === "TABVAULT_LIBRARY_UPDATED") {
+      if (
+        captureMessage.type === "TABVAULT_LIBRARY_UPDATED" ||
+        captureMessage.type === "TABVAULT_LIBRARY_REFRESHED"
+      ) {
         void new BrowserStorageAdapter<PersistedVault>().load().then(saved => {
           if (
             saved?.tabs &&
@@ -1639,13 +1637,9 @@ export default function Home() {
             saved.tagCatalog &&
             saved.tabOrders
           ) {
-            setTabs(saved.tabs);
-            setVaultGroups(saved.vaultGroups);
-            setTagCatalog(saved.tagCatalog);
-            setTabOrders(saved.tabOrders);
-            setSavedSearches(saved.savedSearches ?? []);
-            setTabView(saved.tabView ?? "standard");
-            toast.success("Fast-saved tabs added to Inbox");
+            applyVault(saved);
+            if (captureMessage.type === "TABVAULT_LIBRARY_UPDATED")
+              toast.success("Fast-saved tabs added to Inbox");
           }
         });
       }
@@ -2114,6 +2108,26 @@ export default function Home() {
                 <Settings2 className="h-3.5 w-3.5" />
                 <span className="text-[13px] font-semibold">Settings</span>
               </button>
+              <button
+                onClick={() => {
+                  if (storageMode !== "backend" || !serverOnline) {
+                    toast.error(
+                      "Connect the TabVault server before refreshing the library"
+                    );
+                    return;
+                  }
+                  void refreshLibrary();
+                }}
+                disabled={isRefreshingLibrary}
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[#666c65] hover:bg-[#efede6] hover:text-[#18261f] disabled:opacity-60"
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${isRefreshingLibrary ? "animate-spin" : ""}`}
+                />
+                <span className="text-[13px] font-semibold">
+                  {isRefreshingLibrary ? "Refreshing…" : "Refresh library"}
+                </span>
+              </button>
             </div>
           </nav>
 
@@ -2186,6 +2200,12 @@ export default function Home() {
                 className="font-mono text-[9px] uppercase tracking-[0.1em] text-[#687067] hover:text-[#e95224]"
               >
                 Check
+              </button>
+              <button
+                onClick={() => void refreshLibrary()}
+                className="font-mono text-[9px] uppercase tracking-[0.1em] text-[#687067] hover:text-[#e95224]"
+              >
+                Refresh library
               </button>
             </div>
             <p className="mt-2 text-[9px] leading-4 text-[#898d85]">

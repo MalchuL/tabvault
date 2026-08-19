@@ -12,5 +12,5 @@
   "E_CYCLIC_GROUP_REFERENCE": "Group parents form a cycle.",
   "E_INVALID_TAGS": "A tab tag list is not an array of strings.",
   "W_ORPHAN_TAG": "A tag is missing from the directory and will be created.",
-  "W_DUPLICATE_URL": "An upload was skipped because its URL already exists."
+  "W_DUPLICATE_URL": "An upload was merged into an existing tab because the URL already exists."
 }

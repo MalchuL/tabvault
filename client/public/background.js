@@ -1,39 +1,25 @@
 import { canonicalizeTabUrl } from "./url-canonical.js";
+import {
+  defaultVault,
+  serverDocumentToVault,
+  vaultToServerDocument,
+} from "./library-sync.js";
 
 chrome.runtime.onInstalled.addListener(() => {
   restoreHealthAlarm().catch(() => undefined);
+  restoreLibraryRefreshAlarm().catch(() => undefined);
 });
 
 const HEALTH_ALERT_KEY = "tabvault-health-alert";
 const HEALTH_ALARM_NAME = "tabvault-index-health";
+const LIBRARY_REFRESH_KEY = "tabvault-library-refresh";
+const LIBRARY_REFRESH_ALARM_NAME = "tabvault-library-refresh";
 const VAULT_STORAGE_KEY = "tabvault-v1";
 const SERVER_URL_KEY = "tabvault-local-server-url";
 const API_KEY_STORAGE_KEY = "tabvault-api-key";
 const STORAGE_MODE_KEY = "tabvault-storage-mode";
 const SYNC_STATUS_KEY = "tabvault-sync-status";
 const DEFAULT_SERVER_URL = "http://127.0.0.1:4817";
-
-function defaultVault() {
-  return {
-    tabs: [],
-    vaultGroups: [
-      { id: "inbox", name: "Inbox", accent: "#F05A28" },
-      { id: "research", name: "Research", accent: "#829b65" },
-      {
-        id: "llm-papers",
-        name: "LLM papers",
-        parent: "research",
-        accent: "#7aa6a1",
-      },
-      { id: "build", name: "Build", accent: "#7c8bba" },
-      { id: "filed", name: "Filed", accent: "#bb9b68" },
-    ],
-    tagCatalog: { "quick save": "Captured from the fast-save popup" },
-    tabOrders: { inbox: [] },
-    savedSearches: [],
-    tabView: "standard",
-  };
-}
 
 function domainFor(url) {
   try {
@@ -242,6 +228,65 @@ async function restoreHealthAlarm() {
   });
 }
 
+async function restoreLibraryRefreshAlarm() {
+  const stored = await chrome.storage.local.get(LIBRARY_REFRESH_KEY);
+  const intervalSeconds = Number(stored[LIBRARY_REFRESH_KEY]?.intervalSeconds);
+  if (!Number.isFinite(intervalSeconds) || intervalSeconds < 60) {
+    await chrome.alarms.clear(LIBRARY_REFRESH_ALARM_NAME);
+    return;
+  }
+  chrome.alarms.create(LIBRARY_REFRESH_ALARM_NAME, {
+    periodInMinutes: Math.max(1, Math.round(intervalSeconds / 60)),
+  });
+}
+
+async function refreshStoredLibrary() {
+  const stored = await chrome.storage.local.get([
+    VAULT_STORAGE_KEY,
+    SERVER_URL_KEY,
+    API_KEY_STORAGE_KEY,
+    STORAGE_MODE_KEY,
+  ]);
+  if (stored[STORAGE_MODE_KEY] !== "backend") return false;
+  const vault = stored[VAULT_STORAGE_KEY] || defaultVault();
+  const baseUrl = (stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL).replace(
+    /\/+$/,
+    ""
+  );
+  const apiKey = stored[API_KEY_STORAGE_KEY] || "admin";
+  const response = await fetch(`${baseUrl}/v1/import`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      mode: "upload",
+      format: "json",
+      content: vaultToServerDocument(vault),
+    }),
+  });
+  if (!response.ok)
+    throw new Error(`Library refresh returned ${response.status}`);
+  const payload = await response.json();
+  if (!payload?.success || !payload.document) {
+    throw new Error("Library refresh did not return a merged document");
+  }
+  const mergedVault = serverDocumentToVault(payload.document, vault);
+  await chrome.storage.local.set({
+    [VAULT_STORAGE_KEY]: mergedVault,
+    [SYNC_STATUS_KEY]: {
+      state: "synced",
+      localSavedAt: Date.now(),
+      serverSyncedAt: Date.now(),
+    },
+  });
+  chrome.runtime
+    .sendMessage({ type: "TABVAULT_LIBRARY_REFRESHED" })
+    .catch(() => undefined);
+  return true;
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "TABVAULT_CONFIGURE_HEALTH_ALERTS") {
     chrome.storage.local
@@ -249,6 +294,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .then(restoreHealthAlarm)
       .catch(() => undefined);
     return;
+  }
+  if (message?.type === "TABVAULT_CONFIGURE_LIBRARY_REFRESH") {
+    chrome.storage.local
+      .set({
+        [LIBRARY_REFRESH_KEY]: {
+          intervalSeconds: Number(message.intervalSeconds) || 0,
+        },
+      })
+      .then(restoreLibraryRefreshAlarm)
+      .catch(() => undefined);
+    return;
+  }
+  if (message?.type === "TABVAULT_REFRESH_LIBRARY") {
+    void refreshStoredLibrary()
+      .then(synced => sendResponse({ success: true, synced }))
+      .catch(error =>
+        sendResponse({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+    return true;
   }
   if (message?.type === "TABVAULT_FAST_SAVE_AND_CLOSE") {
     void saveAndCloseTabs(message.tabs || [])
@@ -284,6 +351,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 chrome.alarms.onAlarm.addListener(async alarm => {
+  if (alarm.name === LIBRARY_REFRESH_ALARM_NAME) {
+    await refreshStoredLibrary().catch(() => undefined);
+    return;
+  }
   if (alarm.name !== HEALTH_ALARM_NAME) return;
   const stored = await chrome.storage.local.get(HEALTH_ALERT_KEY);
   const settings = stored[HEALTH_ALERT_KEY];
@@ -332,3 +403,6 @@ chrome.commands.onCommand.addListener(async command => {
     .sendMessage({ type: "TABVAULT_CAPTURE_ACTIVE", tab: activeTab })
     .catch(() => undefined);
 });
+
+restoreHealthAlarm().catch(() => undefined);
+restoreLibraryRefreshAlarm().catch(() => undefined);

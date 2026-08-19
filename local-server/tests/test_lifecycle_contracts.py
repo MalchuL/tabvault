@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from tabvault_server.main import RestoreTabPayload, TabUpdatePayload, normalise_url
+from tabvault_server.main import RestoreTabPayload, TabUpdatePayload, merge_documents, normalise_url
 from tabvault_server.semantic import SemanticIndex, SemanticUnavailable
 
 
@@ -17,6 +17,63 @@ class UrlCanonicalizationTests(unittest.TestCase):
             normalise_url(raw),
             "https://example.com/research?a=1&b=2",
         )
+
+
+class MergeDocumentTests(unittest.TestCase):
+    def test_merge_keeps_existing_records_and_unions_duplicate_url_tags(self) -> None:
+        current = {
+            "schemaVersion": 1,
+            "tags": [{"name": "research", "description": "seed"}],
+            "groups": [{"id": "research", "name": "Research"}],
+            "tabs": [
+                {
+                    "id": "keep",
+                    "url": "https://example.com/topic",
+                    "title": "Original",
+                    "note": "Local note",
+                    "tags": ["research"],
+                    "archived": False,
+                }
+            ],
+        }
+        incoming = {
+            "schemaVersion": 1,
+            "tags": [{"name": "inbox", "description": "from client"}],
+            "groups": [
+                {"id": "research", "name": "Research desk"},
+                {"id": "build", "name": "Build"},
+            ],
+            "tabs": [
+                {
+                    "id": "incoming-dup",
+                    "url": "https://example.com/topic?utm_source=x",
+                    "title": "Incoming title",
+                    "note": "",
+                    "tags": ["inbox"],
+                    "archived": False,
+                },
+                {
+                    "id": "new-tab",
+                    "url": "https://example.com/new",
+                    "title": "New",
+                    "tags": [],
+                    "archived": False,
+                },
+            ],
+        }
+        merged, warnings = merge_documents(current, incoming)
+        self.assertEqual({group["id"] for group in merged["groups"]}, {"research", "build"})
+        self.assertEqual(
+            next(group["name"] for group in merged["groups"] if group["id"] == "research"),
+            "Research desk",
+        )
+        tabs = {tab["id"]: tab for tab in merged["tabs"]}
+        self.assertIn("keep", tabs)
+        self.assertIn("new-tab", tabs)
+        self.assertNotIn("incoming-dup", tabs)
+        self.assertEqual(tabs["keep"]["title"], "Original")
+        self.assertEqual(set(tabs["keep"]["tags"]), {"research", "inbox"})
+        self.assertTrue(any(warning["code"] == "W_DUPLICATE_URL" for warning in warnings))
 
 
 class MutationSchemaTests(unittest.TestCase):

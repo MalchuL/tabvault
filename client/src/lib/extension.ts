@@ -3,6 +3,13 @@
  * Chrome extension storage is the durable foundation until the local server is introduced.
  */
 
+import {
+  emptyBrowserVault,
+  fromServerDocument,
+  toServerDocument,
+  type PersistedVault,
+} from "./library";
+
 export type ChromeTabSnapshot = {
   id?: number;
   title?: string;
@@ -50,6 +57,8 @@ export const TABVAULT_SERVER_URL_KEY = "tabvault-local-server-url";
 export const TABVAULT_API_KEY_KEY = "tabvault-api-key";
 export const TABVAULT_SYNC_STATUS_KEY = "tabvault-sync-status";
 export const TABVAULT_STORAGE_MODE_KEY = "tabvault-storage-mode";
+export const TABVAULT_LIBRARY_REFRESH_INTERVAL_KEY =
+  "tabvault-library-refresh-interval";
 export const DEFAULT_TABVAULT_SERVER_URL = "http://127.0.0.1:4817";
 export const DEFAULT_TABVAULT_API_KEY = "admin";
 
@@ -296,6 +305,40 @@ export async function writeApiKey(key: string) {
   else window.localStorage.setItem(TABVAULT_API_KEY_KEY, value);
 }
 
+export async function readLibraryRefreshInterval(): Promise<number> {
+  const stored = await window.chrome?.storage?.local?.get(
+    TABVAULT_LIBRARY_REFRESH_INTERVAL_KEY
+  );
+  const configured =
+    stored?.[TABVAULT_LIBRARY_REFRESH_INTERVAL_KEY] ??
+    window.localStorage.getItem(TABVAULT_LIBRARY_REFRESH_INTERVAL_KEY);
+  const seconds = Number(configured);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+}
+
+export async function writeLibraryRefreshInterval(seconds: number) {
+  const value = Math.max(0, Math.round(seconds));
+  if (window.chrome?.storage?.local) {
+    await window.chrome.storage.local.set({
+      [TABVAULT_LIBRARY_REFRESH_INTERVAL_KEY]: value,
+    });
+  } else {
+    window.localStorage.setItem(
+      TABVAULT_LIBRARY_REFRESH_INTERVAL_KEY,
+      String(value)
+    );
+  }
+}
+
+export async function configureExtensionLibraryRefresh(
+  intervalSeconds: number
+) {
+  await window.chrome?.runtime?.sendMessage({
+    type: "TABVAULT_CONFIGURE_LIBRARY_REFRESH",
+    intervalSeconds,
+  });
+}
+
 function apiHeaders(
   apiKey = DEFAULT_TABVAULT_API_KEY,
   extra: Record<string, string> = {}
@@ -350,7 +393,51 @@ export async function mergeLibraryToServer(
   return response.json() as Promise<{
     success: boolean;
     document?: Record<string, unknown>;
+    warnings?: Array<{ code?: string; message?: string }>;
   }>;
+}
+
+export async function refreshLibraryFromServer(
+  url: string,
+  apiKey: string,
+  localVault: PersistedVault
+) {
+  const result = await mergeLibraryToServer(
+    url,
+    toServerDocument(localVault),
+    apiKey
+  );
+  if (!result.success || !result.document)
+    throw new Error("TabVault API could not merge the shared library");
+  return {
+    vault: fromServerDocument(result.document, localVault),
+    warnings: result.warnings ?? [],
+  };
+}
+
+export async function clearLibraryOnServer(
+  url: string,
+  apiKey = DEFAULT_TABVAULT_API_KEY
+) {
+  const response = await fetch(`${url.replace(/\/+$/, "")}/v1/library`, {
+    method: "DELETE",
+    headers: apiHeaders(apiKey),
+  });
+  if (!response.ok)
+    throw new Error("TabVault API could not clear the shared library");
+  return response.json() as Promise<{
+    success: boolean;
+    cleared: boolean;
+    backup?: string | null;
+  }>;
+}
+
+export async function clearBrowserLibrary() {
+  await writeExtensionVault(emptyBrowserVault());
+  await writeSyncStatus({
+    state: "local_only",
+    localSavedAt: Date.now(),
+  });
 }
 
 export async function saveTabToLocalServer(

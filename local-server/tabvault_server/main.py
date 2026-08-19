@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import re
 import shutil
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -32,6 +35,18 @@ ALLOWED_ORIGINS = [
     for origin in os.environ.get("TABVAULT_CORS_ORIGINS", "*").split(",")
     if origin.strip()
 ] or ["*"]
+CORS_ALLOWS_ALL = "*" in ALLOWED_ORIGINS
+logger = logging.getLogger("tabvault_server")
+CORS_WILDCARD_WARNING = (
+    "CORS is open to all origins (*). This is the development default. "
+    "Set TABVAULT_CORS_ORIGINS to a comma-separated allowlist before exposing this server."
+)
+
+
+def warn_open_cors() -> None:
+    if CORS_ALLOWS_ALL:
+        logger.warning(CORS_WILDCARD_WARNING)
+        print(f"WARNING: {CORS_WILDCARD_WARNING}", flush=True)
 
 
 def now_iso() -> str:
@@ -580,6 +595,39 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[dict[str,
     return (None, errors) if errors else (document, [])
 
 
+def _merge_entity(
+    existing: dict[str, Any], incoming: dict[str, Any], *, union_keys: tuple[str, ...] = ()
+) -> dict[str, Any]:
+    merged = {**existing, **incoming}
+    for key in union_keys:
+        left = existing.get(key) or []
+        right = incoming.get(key) or []
+        if isinstance(left, list) and isinstance(right, list):
+            merged[key] = list(dict.fromkeys([*left, *right]))
+    return merged
+
+
+def _merge_duplicate_url_tab(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(existing)
+    incoming_tags = incoming.get("tags") or []
+    existing_tags = existing.get("tags") or []
+    if isinstance(existing_tags, list) and isinstance(incoming_tags, list):
+        merged["tags"] = list(dict.fromkeys([*existing_tags, *incoming_tags]))
+    for key, value in incoming.items():
+        if key in {"id", "url", "createdAt", "tags"}:
+            continue
+        if merged.get(key) in (None, "", []):
+            merged[key] = value
+    if existing.get("archived") and not incoming.get("archived"):
+        merged["archived"] = False
+        merged["archivedAt"] = None
+        if incoming.get("groupId") is not None:
+            merged["groupId"] = incoming.get("groupId")
+        if incoming.get("position") is not None:
+            merged["position"] = incoming.get("position")
+    return merged
+
+
 def merge_documents(
     current: dict[str, Any], incoming: dict[str, Any]
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
@@ -592,7 +640,9 @@ def merge_documents(
         identifier = "name" if key == "tags" else "id"
         for item in incoming[key]:
             if item[identifier] in existing:
-                merged[key][existing[item[identifier]]] = item
+                merged[key][existing[item[identifier]]] = _merge_entity(
+                    merged[key][existing[item[identifier]]], item
+                )
             else:
                 existing[item[identifier]] = len(merged[key])
                 merged[key].append(item)
@@ -602,31 +652,26 @@ def merge_documents(
     for tab in incoming["tabs"]:
         url = normalise_url(tab["url"])
         if tab["id"] in existing_tabs:
-            merged["tabs"][existing_tabs[tab["id"]]] = tab
+            index = existing_tabs[tab["id"]]
+            merged["tabs"][index] = _merge_entity(merged["tabs"][index], tab, union_keys=("tags",))
         elif url in urls:
             existing_tab = merged["tabs"][existing_tabs[urls[url]]]
-            if existing_tab.get("archived") and not tab.get("archived"):
-                existing_tab["archived"] = False
-                existing_tab["archivedAt"] = None
-                existing_tab["groupId"] = tab.get("groupId")
-                existing_tab["position"] = tab.get("position", existing_tab.get("position", 0))
-                warnings.append(
-                    warning(
-                        "W_ARCHIVED_URL_RESTORED",
-                        "tabs",
-                        f"Restored archived tab {urls[url]!r} for {tab['url']} without replacing its existing metadata.",
-                    )
-                )
-                continue
+            merged["tabs"][existing_tabs[urls[url]]] = _merge_duplicate_url_tab(existing_tab, tab)
+            restored = existing_tab.get("archived") and not tab.get("archived")
             warnings.append(
                 warning(
-                    "W_DUPLICATE_URL",
+                    "W_ARCHIVED_URL_RESTORED" if restored else "W_DUPLICATE_URL",
                     "tabs",
-                    f"Skipped {tab['url']} because it duplicates existing tab {urls[url]!r}.",
+                    (
+                        f"Restored archived tab {urls[url]!r} for {tab['url']} and merged incoming tags."
+                        if restored
+                        else f"Merged {tab['url']} into existing tab {urls[url]!r} instead of creating a duplicate."
+                    ),
                 )
             )
         else:
             merged["tabs"].append(tab)
+            existing_tabs[tab["id"]] = len(merged["tabs"]) - 1
             urls[url] = tab["id"]
     return merged, warnings
 
@@ -717,6 +762,14 @@ bearer_scheme = HTTPBearer(
     ),
     auto_error=False,
 )
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    warn_open_cors()
+    yield
+
+
 app = FastAPI(
     title="TabVault API Server",
     version="0.2.0",
@@ -726,12 +779,14 @@ app = FastAPI(
     ),
     dependencies=[Depends(bearer_scheme)],
     swagger_ui_parameters={"persistAuthorization": True},
+    lifespan=lifespan,
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=[] if CORS_ALLOWS_ALL else ALLOWED_ORIGINS,
+    allow_origin_regex=r".*" if CORS_ALLOWS_ALL else None,
     allow_methods=["*"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["*"],
     expose_headers=["WWW-Authenticate"],
 )
 
@@ -772,6 +827,18 @@ def health() -> dict[str, Any]:
 @app.get("/v1/library")
 def library() -> dict[str, Any]:
     return store.read()
+
+
+@app.delete("/v1/library")
+def clear_library() -> dict[str, Any]:
+    backup = store.backup()
+    stored = persist_document(empty_document())
+    return {
+        "success": True,
+        "cleared": True,
+        "backup": str(backup) if backup else None,
+        "document": stored,
+    }
 
 
 @app.get("/v1/schema")
@@ -1207,6 +1274,7 @@ def main() -> None:
 
     host = os.environ.get("TABVAULT_HOST", "127.0.0.1")
     port = int(os.environ.get("TABVAULT_PORT", "4817"))
+    warn_open_cors()
     uvicorn.run("tabvault_server.main:app", host=host, port=port, reload=False)
 
 

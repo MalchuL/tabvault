@@ -130,3 +130,135 @@ class FastApiContractTests(unittest.TestCase):
         self.assertFalse(payload["success"])
         self.assertGreaterEqual(len(payload["errors"]), 3)
         self.assertEqual(self.client.get("/v1/library", headers=self.headers).json()["tabs"], [])
+
+    def test_upload_merges_existing_tabs_groups_and_duplicate_urls(self) -> None:
+        seed = self.client.post(
+            "/v1/import",
+            headers=self.headers,
+            json={
+                "mode": "replace",
+                "format": "json",
+                "content": {
+                    "schemaVersion": 1,
+                    "tags": [{"name": "research", "description": "seed"}],
+                    "groups": [
+                        {
+                            "id": "research",
+                            "name": "Research",
+                            "parentId": None,
+                            "color": "#111111",
+                        }
+                    ],
+                    "tabs": [
+                        {
+                            "id": "tab-keep",
+                            "url": "https://example.com/topic",
+                            "title": "Original title",
+                            "note": "Keep this note",
+                            "tags": ["research"],
+                            "groupId": "research",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertTrue(seed.json()["success"])
+
+        merged = self.client.post(
+            "/v1/import",
+            headers=self.headers,
+            json={
+                "mode": "upload",
+                "format": "json",
+                "content": {
+                    "schemaVersion": 1,
+                    "tags": [{"name": "inbox", "description": "new tag"}],
+                    "groups": [
+                        {
+                            "id": "research",
+                            "name": "Research desk",
+                            "parentId": None,
+                            "color": "#222222",
+                        },
+                        {
+                            "id": "build",
+                            "name": "Build",
+                            "parentId": None,
+                            "color": "#333333",
+                        },
+                    ],
+                    "tabs": [
+                        {
+                            "id": "tab-new",
+                            "url": "https://example.com/other",
+                            "title": "Another tab",
+                            "tags": ["inbox"],
+                            "groupId": "build",
+                        },
+                        {
+                            "id": "tab-duplicate",
+                            "url": "https://example.com/topic",
+                            "title": "Should not replace title",
+                            "note": "",
+                            "tags": ["inbox"],
+                            "groupId": "build",
+                        },
+                    ],
+                },
+            },
+        )
+        payload = merged.json()
+        self.assertTrue(payload["success"])
+        library = payload["document"]
+        groups = {group["id"]: group for group in library["groups"]}
+        self.assertEqual(groups["research"]["name"], "Research desk")
+        self.assertIn("build", groups)
+        tabs = {tab["id"]: tab for tab in library["tabs"]}
+        self.assertIn("tab-keep", tabs)
+        self.assertIn("tab-new", tabs)
+        self.assertNotIn("tab-duplicate", tabs)
+        self.assertEqual(tabs["tab-keep"]["title"], "Original title")
+        self.assertEqual(tabs["tab-keep"]["note"], "Keep this note")
+        self.assertEqual(set(tabs["tab-keep"]["tags"]), {"research", "inbox"})
+        self.assertTrue(
+            any(warning["code"] == "W_DUPLICATE_URL" for warning in payload["warnings"])
+        )
+
+    def test_clear_library_empties_store_and_cors_allows_any_origin(self) -> None:
+        self.client.post(
+            "/v1/tabs",
+            headers=self.headers,
+            json={
+                "url": "https://example.com/clear-me",
+                "title": "Temporary",
+                "tags": [],
+            },
+        )
+        cleared = self.client.delete("/v1/library", headers=self.headers)
+        self.assertEqual(cleared.status_code, 200)
+        self.assertTrue(cleared.json()["cleared"])
+        library = self.client.get("/v1/library", headers=self.headers).json()
+        self.assertEqual(library["tabs"], [])
+        self.assertEqual(library["groups"], [])
+
+        preflight = self.client.options(
+            "/health",
+            headers={
+                "Origin": "chrome-extension://tabvault-test",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+        self.assertEqual(preflight.status_code, 200)
+        self.assertEqual(
+            preflight.headers.get("access-control-allow-origin"),
+            "chrome-extension://tabvault-test",
+        )
+        health = self.client.get(
+            "/health",
+            headers={**self.headers, "Origin": "https://app.example.com"},
+        )
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(
+            health.headers.get("access-control-allow-origin"), "https://app.example.com"
+        )
