@@ -10,6 +10,7 @@ import {
   DndContext,
   DragEndEvent,
   DragOverlay,
+  DragOverEvent,
   DragStartEvent,
   KeyboardSensor,
   PointerSensor,
@@ -261,6 +262,25 @@ function BrandMark({ className = "h-8 w-8" }: { className?: string }) {
   );
 }
 
+function TabDragPreview({ tab }: { tab: VaultTab }) {
+  return (
+    <div
+      data-testid="tab-drag-preview"
+      className="pointer-events-none flex max-w-80 items-center gap-2 rounded border border-[#eaa889] bg-[#fffdf8] px-3 py-2 shadow-lg"
+    >
+      <span
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white"
+        style={{ backgroundColor: tab.color }}
+      >
+        {tab.icon}
+      </span>
+      <span className="truncate text-[12px] font-bold text-[#26342c]">
+        {tab.title}
+      </span>
+    </div>
+  );
+}
+
 function CollectionDropShelf({ groups }: { groups: VaultGroup[] }) {
   return (
     <div
@@ -280,7 +300,7 @@ function CollectionDropShelf({ groups }: { groups: VaultGroup[] }) {
 function CollectionDropChip({ group }: { group: VaultGroup }) {
   const { isOver, setNodeRef } = useDroppable({
     id: `collection-drop:${group.id}`,
-    data: { type: "collection-drop", groupId: group.id },
+    data: { groupId: group.id },
   });
 
   return (
@@ -288,45 +308,15 @@ function CollectionDropChip({ group }: { group: VaultGroup }) {
       ref={setNodeRef}
       data-testid={`collection-drop-${group.id}`}
       data-drop-active={isOver ? "true" : "false"}
-      className={`flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.06em] transition ${isOver ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26] shadow-[0_0_0_2px_rgba(233,82,36,0.12)]" : "border-[#d9d3c6] bg-[#fffdf8] text-[#7a7e76]"}`}
+      className={`flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.06em] transition ${isOver ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#d9d3c6] bg-[#fffdf8] text-[#7a7e76]"}`}
       aria-label={`Drop a tab into ${group.name}`}
     >
       <span
         className="h-1.5 w-1.5 rounded-full"
         style={{ backgroundColor: group.accent }}
       />
-      {isOver ? `Move to ${group.name}` : group.name}
+      {group.name}
     </div>
-  );
-}
-
-function TabDragOverlay({ tab }: { tab: VaultTab }) {
-  return (
-    <article
-      data-testid="tab-drag-overlay"
-      className="flex w-[min(900px,calc(100vw-3rem))] gap-3 border border-[#d4b092] bg-[#fffdf8] px-3 py-4 shadow-[0_16px_36px_rgba(24,38,31,0.18)]"
-    >
-      <span
-        className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-[#c3c3bb]"
-        aria-hidden="true"
-      >
-        <Rows3 className="h-4 w-4" />
-      </span>
-      <span
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px] text-[9px] font-bold text-white"
-        style={{ backgroundColor: tab.color }}
-      >
-        {tab.icon}
-      </span>
-      <div className="min-w-0">
-        <p className="truncate text-[13px] font-bold tracking-[-0.015em] text-[#26342c]">
-          {tab.title}
-        </p>
-        <p className="mt-1 truncate text-[10px] font-medium text-[#84877f]">
-          {tab.domain}
-        </p>
-      </div>
-    </article>
   );
 }
 
@@ -501,19 +491,24 @@ export default function Home() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
   const collisionDetectionStrategy: CollisionDetection = useCallback(args => {
-    const shelfCollisions = pointerWithin(args).filter(({ id }) =>
-      String(id).startsWith("collection-drop:")
+    const pointerCollisions = pointerWithin(args).filter(
+      ({ id }) => id !== args.active.id
     );
-    if (shelfCollisions.length) return shelfCollisions;
-    return closestCenter({
-      ...args,
-      droppableContainers: args.droppableContainers.filter(
-        container => container.data.current?.type !== "collection-drop"
-      ),
-    });
+    const explicitTarget = pointerCollisions.find(({ id }) =>
+      /^(collection-drop|group-drop):/.test(String(id))
+    );
+    if (explicitTarget) return [explicitTarget];
+    const itemCollisions = pointerCollisions.filter(
+      ({ id }) => !String(id).startsWith("group-container:")
+    );
+    if (itemCollisions.length) return itemCollisions;
+    return pointerCollisions.length ? pointerCollisions : closestCenter(args);
   }, []);
   const [tabs, setTabs] = useState(startingTabs);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [dragPlaceholderHeight, setDragPlaceholderHeight] = useState<
+    number | undefined
+  >();
   const [tabOrders, setTabOrders] = useState<Record<GroupId, string[]>>(() =>
     startingTabs.reduce<Record<GroupId, string[]>>(
       (orders, tab) => ({
@@ -586,6 +581,10 @@ export default function Home() {
   const [isRefreshingLibrary, setIsRefreshingLibrary] = useState(false);
   const libraryRefreshInFlight = useRef(false);
   const vaultRef = useRef<PersistedVault | null>(null);
+  const dragSnapshotRef = useRef<{
+    tabs: VaultTab[];
+    tabOrders: Record<GroupId, string[]>;
+  } | null>(null);
   const refreshLibraryRef = useRef<
     (options?: { silent?: boolean }) => Promise<void>
   >(async () => undefined);
@@ -655,6 +654,10 @@ export default function Home() {
             descendantCollectionIds(searchGroupFilter).has(tab.groupId)
         )
   );
+  const visibleGroupIds =
+    searchGroupFilter === "all"
+      ? new Set(vaultGroups.map(group => group.id))
+      : descendantCollectionIds(searchGroupFilter);
   const semanticScores = useMemo(
     () =>
       new Map(
@@ -683,7 +686,7 @@ export default function Home() {
           tags: tab.tags ?? [],
           color: "#6b8c7e",
           icon: tab.title.slice(0, 1).toUpperCase() || "T",
-          updated: tab.updatedAt ? "synced" : "local",
+          updated: tab.updatedAt ?? new Date().toISOString(),
         };
       });
     }
@@ -912,12 +915,7 @@ export default function Home() {
         .then(response => {
           if (!cancelled) {
             setRemoteSearch(response);
-            setRemoteSearchError(
-              response.mode === "text_fallback"
-                ? (response.semanticIndex?.lastError ??
-                    "Embedding provider unavailable")
-                : null
-            );
+            setRemoteSearchError(null);
           }
         })
         .catch(() => {
@@ -1220,7 +1218,9 @@ export default function Home() {
     const selectedIds = new Set(selectedTabs.map(tab => tab.id));
     setTabs(current =>
       current.map(tab =>
-        selectedIds.has(tab.id) ? { ...tab, groupId, updated: "now" } : tab
+        selectedIds.has(tab.id)
+          ? { ...tab, groupId, updated: new Date().toISOString() }
+          : tab
       )
     );
     setTabOrders(current => {
@@ -1267,7 +1267,7 @@ export default function Home() {
           ? {
               ...tab,
               tags: Array.from(new Set([...tab.tags, tag])),
-              updated: "now",
+              updated: new Date().toISOString(),
             }
           : tab
       )
@@ -1303,7 +1303,12 @@ export default function Home() {
     setTabs(current =>
       current.map(tab =>
         removedIds.has(tab.id)
-          ? { ...tab, archived: true, archivedAt, updated: "now" }
+          ? {
+              ...tab,
+              archived: true,
+              archivedAt,
+              updated: new Date().toISOString(),
+            }
           : tab
       )
     );
@@ -1357,7 +1362,12 @@ export default function Home() {
     setTabs(current =>
       current.map(item =>
         item.id === tab.id
-          ? { ...item, archived: true, archivedAt, updated: "now" }
+          ? {
+              ...item,
+              archived: true,
+              archivedAt,
+              updated: new Date().toISOString(),
+            }
           : item
       )
     );
@@ -1425,7 +1435,9 @@ export default function Home() {
       vaultGroups.find(group => group.id === groupId)?.name ?? "collection";
     setTabs(current =>
       current.map(tab =>
-        tab.id === tabId ? { ...tab, groupId, updated: "now" } : tab
+        tab.id === tabId
+          ? { ...tab, groupId, updated: new Date().toISOString() }
+          : tab
       )
     );
     setTabOrders(current => {
@@ -1458,7 +1470,9 @@ export default function Home() {
       vaultGroups.find(group => group.id === groupId)?.name ?? "collection";
     setTabs(current =>
       current.map(tab =>
-        tab.id === tabId ? { ...tab, groupId, updated: "now" } : tab
+        tab.id === tabId
+          ? { ...tab, groupId, updated: new Date().toISOString() }
+          : tab
       )
     );
     setTabOrders(current => {
@@ -1519,7 +1533,7 @@ export default function Home() {
           groupId: "inbox",
           archived: false,
           archivedAt: null,
-          updated: "now",
+          updated: new Date().toISOString(),
         };
         setTabs(current =>
           current.map(tab => (tab.id === restoredTab.id ? restoredTab : tab))
@@ -1566,7 +1580,7 @@ export default function Home() {
       tags: ["quick save"],
       color: "#F05A28",
       icon: "●",
-      updated: "now",
+      updated: new Date().toISOString(),
       archived: false,
       archivedAt: null,
     };
@@ -1595,7 +1609,7 @@ export default function Home() {
           serverApiKey
         );
         toast.success(
-          result.deduplicated
+          result.data.created[0]?.wasDuplicate
             ? "Merged with an existing tab"
             : "Saved to Inbox",
           {
@@ -1734,7 +1748,7 @@ export default function Home() {
     setTabs(current =>
       current.map(tab =>
         deletedIds.has(tab.groupId)
-          ? { ...tab, groupId: "inbox", updated: "now" }
+          ? { ...tab, groupId: "inbox", updated: new Date().toISOString() }
           : tab
       )
     );
@@ -1790,7 +1804,7 @@ export default function Home() {
       note: editingTab.note.trim(),
       domain: normaliseUrl(url),
       tags: editingTab.tags.map(tag => tag.trim()).filter(Boolean),
-      updated: "now",
+      updated: new Date().toISOString(),
     };
     setTabs(current =>
       current.map(tab => (tab.id === updatedTab.id ? updatedTab : tab))
@@ -1868,18 +1882,90 @@ export default function Home() {
   };
 
   const handleLibraryDragStart = ({ active }: DragStartEvent) => {
+    dragSnapshotRef.current = { tabs, tabOrders };
     setActiveDragId(String(active.id));
+    setDragPlaceholderHeight(
+      document
+        .getElementById(`search-result-${String(active.id)}`)
+        ?.getBoundingClientRect().height ?? 48
+    );
+  };
+
+  const moveTabDuringDrag = (
+    tabId: string,
+    groupId: GroupId,
+    insertionIndex: number
+  ) => {
+    setTabs(current =>
+      current.map(tab => (tab.id === tabId ? { ...tab, groupId } : tab))
+    );
+    setTabOrders(current => {
+      const next = Object.fromEntries(
+        Object.entries(current).map(([id, orderedIds]) => [
+          id,
+          orderedIds.filter(id => id !== tabId),
+        ])
+      ) as Record<GroupId, string[]>;
+      const destination = [...(next[groupId] ?? [])];
+      destination.splice(
+        Math.max(0, Math.min(insertionIndex, destination.length)),
+        0,
+        tabId
+      );
+      return { ...next, [groupId]: destination };
+    });
+  };
+
+  const handleLibraryDragOver = ({ active, over }: DragOverEvent) => {
+    if (!over || active.id === over.id) return;
+    const source = tabs.find(tab => tab.id === active.id);
+    const target = tabs.find(tab => tab.id === over.id);
+    const groupId = over.data.current?.groupId ?? target?.groupId;
+    if (!source || typeof groupId !== "string" || source.groupId === groupId)
+      return;
+
+    const targetIndex = target
+      ? (tabOrders[groupId] ?? []).indexOf(target.id)
+      : (tabOrders[groupId] ?? []).length;
+    const activeRect = active.rect.current.translated;
+    const placeAfter =
+      target && activeRect
+        ? activeRect.top + activeRect.height / 2 >
+          over.rect.top + over.rect.height / 2
+        : false;
+    moveTabDuringDrag(source.id, groupId, targetIndex + (placeAfter ? 1 : 0));
   };
 
   const handleLibraryDragCancel = () => {
+    const snapshot = dragSnapshotRef.current;
+    if (snapshot) {
+      setTabs(snapshot.tabs);
+      setTabOrders(snapshot.tabOrders);
+    }
+    dragSnapshotRef.current = null;
     setActiveDragId(null);
+    setDragPlaceholderHeight(undefined);
   };
 
   const handleLibraryDragEnd = ({ active, over }: DragEndEvent) => {
+    const snapshot = dragSnapshotRef.current;
+    dragSnapshotRef.current = null;
     setActiveDragId(null);
-    if (!over || active.id === over.id) return;
+    setDragPlaceholderHeight(undefined);
+    if (!over) {
+      if (snapshot) {
+        setTabs(snapshot.tabs);
+        setTabOrders(snapshot.tabOrders);
+      }
+      return;
+    }
+    if (active.id === over.id) return;
     const source = tabs.find(tab => tab.id === active.id);
     if (!source) return;
+    const originalGroupId = snapshot?.tabs.find(
+      tab => tab.id === active.id
+    )?.groupId;
+    if (originalGroupId && originalGroupId !== source.groupId) return;
     const groupId = over.data.current?.groupId;
     if (typeof groupId === "string") {
       if (source.groupId !== groupId) moveTab(source.id, groupId);
@@ -1996,12 +2082,16 @@ export default function Home() {
       : syncStatus?.state === "pending"
         ? "Stored locally · sync pending"
         : "Stored locally";
+  const activeDragTab = activeDragId
+    ? tabs.find(tab => tab.id === activeDragId)
+    : undefined;
 
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={collisionDetectionStrategy}
       onDragStart={handleLibraryDragStart}
+      onDragOver={handleLibraryDragOver}
       onDragEnd={handleLibraryDragEnd}
       onDragCancel={handleLibraryDragCancel}
     >
@@ -2168,7 +2258,7 @@ export default function Home() {
                 </label>
                 <label className="block">
                   <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
-                    Bearer key
+                    API key
                   </span>
                   <input
                     value={pendingApiKey}
@@ -2841,11 +2931,11 @@ export default function Home() {
                     }}
                     onCreate={() => setShowGroupDialog(true)}
                   />
-                ) : visibleTabs.length ? (
+                ) : visibleTabs.length || (!isArchivePage && !query) ? (
                   <>
-                    {!isArchivePage ? (
+                    {!isArchivePage && (
                       <CollectionDropShelf groups={vaultGroups} />
-                    ) : null}
+                    )}
                     <TabList
                       tabs={visibleTabs}
                       viewMode={tabView === "groups" ? "standard" : tabView}
@@ -2892,6 +2982,13 @@ export default function Home() {
                         }
                       }}
                       groups={vaultGroups}
+                      visibleGroupIds={visibleGroupIds}
+                      previewBackend={
+                        storageMode === "backend" && serverOnline
+                          ? { url: localServerUrl, apiKey: serverApiKey }
+                          : undefined
+                      }
+                      dragPlaceholderHeight={dragPlaceholderHeight}
                     />
                   </>
                 ) : (
@@ -3374,12 +3471,7 @@ export default function Home() {
         )}
       </div>
       <DragOverlay dropAnimation={null}>
-        {activeDragId
-          ? (() => {
-              const activeTab = tabs.find(tab => tab.id === activeDragId);
-              return activeTab ? <TabDragOverlay tab={activeTab} /> : null;
-            })()
-          : null}
+        {activeDragTab ? <TabDragPreview tab={activeDragTab} /> : null}
       </DragOverlay>
     </DndContext>
   );

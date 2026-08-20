@@ -1,0 +1,8 @@
+[run]
+branch = true
+concurrency = thread,greenlet
+source = src
+
+[report]
+show_missing = true
+skip_covered = true

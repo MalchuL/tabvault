@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix format format-check typecheck test check run
+.PHONY: lint lint-fix format format-check typecheck test migrate check run mcp docker-build
 
 lint:
 	uv run ruff check .
@@ -13,12 +13,21 @@ format-check:
 	uv run ruff format . --check
 
 typecheck:
-	uv run mypy tabvault_server
+	uv run mypy src
 
 test:
-	uv run python -m unittest discover -s tests
+	uv run pytest
+
+migrate:
+	uv run alembic upgrade head
 
 check: format-check lint typecheck test
 
 run:
 	uv run tabvault-server
+
+mcp:
+	uv run tabvault-mcp
+
+docker-build:
+	docker build -t tabvault-local-server .

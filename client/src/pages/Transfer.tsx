@@ -94,7 +94,7 @@ function serverDocumentToVault(
           String(tab.title ?? "T")
             .slice(0, 1)
             .toUpperCase() || "T",
-        updated: "imported",
+        updated: new Date().toISOString(),
       }))
     : [];
   const tagCatalog = Array.isArray(document.tags)
@@ -208,25 +208,21 @@ export default function Transfer() {
     setIsWorking(true);
     try {
       const response = await fetch(
-        `${serverUrl.replace(/\/+$/, "")}/v1/export?format=${format}`,
-        { headers: { Authorization: `Bearer ${apiKey}` } }
+        `${serverUrl.replace(/\/+$/, "")}/api/v1/export?format=${format}`,
+        { headers: { "X-API-Key": apiKey } }
       );
       if (!response.ok)
         throw new Error(`Server export returned ${response.status}`);
-      const payload = (await response.json()) as {
-        format: "json" | "markdown";
-        content: unknown;
-      };
       const content =
-        payload.format === "markdown"
-          ? String(payload.content)
-          : JSON.stringify(payload.content, null, 2);
+        format === "markdown"
+          ? await response.text()
+          : JSON.stringify(await response.json(), null, 2);
       downloadFile(
-        `tabvault-server-${timestamp()}.${payload.format === "markdown" ? "md" : "json"}`,
+        `tabvault-server-${timestamp()}.${format === "markdown" ? "md" : "json"}`,
         content,
-        payload.format === "markdown" ? "text/markdown" : "application/json"
+        format === "markdown" ? "text/markdown" : "application/json"
       );
-      toast.success(`Server ${payload.format} exported`);
+      toast.success(`Server ${format} exported`);
     } catch (error) {
       toast.error("Could not export server data", {
         description: error instanceof Error ? error.message : undefined,
@@ -270,12 +266,12 @@ export default function Transfer() {
       }
 
       const response = await fetch(
-        `${serverUrl.replace(/\/+$/, "")}/v1/import`,
+        `${serverUrl.replace(/\/+$/, "")}/api/v1/import`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
+            "X-API-Key": apiKey,
           },
           body: JSON.stringify({
             format: markdown ? "markdown" : "json",

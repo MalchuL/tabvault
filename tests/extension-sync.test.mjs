@@ -69,10 +69,10 @@ test("extension fast-save syncs with FastAPI's default local URL and persists sy
 
   assert.equal(response.serverSynced, true);
   assert.equal(fetches.length, 1);
-  assert.equal(fetches[0].url, "http://127.0.0.1:4817/v1/tabs");
-  assert.equal(fetches[0].options.headers.Authorization, "Bearer admin");
+  assert.equal(fetches[0].url, "http://127.0.0.1:47821/api/v1/tabs");
+  assert.equal(fetches[0].options.headers["X-API-Key"], "admin");
   assert.equal(
-    JSON.parse(fetches[0].options.body).url,
+    JSON.parse(fetches[0].options.body).tabs[0].url,
     "https://example.com/project?a=1&b=2"
   );
   assert.equal(storage["tabvault-sync-status"].state, "synced");

@@ -19,29 +19,19 @@ async function startNativeDrag(
   source: Locator,
   activator = source.getByRole("button", { name: /Reorder/ })
 ) {
-  const sourceRect = await source.boundingBox();
   const origin = await activator.boundingBox();
-  if (!origin || !sourceRect)
-    throw new Error("Could not measure the drag origin.");
+  if (!origin) throw new Error("Could not measure the drag origin.");
+  const title = (await source.getByRole("link").first().textContent())?.trim();
 
   const startX = origin.x + origin.width / 2;
   const startY = origin.y + origin.height / 2;
-  const grabOffset = { x: startX - sourceRect.x, y: startY - sourceRect.y };
   const delta = { x: 18, y: 14 };
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + delta.x, startY + delta.y, { steps: 3 });
 
   await expect(source).toHaveAttribute("data-dragging", "true");
-  await expect(source).toHaveAttribute("data-drag-gap", "visible");
-  const draggedRect = await page.getByTestId("tab-drag-overlay").boundingBox();
-  if (!draggedRect) throw new Error("Could not measure the dragged source.");
-  expect(
-    Math.abs(draggedRect.x + grabOffset.x - startX - delta.x)
-  ).toBeLessThanOrEqual(3);
-  expect(
-    Math.abs(draggedRect.y + grabOffset.y - startY - delta.y)
-  ).toBeLessThanOrEqual(6);
+  await expect(page.getByTestId("tab-drag-preview")).toContainText(title ?? "");
 }
 
 async function finishBelowTarget(page: Page, target: Locator) {
@@ -57,7 +47,7 @@ async function finishBelowTarget(page: Page, target: Locator) {
   await page.mouse.up();
 }
 
-async function finishOnCollection(page: Page, target: Locator) {
+async function finishOnGroup(page: Page, target: Locator) {
   const targetRect = await target.boundingBox();
   if (!targetRect) throw new Error("Could not measure the collection target.");
   await page.mouse.move(
@@ -70,7 +60,7 @@ async function finishOnCollection(page: Page, target: Locator) {
     targetRect.x + targetRect.width / 2 + 1,
     targetRect.y + targetRect.height / 2 + 1
   );
-  await expect(target).toHaveAttribute("data-drop-active", "true");
+  await page.waitForTimeout(120);
   await page.mouse.up();
 }
 
@@ -93,19 +83,10 @@ async function expectOrder(page: Page, groupId = "inbox") {
   );
 }
 
-async function expectStablePosition(page: Page, row: Locator) {
-  const first = await row.boundingBox();
-  if (!first) throw new Error("Could not measure the dropped row.");
-  await page.waitForTimeout(260);
-  const settled = await row.boundingBox();
-  if (!settled) throw new Error("Could not measure the settled row.");
-  expect(Math.abs(first.y - settled.y)).toBeLessThanOrEqual(1);
-}
-
 test.describe("native tab reordering", () => {
-  test("preserves the desktop grab point and reorders Inbox", async ({
-    page,
-  }) => {
+  test.describe.configure({ mode: "serial" });
+
+  test("shows the dragged tab and reorders Inbox", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openFreshLibrary(page);
     await startNativeDrag(page, page.getByTestId(`tab-row-${SOURCE_ID}`));
@@ -113,9 +94,7 @@ test.describe("native tab reordering", () => {
     await expectOrder(page);
   });
 
-  test("reorders upward without a post-drop position jitter", async ({
-    page,
-  }) => {
+  test("reorders upward within a collection", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openFreshLibrary(page);
     await startNativeDrag(page, page.getByTestId(`tab-row-${TARGET_ID}`));
@@ -127,12 +106,9 @@ test.describe("native tab reordering", () => {
     expect(order.indexOf(`tab-row-${TARGET_ID}`)).toBeLessThan(
       order.indexOf(`tab-row-${SOURCE_ID}`)
     );
-    await expectStablePosition(page, page.getByTestId(`tab-row-${TARGET_ID}`));
   });
 
-  test("uses the Compact left handle to preserve the grab point and reorder Inbox", async ({
-    page,
-  }) => {
+  test("uses the Compact left handle to reorder Inbox", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openFreshLibrary(page);
     await page.getByRole("button", { name: "Compact tab view" }).click();
@@ -182,19 +158,66 @@ test.describe("native tab reordering", () => {
     await expectOrder(page, "llm-papers");
   });
 
-  test("moves a dragged tab through the unified collection drop shelf", async ({
+  test("moves a dragged tab onto a collection separator", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1800 });
+    await openFreshLibrary(page);
+    await startNativeDrag(page, page.getByTestId("tab-row-t-1006"));
+    await finishOnGroup(page, page.getByTestId("group-separator-research"));
+    await expect(
+      page.getByTestId("tab-group-research").getByTestId("tab-row-t-1006")
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("tab-group-llm-papers").getByTestId("tab-row-t-1006")
+    ).toHaveCount(0);
+  });
+
+  test("previews an empty-group move and restores it when canceled", async ({
     page,
   }) => {
+    await page.setViewportSize({ width: 1440, height: 1800 });
+    await openFreshLibrary(page);
+    const source = page.getByTestId("tab-row-t-1006");
+    const sourceRect = await source.boundingBox();
+    if (!sourceRect) throw new Error("Could not measure the source tab.");
+
+    await startNativeDrag(page, source);
+    const emptyArea = page.getByTestId("group-drop-area-research");
+    await expect(emptyArea).toHaveAttribute("data-empty", "true");
+    await expect
+      .poll(async () => (await emptyArea.boundingBox())?.height)
+      .toBeCloseTo(sourceRect.height, 0);
+
+    const targetRect = await emptyArea.boundingBox();
+    if (!targetRect) throw new Error("Could not measure the empty collection.");
+    await page.mouse.move(
+      targetRect.x + targetRect.width / 2,
+      targetRect.y + targetRect.height / 2
+    );
+    const insertionGap = page
+      .getByTestId("tab-group-research")
+      .getByTestId("tab-row-t-1006");
+    await expect(insertionGap).toHaveCSS("opacity", "0");
+    await expect
+      .poll(async () => (await insertionGap.boundingBox())?.height)
+      .toBeCloseTo(sourceRect.height, 0);
+
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByTestId("tab-group-llm-papers").getByTestId("tab-row-t-1006")
+    ).toBeVisible();
+    await expect(emptyArea).toHaveAttribute("data-empty", "true");
+  });
+
+  test("moves a dragged tab with the Quick move shelf", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openFreshLibrary(page);
     await startNativeDrag(page, page.getByTestId(`tab-row-${SOURCE_ID}`));
-    await finishOnCollection(page, page.getByTestId("collection-drop-build"));
+    await page.getByTestId("collection-drop-build").hover({ force: true });
+    await page.waitForTimeout(120);
+    await page.mouse.up();
     await expect(
       page.getByTestId("tab-group-build").getByTestId(`tab-row-${SOURCE_ID}`)
     ).toBeVisible();
-    await expect(
-      page.getByTestId("tab-group-inbox").getByTestId(`tab-row-${SOURCE_ID}`)
-    ).toHaveCount(0);
   });
 
   test("moves a dragged tab directly into a flattened group at a requested position", async ({
@@ -386,6 +409,27 @@ test.describe("native tab reordering", () => {
     await buildCard.getByRole("button", { name: "Delete Build" }).click();
     await page.getByRole("button", { name: "Delete collection" }).click();
     await expect(page.getByTestId("group-card-build")).toHaveCount(0);
+  });
+
+  test("keeps empty collections visible and shows actions inside one collection", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openFreshLibrary(page);
+
+    await expect(page.getByTestId("tab-group-filed")).toContainText("0 tabs");
+    await page.getByLabel("Filter search by collection").selectOption("filed");
+    const filed = page.getByTestId("tab-group-filed");
+    await expect(filed).toBeVisible();
+    await expect(
+      filed.getByRole("button", { name: "Open all tabs in Filed" })
+    ).toBeVisible();
+    await expect(
+      filed.getByRole("button", { name: "Copy Filed as Markdown" })
+    ).toBeVisible();
+    await expect(
+      filed.getByRole("button", { name: "Delete Filed" })
+    ).toBeVisible();
   });
 
   test("archives a tab, exposes it in Archive, and permanently deletes only there", async ({

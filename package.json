@@ -13,7 +13,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test:extension": "node --test tests/extension-sync.test.mjs tests/library-sync.test.mjs",
+    "test:extension": "node --test tests/extension-sync.test.mjs tests/library-sync.test.mjs tests/popup-selection.test.mjs",
     "test:e2e": "playwright test",
     "validate": "pnpm format:check && pnpm lint && pnpm check && pnpm build"
   },

@@ -1,52 +1,47 @@
-# TabVault API Server
+# TabVault local server
 
-This package is the deployable HTTP source of truth for TabVault. It binds to `127.0.0.1` by default, stores its JSON data under `~/.local/share/tabvault/`, and creates a timestamped backup before a destructive `replace` import. It can be hosted locally, on a private network, or behind a public HTTPS domain when explicitly configured.
+TabVault v0.2 is an async FastAPI service backed only by SQLite. The default database is
+`~/.local/share/tabvault/tabvault.sqlite3`; cached previews, icons, images, backups, model weights,
+and the embedded Zvec collection live below the same data directory. Legacy `tabvault.json` files
+are neither read nor modified.
 
-## Run the authenticated API
-
-Use uv to create the managed virtual environment, install the runtime plus quality tools, then start the server.
+## Run locally
 
 ```bash
-cd local-server
 uv sync --group dev
-TABVAULT_PORT=4817 TABVAULT_API_KEY=admin uv run tabvault-server
+TABVAULT_API_KEY=change-me uv run tabvault-server
 ```
 
-Every endpoint requires `Authorization: Bearer <TABVAULT_API_KEY>`. The development key defaults to `admin`; change it before public deployment. Set `TABVAULT_CORS_ORIGINS` to a comma-separated list of deployed web-app or extension origins, `TABVAULT_DATA_DIR` for a different storage directory, and `TABVAULT_HOST` or `TABVAULT_PORT` for network binding. The CORS default of `*` is intended only for development. To accept private-network clients, set `TABVAULT_HOST=0.0.0.0` and a restrictive CORS origin list; do not expose this unaudited local API directly to the public internet.
+The server listens on `127.0.0.1:47821` and upgrades SQLite with Alembic at startup. All public
+routes use `/api/v1`. If `TABVAULT_API_KEY` is configured, send it as `X-API-Key`; binding to a
+non-loopback host is rejected unless a key is configured. Wildcard CORS remains the local default
+and emits a startup warning.
 
-## Quality commands
-
-The API package uses uv to run every Python development tool from its managed environment. Run `make check` for formatter validation, Ruff linting, and strict mypy type checks. Use `make format` to apply the Ruff formatter, `make lint-fix` for safe Ruff fixes, and `make run` to launch the server through uv.
-
-## Main endpoints
-
-| Endpoint                 | Purpose                                                                                     |
-| ------------------------ | ------------------------------------------------------------------------------------------- |
-| `GET /health`            | Verify server availability and schema version.                                              |
-| `GET /v1/library`        | Read the complete local document.                                                           |
-| `GET /v1/schema`         | Read the machine-readable current JSON Schema.                                              |
-| `GET /v1/errors`         | Read the machine-readable import and validation error catalog.                              |
-| `POST /v1/tabs`          | Save an HTTP/HTTPS tab with URL deduplication.                                              |
-| `GET /v1/export`         | Export a complete or filtered JSON/Markdown document.                                       |
-| `POST /v1/import`        | Run `upload` or backup-protected `replace` imports.                                         |
-| `GET /v1/search?q=`      | Run semantic vector search, with transparent text fallback when embeddings are unavailable. |
-| `GET /v1/index/status`   | Inspect embedding provider, model, vector count, and fallback reason.                       |
-| `POST /v1/index/rebuild` | Rebuild the derived local vector cache from the JSON source of truth.                       |
-
-The server returns all discovered import errors in a single response. Each issue includes a stable code, object path, expected value, received value, human explanation, and suggested fix.
-
-## Official Python MCP bridge
-
-`tabvault-mcp` is the canonical agent bridge. It is built with the official [Model Context Protocol Python SDK](https://github.com/modelcontextprotocol/python-sdk), communicates over stdio, and never keeps a second copy of your library. It forwards typed MCP tool calls to the same authenticated FastAPI URL used by TabVault.
-
-Start the FastAPI server first, then start the MCP bridge in a separate process:
+Useful settings are shown in [`.env.example`](.env.example). Install the production embedding
+model dependencies with `uv sync --extra semantic`; the `deepvk/USER-bge-m3` model is loaded and
+downloaded only on first semantic use. Keyword search works without it.
 
 ```bash
-cd local-server
-TABVAULT_SERVER_URL=http://127.0.0.1:4817 TABVAULT_API_KEY=admin uv run tabvault-mcp
+curl -H 'X-API-Key: change-me' http://127.0.0.1:47821/api/v1/health
+uv run alembic upgrade head
+uv run pytest
 ```
 
-The bridge exposes tab, collection, tag, search, import/export, schema, and error-catalog operations. It adds explicit `archive_tab` and permanently guarded `delete_tab` operations so agent writes follow TabVault's archive-first lifecycle. Configure an MCP host with the equivalent command and environment; the URL can point to a private-network FastAPI instance rather than localhost.
+`uv run pytest` enforces 90% branch coverage. `make check` also runs Ruff formatting/linting and
+mypy.
+
+## MCP
+
+The `tabvault-mcp` command uses the official Python `mcp` package and talks to FastAPI over REST;
+it never accesses SQLite directly.
+
+```bash
+TABVAULT_SERVER_URL=http://127.0.0.1:47821 \
+TABVAULT_API_KEY=change-me \
+uv run tabvault-mcp
+```
+
+Example MCP host configuration:
 
 ```json
 {
@@ -55,40 +50,32 @@ The bridge exposes tab, collection, tag, search, import/export, schema, and erro
       "command": "uv",
       "args": [
         "--directory",
-        "/absolute/path/to/tabvault/local-server",
+        "/absolute/path/to/local-server",
         "run",
         "tabvault-mcp"
       ],
       "env": {
-        "TABVAULT_SERVER_URL": "http://127.0.0.1:4817",
-        "TABVAULT_API_KEY": "replace-admin-before-sharing"
+        "TABVAULT_SERVER_URL": "http://127.0.0.1:47821",
+        "TABVAULT_API_KEY": "change-me"
       }
     }
   }
 }
 ```
 
-The legacy TypeScript bridge remains in `../mcp-server` for compatibility, but new agent integrations should use `tabvault-mcp`.
+The mandatory tools are tab list/search/get/save/batch/update/delete/move, group list/create/update/
+delete, tag list/tag/untag, export/import, and import validation. Every tool declares typed input
+and output schemas plus all four MCP safety annotations.
 
-## Chrome extension connection
-
-In TabVault Settings, enter the FastAPI URL and bearer key, then select **Backend preferred**. The MV3 service worker immediately writes quick saves to browser storage, posts them to `POST /v1/tabs`, and records **synced** or **pending** state. The normal side-panel library uses the same authenticated import/read API for complete document synchronization. If the FastAPI server is offline, tabs stay in browser storage and the UI reports pending sync rather than silently dropping data.
-
-## On-device semantic search
-
-TabVault maintains `tabvault.vectors.json` next to the authoritative JSON library. This is a derived cache only: the JSON library is still the source of truth, and TabVault can continue to search using its deterministic text fallback if the local model is offline.
-
-Start an [Ollama](https://ollama.com/) embedding model locally, then start TabVault with its address and model name. The default configuration expects `nomic-embed-text` at `http://127.0.0.1:11434`.
+## Container
 
 ```bash
-ollama pull nomic-embed-text
-TABVAULT_EMBEDDING_MODEL=nomic-embed-text tabvault-server
+docker build -t tabvault-local-server local-server
+docker run --rm -p 47821:47821 \
+  -e TABVAULT_API_KEY=change-me \
+  -v tabvault-data:/data \
+  tabvault-local-server
 ```
 
-Use `POST /v1/index/rebuild` after changing the model. Override `TABVAULT_EMBEDDING_BASE_URL`, `TABVAULT_EMBEDDING_MODEL`, or `TABVAULT_EMBEDDING_TIMEOUT` for compatible local deployments. Semantic responses report `mode: "semantic"`; fallback responses report `mode: "text_fallback"` and include the embedding error in `semanticIndex.lastError`.
-
-Large imports are embedded in bounded local batches. Set `TABVAULT_EMBEDDING_BATCH_SIZE` to tune the number of records sent to the local provider per request; the default is `16`. `GET /v1/index/status` exposes the active batch size together with `progress.total`, `progress.processed`, and `progress.batches`, while the JSON library remains immediately usable even when indexing is in progress.
-
-Pass `group=<group-id>` to `GET /v1/search` to constrain semantic or fallback search to one collection. Health checks are disabled by default. Use `PUT /v1/index/health-check` with `{"intervalSeconds": 900}` to enable a local, best-effort readiness check while the server process is running; set the interval to `0` to disable it. `GET /v1/index/status` includes the persisted schedule and the most recent check result, while `POST /v1/index/health-check/run` executes a manual check.
-
-Include `"notifyOnNeedsAttention": true` in the health-check configuration to persist the local alert preference. The API records `lastAlert` when an attention state is found; the unpacked Chrome extension can use that preference with its local alarm and notification permissions to show an on-device alert. `POST /v1/tabs/restore` accepts a local undo snapshot and restores or updates its tab records without making vectors the source of truth.
+The image installs the semantic extra and exposes `/data` as the database/assets/backups/vector
+volume; downloaded model weights are stored in `/data/models`.

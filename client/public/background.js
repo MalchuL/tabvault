@@ -19,7 +19,7 @@ const SERVER_URL_KEY = "tabvault-local-server-url";
 const API_KEY_STORAGE_KEY = "tabvault-api-key";
 const STORAGE_MODE_KEY = "tabvault-storage-mode";
 const SYNC_STATUS_KEY = "tabvault-sync-status";
-const DEFAULT_SERVER_URL = "http://127.0.0.1:4817";
+const DEFAULT_SERVER_URL = "http://127.0.0.1:47821";
 
 function domainFor(url) {
   try {
@@ -41,7 +41,7 @@ function buildSavedTab(tab) {
     tags: ["quick save"],
     color: "#F05A28",
     icon: "●",
-    updated: "now",
+    updated: new Date().toISOString(),
   };
 }
 
@@ -55,18 +55,22 @@ async function syncQuickTabs(tabs) {
   const baseUrl = stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL;
   const apiKey = stored[API_KEY_STORAGE_KEY] || "admin";
   const requests = tabs.map(tab =>
-    fetch(`${baseUrl.replace(/\/+$/, "")}/v1/tabs`, {
+    fetch(`${baseUrl.replace(/\/+$/, "")}/api/v1/tabs`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
+        "X-API-Key": apiKey,
       },
       body: JSON.stringify({
-        url: tab.url,
-        title: tab.title,
-        note: tab.note,
-        tags: tab.tags,
-        groupId: null,
+        tabs: [
+          {
+            url: tab.url,
+            title: tab.title,
+            note: tab.note,
+            tags: tab.tags,
+            groupId: null,
+          },
+        ],
       }),
     })
   );
@@ -117,7 +121,7 @@ async function saveAndCloseTabs(sourceTabs) {
           ...vault.tabOrders[existing.groupId].filter(id => id !== existing.id),
         ];
       }
-      existing.updated = "now";
+      existing.updated = new Date().toISOString();
       savedTabs.push(existing);
       continue;
     }
@@ -254,11 +258,11 @@ async function refreshStoredLibrary() {
     ""
   );
   const apiKey = stored[API_KEY_STORAGE_KEY] || "admin";
-  const response = await fetch(`${baseUrl}/v1/import`, {
+  const response = await fetch(`${baseUrl}/api/v1/import`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+      "X-API-Key": apiKey,
     },
     body: JSON.stringify({
       mode: "upload",
@@ -269,10 +273,13 @@ async function refreshStoredLibrary() {
   if (!response.ok)
     throw new Error(`Library refresh returned ${response.status}`);
   const payload = await response.json();
-  if (!payload?.success || !payload.document) {
-    throw new Error("Library refresh did not return a merged document");
-  }
-  const mergedVault = serverDocumentToVault(payload.document, vault);
+  if (!payload?.success) throw new Error("Library refresh import failed");
+  const exportResponse = await fetch(`${baseUrl}/api/v1/export?format=json`, {
+    headers: { "X-API-Key": apiKey },
+  });
+  if (!exportResponse.ok)
+    throw new Error(`Library export returned ${exportResponse.status}`);
+  const mergedVault = serverDocumentToVault(await exportResponse.json(), vault);
   await chrome.storage.local.set({
     [VAULT_STORAGE_KEY]: mergedVault,
     [SYNC_STATUS_KEY]: {
@@ -366,13 +373,14 @@ chrome.alarms.onAlarm.addListener(async alarm => {
     return;
   try {
     const response = await fetch(
-      `${settings.serverUrl.replace(/\/+$/, "")}/v1/index/health-check/run`,
+      `${settings.serverUrl.replace(/\/+$/, "")}/api/v1/index/health-check/run`,
       {
         method: "POST",
-        headers: { Authorization: `Bearer ${settings.apiKey || "admin"}` },
+        headers: { "X-API-Key": settings.apiKey || "admin" },
       }
     );
-    const result = await response.json();
+    const payload = await response.json();
+    const result = payload.data || payload;
     if (result.lastResult === "needs_attention") {
       chrome.notifications.create("tabvault-index-attention", {
         type: "basic",

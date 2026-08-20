@@ -1,8 +1,8 @@
 /**
  * Signal Library design reminder: Compact mode is a pure favicon-and-title index.
- * Instant Preview is a Telegram-like stream of individual link cards; movement keeps
- * the physical index-rail gap while the drag overlay preserves the user’s grab point.
+ * Instant Preview is a Telegram-like stream of individual link cards.
  */
+import { useDroppable } from "@dnd-kit/core";
 import {
   SortableContext,
   useSortable,
@@ -23,7 +23,7 @@ import {
   Share2,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { parseReadableArticle, type ReadableArticle } from "@/lib/readability";
 
 export type TabViewMode = "standard" | "compact" | "preview";
@@ -63,6 +63,9 @@ type Props = {
   onShareGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
   groups: Array<{ id: string; name: string }>;
+  visibleGroupIds?: Set<string>;
+  previewBackend?: { url: string; apiKey: string };
+  dragPlaceholderHeight?: number;
 };
 
 export function TabList({
@@ -87,104 +90,69 @@ export function TabList({
   onShareGroup,
   onDeleteGroup,
   groups,
+  visibleGroupIds,
+  previewBackend,
+  dragPlaceholderHeight,
 }: Props) {
-  const tabGroups = useMemo(
-    () =>
-      Array.from(
-        tabs.reduce<Map<string, TabListItem[]>>((groupsById, tab) => {
-          const groupTabs = groupsById.get(tab.groupId) ?? [];
-          groupTabs.push(tab);
-          groupsById.set(tab.groupId, groupTabs);
-          return groupsById;
-        }, new Map())
+  const tabGroups = useMemo(() => {
+    const groupedTabs = tabs.reduce<Map<string, TabListItem[]>>(
+      (groupsById, tab) => {
+        const groupTabs = groupsById.get(tab.groupId) ?? [];
+        groupTabs.push(tab);
+        groupsById.set(tab.groupId, groupTabs);
+        return groupsById;
+      },
+      new Map()
+    );
+    if (!collapsibleGroups) return Array.from(groupedTabs);
+
+    const knownGroupIds = new Set(groups.map(group => group.id));
+    return [
+      ...groups
+        .filter(group => !visibleGroupIds || visibleGroupIds.has(group.id))
+        .map(group => [group.id, groupedTabs.get(group.id) ?? []] as const),
+      ...Array.from(groupedTabs).filter(
+        ([groupId]) => !knownGroupIds.has(groupId)
       ),
-    [tabs]
-  );
+    ];
+  }, [collapsibleGroups, groups, tabs, visibleGroupIds]);
 
   return (
     <div
       data-testid="tab-list"
-      className={`catalog-rule overflow-hidden border-t border-[#dcd7cc] ${viewMode === "compact" ? "pl-2 sm:pl-3" : "pl-3 sm:pl-4"}`}
+      className={`catalog-rule border-t border-[#dcd7cc] ${viewMode === "compact" ? "pl-2 sm:pl-3" : "pl-3 sm:pl-4"}`}
     >
-      <SortableContext
-        items={tabs.map(tab => tab.id)}
-        strategy={verticalListSortingStrategy}
-      >
-        {tabGroups.map(([groupId, groupTabs]) => {
-          const groupName =
-            groups.find(group => group.id === groupId)?.name ?? "Collection";
-          const showGroupLabel = tabGroups.length > 1;
-          const isCollapsed = collapsedGroupIds.has(groupId);
-          return (
-            <section key={groupId} data-testid={`tab-group-${groupId}`}>
-              {showGroupLabel && (
-                <div className="flex items-center justify-between gap-3 border-b border-[#dfdbd0] bg-[#f9f7f1] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.1em] text-[#777d75]">
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    {collapsibleGroups ? (
-                      <button
-                        onClick={() => onToggleGroup?.(groupId)}
-                        className="inline-flex min-w-0 items-center gap-1.5 truncate hover:text-[#e95224]"
-                        aria-expanded={!isCollapsed}
-                      >
-                        {isCollapsed ? (
-                          <ChevronRight className="h-3 w-3 shrink-0" />
-                        ) : (
-                          <ChevronDown className="h-3 w-3 shrink-0" />
-                        )}
-                        <span className="truncate">{groupName}</span>
-                      </button>
-                    ) : (
-                      <span>{groupName}</span>
-                    )}
-                    {collapsibleGroups && (
-                      <div
-                        className="flex shrink-0 items-center gap-0.5 border-l border-[#d9d3c6] pl-1.5"
-                        aria-label={`${groupName} collection actions`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => onOpenGroup?.(groupId)}
-                          className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                          aria-label={`Open all tabs in ${groupName}`}
-                          title="Open all tabs"
-                        >
-                          <FolderOpen className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onShareGroup?.(groupId)}
-                          className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                          aria-label={`Copy ${groupName} as Markdown`}
-                          title="Copy as Markdown"
-                        >
-                          <Share2 className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onDeleteGroup?.(groupId)}
-                          disabled={groupId === "inbox"}
-                          className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] disabled:cursor-not-allowed disabled:opacity-35"
-                          aria-label={
-                            groupId === "inbox"
-                              ? "Inbox cannot be deleted"
-                              : `Delete ${groupName}`
-                          }
-                          title={
-                            groupId === "inbox"
-                              ? "Inbox is protected"
-                              : "Delete collection"
-                          }
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <span className="shrink-0">{groupTabs.length} tabs</span>
-                </div>
-              )}
-              {!isCollapsed && (
-                <>
+      {tabGroups.map(([groupId, groupTabs]) => {
+        const groupName =
+          groups.find(group => group.id === groupId)?.name ?? "Collection";
+        const showGroupLabel = collapsibleGroups || tabGroups.length > 1;
+        const isCollapsed = collapsedGroupIds.has(groupId);
+        return (
+          <section key={groupId} data-testid={`tab-group-${groupId}`}>
+            {showGroupLabel && (
+              <GroupSeparator
+                groupId={groupId}
+                groupName={groupName}
+                tabCount={groupTabs.length}
+                collapsible={collapsibleGroups}
+                collapsed={isCollapsed}
+                onToggle={onToggleGroup}
+                onOpen={onOpenGroup}
+                onShare={onShareGroup}
+                onDelete={onDeleteGroup}
+              />
+            )}
+            {!isCollapsed && (
+              <GroupDropArea
+                groupId={groupId}
+                groupName={groupName}
+                empty={groupTabs.length === 0}
+                placeholderHeight={dragPlaceholderHeight}
+              >
+                <SortableContext
+                  items={groupTabs.map(tab => tab.id)}
+                  strategy={verticalListSortingStrategy}
+                >
                   {groupTabs.map(tab => {
                     const index = tabs.findIndex(item => item.id === tab.id);
                     return (
@@ -208,15 +176,148 @@ export function TabList({
                         onDelete={onDelete}
                         onOpenTagManager={onOpenTagManager}
                         groups={groups}
+                        previewBackend={previewBackend}
                       />
                     );
                   })}
-                </>
-              )}
-            </section>
-          );
-        })}
-      </SortableContext>
+                </SortableContext>
+              </GroupDropArea>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function GroupDropArea({
+  groupId,
+  groupName,
+  empty,
+  placeholderHeight,
+  children,
+}: {
+  groupId: string;
+  groupName: string;
+  empty: boolean;
+  placeholderHeight?: number;
+  children: ReactNode;
+}) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: `group-container:${groupId}`,
+    data: { groupId },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-testid={`group-drop-area-${groupId}`}
+      data-drop-active={isOver ? "true" : "false"}
+      data-empty={empty ? "true" : "false"}
+      aria-label={`Drop a tab into ${groupName}`}
+      style={{ minHeight: empty ? (placeholderHeight ?? 48) : undefined }}
+      className={`relative transition-colors ${isOver ? "bg-[#fff7f1] outline outline-1 outline-inset outline-[#eaa889]" : ""}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+function GroupSeparator({
+  groupId,
+  groupName,
+  tabCount,
+  collapsible,
+  collapsed,
+  onToggle,
+  onOpen,
+  onShare,
+  onDelete,
+}: {
+  groupId: string;
+  groupName: string;
+  tabCount: number;
+  collapsible: boolean;
+  collapsed: boolean;
+  onToggle?: (groupId: string) => void;
+  onOpen?: (groupId: string) => void;
+  onShare?: (groupId: string) => void;
+  onDelete?: (groupId: string) => void;
+}) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: `group-drop:${groupId}`,
+    data: { groupId },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-testid={`group-separator-${groupId}`}
+      data-drop-active={isOver ? "true" : "false"}
+      className={`flex min-h-10 items-center justify-between gap-3 border-y px-3 py-2 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors ${isOver ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#dfdbd0] bg-[#f9f7f1] text-[#777d75]"}`}
+    >
+      <div className="flex min-w-0 items-center gap-1.5">
+        {collapsible ? (
+          <button
+            onClick={() => onToggle?.(groupId)}
+            className="inline-flex min-w-0 items-center gap-1.5 truncate hover:text-[#e95224]"
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-3 w-3 shrink-0" />
+            ) : (
+              <ChevronDown className="h-3 w-3 shrink-0" />
+            )}
+            <span className="truncate">{groupName}</span>
+          </button>
+        ) : (
+          <span>{groupName}</span>
+        )}
+        {collapsible && (
+          <div
+            className="flex shrink-0 items-center gap-0.5 border-l border-[#d9d3c6] pl-1.5"
+            aria-label={`${groupName} collection actions`}
+          >
+            <button
+              type="button"
+              onClick={() => onOpen?.(groupId)}
+              className="rounded p-1 text-[#7b8078] hover:bg-white hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+              aria-label={`Open all tabs in ${groupName}`}
+              title="Open all tabs"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onShare?.(groupId)}
+              className="rounded p-1 text-[#7b8078] hover:bg-white hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+              aria-label={`Copy ${groupName} as Markdown`}
+              title="Copy as Markdown"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete?.(groupId)}
+              disabled={groupId === "inbox"}
+              className="rounded p-1 text-[#7b8078] hover:bg-white hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] disabled:cursor-not-allowed disabled:opacity-35"
+              aria-label={
+                groupId === "inbox"
+                  ? "Inbox cannot be deleted"
+                  : `Delete ${groupName}`
+              }
+              title={
+                groupId === "inbox" ? "Inbox is protected" : "Delete collection"
+              }
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+      <span className="shrink-0">
+        {isOver ? "Drop here" : `${tabCount} tabs`}
+      </span>
     </div>
   );
 }
@@ -238,6 +339,7 @@ function SortableTabRow({
   onDelete,
   onOpenTagManager,
   groups,
+  previewBackend,
 }: {
   tab: TabListItem;
   index: number;
@@ -255,6 +357,7 @@ function SortableTabRow({
   onDelete: (tab: TabListItem) => void;
   onOpenTagManager: () => void;
   groups: Array<{ id: string; name: string }>;
+  previewBackend?: { url: string; apiKey: string };
 }) {
   const {
     attributes,
@@ -263,19 +366,15 @@ function SortableTabRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({
-    id: tab.id,
-    animateLayoutChanges: ({ isSorting, wasDragging }) =>
-      isSorting || !wasDragging,
-  });
+  } = useSortable({ id: tab.id });
   const compact = viewMode === "compact";
   const instantPreview = viewMode === "preview";
   const style = {
     transform: CSS.Transform.toString(transform),
-    ...(isDragging ? {} : { transition }),
+    transition,
   };
   const rowState = isDragging
-    ? "bg-[#fff4ee] opacity-30 outline outline-2 outline-[#eaa889]"
+    ? "pointer-events-none cursor-grabbing opacity-0"
     : isSelected
       ? "bg-[#edf2ea] outline outline-1 outline-[#b7cbb4]"
       : isKeyboardActive
@@ -289,11 +388,10 @@ function SortableTabRow({
       id={`search-result-${tab.id}`}
       data-testid={`tab-row-${tab.id}`}
       data-dragging={isDragging ? "true" : "false"}
-      data-drag-gap={isDragging ? "visible" : undefined}
       onMouseEnter={() => {
         if (query) onActiveIndex(index);
       }}
-      className={`group relative border-b border-[#dfdbd0] ${isDragging ? "transition-none" : "transition-[opacity,margin,background-color] duration-200"} ${compact ? "flex items-center gap-2.5 px-2 py-2.5" : "flex gap-3 pr-2 sm:px-2 " + (instantPreview ? "py-3" : "py-4")} ${rowState}`}
+      className={`group relative border-b border-[#dfdbd0] transition-[background-color,box-shadow] duration-150 ${compact ? "flex items-center gap-2.5 px-2 py-2.5" : "flex gap-3 pr-2 sm:px-2 " + (instantPreview ? "py-3" : "py-4")} ${rowState}`}
     >
       {(query || selectionEnabled) && (
         <label
@@ -315,7 +413,7 @@ function SortableTabRow({
           {...attributes}
           {...listeners}
           aria-label={`Reorder ${tab.title}`}
-          className="mt-0.5 hidden shrink-0 touch-none text-[#c3c3bb] transition hover:text-[#e95224] sm:block"
+          className="mt-0.5 hidden shrink-0 touch-none cursor-grab text-[#c3c3bb] transition hover:text-[#e95224] active:cursor-grabbing sm:block"
         >
           <GripVertical className="h-4 w-4" />
         </button>
@@ -379,7 +477,7 @@ function SortableTabRow({
         </>
       ) : instantPreview ? (
         <div className="min-w-0 flex-1">
-          <ReadableArticlePreview tab={tab} />
+          <ReadableArticlePreview tab={tab} backend={previewBackend} />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-1">
             <button
               onClick={onOpenTagManager}
@@ -573,21 +671,115 @@ function StandardTabContent({
 
 type ReadabilityState =
   | { status: "loading"; url: string }
-  | { status: "ready"; url: string; article: ReadableArticle }
+  | {
+      status: "ready";
+      url: string;
+      article: ReadableArticle;
+      objectUrls?: string[];
+    }
   | { status: "unavailable"; url: string; reason: string };
 
-function ReadableArticlePreview({ tab }: { tab: TabListItem }) {
+async function loadServerArticle(
+  tab: Pick<TabListItem, "id" | "title" | "url">,
+  backend: { url: string; apiKey: string }
+) {
+  const root = backend.url.replace(/\/+$/, "");
+  const headers = { "X-API-Key": backend.apiKey };
+  const response = await fetch(
+    `${root}/api/v1/tabs/${encodeURIComponent(tab.id)}/preview`,
+    { headers }
+  );
+  if (!response.ok) throw new Error(`Preview returned ${response.status}`);
+  const payload = (await response.json()) as {
+    data: {
+      status: string;
+      title?: string | null;
+      byline?: string | null;
+      siteName?: string | null;
+      excerpt?: string | null;
+      contentHtml?: string | null;
+      length?: number;
+      sourceUrl?: string | null;
+      error?: string | null;
+    };
+  };
+  if (payload.data.status !== "ready" || !payload.data.contentHtml) {
+    throw new Error(
+      payload.data.error || "The cached server preview is not ready yet."
+    );
+  }
+  let content = payload.data.contentHtml;
+  const ids = Array.from(
+    new Set(
+      Array.from(
+        content.matchAll(/tabvault-asset:\/\/([\w-]+)/g),
+        match => match[1]
+      )
+    )
+  );
+  const objectUrls: string[] = [];
+  await Promise.all(
+    ids.map(async id => {
+      const asset = await fetch(
+        `${root}/api/v1/assets/${encodeURIComponent(id)}`,
+        {
+          headers,
+        }
+      );
+      if (!asset.ok) return;
+      const objectUrl = URL.createObjectURL(await asset.blob());
+      objectUrls.push(objectUrl);
+      content = content.replaceAll(`tabvault-asset://${id}`, objectUrl);
+    })
+  );
+  return {
+    article: {
+      title: payload.data.title || tab.title,
+      byline: payload.data.byline,
+      siteName: payload.data.siteName,
+      excerpt: payload.data.excerpt,
+      content,
+      length: payload.data.length || 0,
+      url: payload.data.sourceUrl || tab.url,
+    } satisfies ReadableArticle,
+    objectUrls,
+  };
+}
+
+function ReadableArticlePreview({
+  tab,
+  backend,
+}: {
+  tab: TabListItem;
+  backend?: { url: string; apiKey: string };
+}) {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<ReadabilityState>({
     status: "loading",
     url: tab.url,
   });
+  const backendUrl = backend?.url;
+  const backendApiKey = backend?.apiKey;
 
   useEffect(() => {
     let cancelled = false;
-    void parseReadableArticle(tab.url)
-      .then(article => {
-        if (!cancelled) setState({ status: "ready", url: tab.url, article });
+    let loadedObjectUrls: string[] = [];
+    const load =
+      backendUrl && backendApiKey
+        ? loadServerArticle(
+            { id: tab.id, title: tab.title, url: tab.url },
+            { url: backendUrl, apiKey: backendApiKey }
+          )
+        : parseReadableArticle(tab.url).then(article => ({
+            article,
+            objectUrls: [],
+          }));
+    void load
+      .then(({ article, objectUrls }) => {
+        loadedObjectUrls = objectUrls;
+        if (!cancelled)
+          setState({ status: "ready", url: tab.url, article, objectUrls });
+        else objectUrls.forEach(value => URL.revokeObjectURL(value));
       })
       .catch(error => {
         if (!cancelled)
@@ -602,8 +794,9 @@ function ReadableArticlePreview({ tab }: { tab: TabListItem }) {
       });
     return () => {
       cancelled = true;
+      loadedObjectUrls.forEach(value => URL.revokeObjectURL(value));
     };
-  }, [tab.url, attempt]);
+  }, [tab.id, tab.title, tab.url, backendUrl, backendApiKey, attempt]);
 
   if (state.status === "loading" || state.url !== tab.url) {
     return (

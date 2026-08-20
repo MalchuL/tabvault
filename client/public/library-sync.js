@@ -58,7 +58,7 @@ export function vaultToServerDocument(vault) {
       archived: Boolean(tab.archived),
       archivedAt: tab.archivedAt ?? null,
       position: tabOrders[tab.groupId]?.indexOf(tab.id) ?? 0,
-      createdAt: new Date().toISOString(),
+      createdAt: tab.updated,
       updatedAt: tab.updated,
     })),
   };
@@ -92,7 +92,10 @@ export function serverDocumentToVault(document, fallback) {
         String(tab.title ?? "T")
           .slice(0, 1)
           .toUpperCase() || "T",
-      updated: typeof tab.updatedAt === "string" ? tab.updatedAt : "synced",
+      updated:
+        typeof tab.updatedAt === "string"
+          ? tab.updatedAt
+          : new Date().toISOString(),
       archived: Boolean(tab.archived),
       archivedAt: typeof tab.archivedAt === "string" ? tab.archivedAt : null,
     }));

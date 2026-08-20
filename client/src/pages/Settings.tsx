@@ -320,7 +320,7 @@ export default function Settings() {
             </label>
             <label className="mt-4 block">
               <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
-                Bearer key
+                API key
               </span>
               <input
                 value={apiKey}

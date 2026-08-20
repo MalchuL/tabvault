@@ -26,7 +26,7 @@
         </div>
         <h1 id="selection-title">Choose what to clear.</h1>
         <p id="selection-copy" class="selection-copy">
-          Select a direction, then save it to Inbox and close those tabs.
+          Choose a tab set to save it to Inbox and close those tabs.
         </p>
 
         <div class="direction-group" aria-label="Choose tabs to save and close">
@@ -38,7 +38,7 @@
             aria-label="Select tabs to the left of the active tab"
           >
             <span class="arrow" aria-hidden="true">←</span>
-            <span>Left</span>
+            <span>Left <span data-selection-count="left">{0}</span></span>
           </button>
           <button
             class="direction-button is-active"
@@ -49,7 +49,7 @@
             aria-pressed="true"
           >
             <span class="arrow" aria-hidden="true">↔</span>
-            <span>All</span>
+            <span>All <span data-selection-count="all">{0}</span></span>
           </button>
           <button
             class="direction-button"
@@ -59,7 +59,7 @@
             aria-label="Select tabs to the right of the active tab"
           >
             <span class="arrow" aria-hidden="true">→</span>
-            <span>Right</span>
+            <span>Right <span data-selection-count="right">{0}</span></span>
           </button>
         </div>
 
@@ -69,24 +69,11 @@
           type="button"
           title="Use the tabs you have highlighted in Chrome instead of a directional selection"
         >
-          Use Chrome selection
+          Selected <span data-selection-count="chrome">{0}</span>
         </button>
-      </section>
-
-      <section class="save-panel" aria-live="polite">
-        <div id="selection-summary" class="selection-summary">
-          All tabs are selected.
-        </div>
-        <button id="save-selected" class="save-button" type="button">
-          Save selected &amp; close
-        </button>
-        <p class="helper-copy">
-          Saved tabs go to Inbox. Chrome internal pages stay open and are
-          skipped.
-        </p>
-        <p id="result" class="result" hidden></p>
+        <p id="result" class="result" aria-live="polite" hidden></p>
       </section>
     </main>
-    <script src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
   </body>
 </html>

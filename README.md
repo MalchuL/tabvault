@@ -6,11 +6,11 @@ TabVault is a **server-capable tab library** with browser-local resilience. The 
 
 Read the illustrated [TabVault Feature Guide](docs/FEATURE_GUIDE.md) for an implementation-verified explanation of the collection rail, semantic status, Manual checks, Quiet mode, search, recovery, sync, import/export, extension behavior, and MCP tools. The precise [Storage and Archive Lifecycle](docs/STORAGE_AND_ARCHIVE_LIFECYCLE.md) explains Local only versus Backend preferred storage, URL uniqueness, recovery, and permanent deletion.
 
-| Mode                   | What runs                         | Where data lives                                | Server required                                                   |
-| ---------------------- | --------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------- |
-| Static web app         | Vite-built frontend               | Browser local storage                           | No                                                                |
-| Chrome extension       | MV3 side panel                    | `chrome.storage.local`                          | No                                                                |
-| Server-backed platform | Extension or web app plus FastAPI | Server JSON library with browser-local fallback | Required for shared sync, semantic search, import-export, and MCP |
+| Mode                   | What runs                         | Where data lives                                  | Server required                                                   |
+| ---------------------- | --------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------- |
+| Static web app         | Vite-built frontend               | Browser local storage                             | No                                                                |
+| Chrome extension       | MV3 side panel                    | `chrome.storage.local`                            | No                                                                |
+| Server-backed platform | Extension or web app plus FastAPI | Server SQLite library with browser-local fallback | Required for shared sync, semantic search, import-export, and MCP |
 
 ## Use without a server
 
@@ -25,19 +25,19 @@ The Chrome extension can manage a personal tab library entirely offline. It stor
 
 ## Deploy the API server
 
-The FastAPI server is a supported first-class runtime. It can bind to a VM address, private network, container ingress, or public HTTP(S) domain; it is **not restricted to localhost**. Every route, including `/health`, requires `Authorization: Bearer <key>`. The startup key defaults to `admin` for initial development, but set a strong unique `TABVAULT_API_KEY` before exposing the service beyond a trusted network.
+The FastAPI server is a supported first-class runtime. It defaults to loopback; a non-loopback bind requires `TABVAULT_API_KEY`. Configured keys are sent through `X-API-Key` on every `/api/v1` route.
 
 ```bash
 cd local-server
 uv sync --group dev
 TABVAULT_HOST=0.0.0.0 \
-TABVAULT_PORT=4817 \
+TABVAULT_PORT=47821 \
 TABVAULT_API_KEY='replace-this-before-public-use' \
 TABVAULT_CORS_ORIGINS='https://app.example.com,chrome-extension://YOUR_EXTENSION_ID' \
 uv run tabvault-server
 ```
 
-The service binds to `0.0.0.0:4817` by default and keeps its data under `~/.local/share/tabvault/`. In TabVault, open **Configure API**, enter any absolute `http://` or `https://` endpoint and the matching bearer key, then choose **Save & connect**. The same setting is available in a deployed web app and an unpacked extension. When the server cannot be reached, the application keeps working from browser-local storage.
+The service keeps SQLite, previews, assets, backups, model weights, and Zvec data under `~/.local/share/tabvault/`. In TabVault, enter the server URL and matching API key. When it cannot be reached, the application keeps working from browser-local storage.
 
 ## Deploy the static interface
 
@@ -66,15 +66,14 @@ Saved tabs use [dnd-kit](https://dndkit.com/) sortable sensors. Drag from the ha
 
 ## MCP service
 
-The MCP bridge is TypeScript-based and uses the maintained `@modelcontextprotocol/sdk` framework with Zod tool schemas. It can target any authenticated TabVault API endpoint.
+The MCP bridge uses the official Python `mcp` package and proxies typed tools to the REST API.
 
 ```bash
-cd mcp-server
-pnpm install
-pnpm start
+cd local-server
+TABVAULT_SERVER_URL=http://127.0.0.1:47821 TABVAULT_API_KEY=admin uv run tabvault-mcp
 ```
 
-Point an MCP client at `node /absolute/path/to/tabvault-ai-tab-manager/mcp-server/node_modules/.bin/tsx /absolute/path/to/tabvault-ai-tab-manager/mcp-server/src/index.ts`. Set both `TABVAULT_SERVER_URL` and `TABVAULT_API_KEY` to the deployed API address and matching key. See [`mcp-server/README.md`](mcp-server/README.md) for its tool contract.
+Point an MCP client at `uv --directory /absolute/path/to/local-server run tabvault-mcp` and set `TABVAULT_SERVER_URL` plus `TABVAULT_API_KEY`.
 
 ## Development checks
 
@@ -82,6 +81,6 @@ Point an MCP client at `node /absolute/path/to/tabvault-ai-tab-manager/mcp-serve
 make check
 ```
 
-The root command runs the web application’s Prettier, ESLint, TypeScript, and production-build checks; the MCP bridge’s Prettier, ESLint, and TypeScript checks; and the API package’s uv-managed Ruff and mypy checks. Run `pnpm format`, `pnpm lint:fix`, `cd mcp-server && pnpm format`, or `make -C local-server format` to apply the corresponding formatter or safe lint fixes locally. Run `pnpm test:e2e` to execute Playwright coverage for grab-point-preserving reordering, visible insertion feedback, and ordered drops at desktop and compact breakpoints.
+The root command runs web/extension validation and the API package’s uv-managed Ruff, mypy, pytest, and 90% branch-coverage checks. Run `pnpm format`, `pnpm lint:fix`, or `make -C local-server format` to apply formatting. Run `pnpm test:e2e` for browser reordering coverage.
 
 The API, web app, extension, and MCP bridge remain separate deployable processes by design. They share one authenticated API contract while browser storage remains a deliberate resilient fallback, not a localhost restriction.

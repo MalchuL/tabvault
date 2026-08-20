@@ -59,7 +59,7 @@ export const TABVAULT_SYNC_STATUS_KEY = "tabvault-sync-status";
 export const TABVAULT_STORAGE_MODE_KEY = "tabvault-storage-mode";
 export const TABVAULT_LIBRARY_REFRESH_INTERVAL_KEY =
   "tabvault-library-refresh-interval";
-export const DEFAULT_TABVAULT_SERVER_URL = "http://127.0.0.1:4817";
+export const DEFAULT_TABVAULT_SERVER_URL = "http://127.0.0.1:47821";
 export const DEFAULT_TABVAULT_API_KEY = "admin";
 
 export type SyncStatus = {
@@ -345,7 +345,7 @@ function apiHeaders(
 ) {
   return {
     "content-type": "application/json",
-    Authorization: `Bearer ${apiKey}`,
+    "X-API-Key": apiKey,
     ...extra,
   };
 }
@@ -354,7 +354,7 @@ export async function checkLocalServer(
   url: string,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
-  const response = await fetch(`${url.replace(/\/+$/, "")}/health`, {
+  const response = await fetch(`${url.replace(/\/+$/, "")}/api/v1/health`, {
     headers: apiHeaders(apiKey),
   });
   if (!response.ok)
@@ -370,9 +370,12 @@ export async function readLibraryFromServer(
   url: string,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
-  const response = await fetch(`${url.replace(/\/+$/, "")}/v1/library`, {
-    headers: apiHeaders(apiKey),
-  });
+  const response = await fetch(
+    `${url.replace(/\/+$/, "")}/api/v1/export?format=json`,
+    {
+      headers: apiHeaders(apiKey),
+    }
+  );
   if (!response.ok)
     throw new Error("TabVault API could not read the shared library");
   return response.json() as Promise<Record<string, unknown>>;
@@ -383,7 +386,7 @@ export async function mergeLibraryToServer(
   document: Record<string, unknown>,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
-  const response = await fetch(`${url.replace(/\/+$/, "")}/v1/import`, {
+  const response = await fetch(`${url.replace(/\/+$/, "")}/api/v1/import`, {
     method: "POST",
     headers: apiHeaders(apiKey),
     body: JSON.stringify({ mode: "upload", format: "json", content: document }),
@@ -392,7 +395,7 @@ export async function mergeLibraryToServer(
     throw new Error("TabVault API could not sync the shared library");
   return response.json() as Promise<{
     success: boolean;
-    document?: Record<string, unknown>;
+    data?: Record<string, unknown>;
     warnings?: Array<{ code?: string; message?: string }>;
   }>;
 }
@@ -407,10 +410,11 @@ export async function refreshLibraryFromServer(
     toServerDocument(localVault),
     apiKey
   );
-  if (!result.success || !result.document)
+  if (!result.success)
     throw new Error("TabVault API could not merge the shared library");
+  const document = await readLibraryFromServer(url, apiKey);
   return {
-    vault: fromServerDocument(result.document, localVault),
+    vault: fromServerDocument(document, localVault),
     warnings: result.warnings ?? [],
   };
 }
@@ -419,7 +423,7 @@ export async function clearLibraryOnServer(
   url: string,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
-  const response = await fetch(`${url.replace(/\/+$/, "")}/v1/library`, {
+  const response = await fetch(`${url.replace(/\/+$/, "")}/api/v1/library`, {
     method: "DELETE",
     headers: apiHeaders(apiKey),
   });
@@ -452,13 +456,16 @@ export async function saveTabToLocalServer(
   },
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
-  const response = await fetch(`${url.replace(/\/+$/, "")}/v1/tabs`, {
+  const response = await fetch(`${url.replace(/\/+$/, "")}/api/v1/tabs`, {
     method: "POST",
     headers: apiHeaders(apiKey),
-    body: JSON.stringify(tab),
+    body: JSON.stringify({ tabs: [tab] }),
   });
   if (!response.ok) throw new Error("TabVault local server rejected the tab");
-  return response.json() as Promise<{ deduplicated: boolean }>;
+  return response.json() as Promise<{
+    success: boolean;
+    data: { created: Array<{ wasDuplicate?: boolean }> };
+  }>;
 }
 
 export async function searchLocalServer(
@@ -466,45 +473,59 @@ export async function searchLocalServer(
   query: string,
   group?: string,
   apiKey = DEFAULT_TABVAULT_API_KEY
-) {
+): Promise<LocalSearchResponse> {
   const parameters = new URLSearchParams({ q: query });
-  if (group) parameters.set("group", group);
+  if (group) parameters.set("groupId", group);
   const response = await fetch(
-    `${url.replace(/\/+$/, "")}/v1/search?${parameters}`,
+    `${url.replace(/\/+$/, "")}/api/v1/search?${parameters}`,
     { headers: apiHeaders(apiKey) }
   );
   if (!response.ok)
     throw new Error("TabVault local server could not search the library");
-  return response.json() as Promise<LocalSearchResponse>;
+  const payload = (await response.json()) as {
+    data: { results: LocalSearchResponse["results"] };
+    meta?: Record<string, unknown>;
+  };
+  return {
+    mode: "semantic" as const,
+    query,
+    group: group ?? null,
+    results: payload.data.results,
+  };
 }
 
 export async function getSemanticIndexStatus(
   url: string,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
-  const response = await fetch(`${url.replace(/\/+$/, "")}/v1/index/status`, {
-    headers: apiHeaders(apiKey),
-  });
+  const response = await fetch(
+    `${url.replace(/\/+$/, "")}/api/v1/index/status`,
+    {
+      headers: apiHeaders(apiKey),
+    }
+  );
   if (!response.ok)
     throw new Error("TabVault local server could not read index status");
-  return response.json() as Promise<SemanticIndexStatus>;
+  const payload = (await response.json()) as { data: SemanticIndexStatus };
+  return payload.data;
 }
 
 export async function rebuildSemanticIndex(
   url: string,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
-  const response = await fetch(`${url.replace(/\/+$/, "")}/v1/index/rebuild`, {
-    method: "POST",
-    headers: apiHeaders(apiKey),
-  });
+  const response = await fetch(
+    `${url.replace(/\/+$/, "")}/api/v1/search/reindex`,
+    {
+      method: "POST",
+      headers: apiHeaders(apiKey),
+    }
+  );
   if (!response.ok)
     throw new Error(
       "TabVault local server could not rebuild the semantic index"
     );
-  return response.json() as Promise<
-    SemanticIndexStatus & { success?: boolean }
-  >;
+  return getSemanticIndexStatus(url, apiKey);
 }
 
 export async function updateTabOnLocalServer(
@@ -514,7 +535,7 @@ export async function updateTabOnLocalServer(
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
   const response = await fetch(
-    `${url.replace(/\/+$/, "")}/v1/tabs/${encodeURIComponent(id)}`,
+    `${url.replace(/\/+$/, "")}/api/v1/tabs/${encodeURIComponent(id)}`,
     {
       method: "PATCH",
       headers: apiHeaders(apiKey),
@@ -532,7 +553,7 @@ export async function deleteTabOnLocalServer(
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
   const response = await fetch(
-    `${url.replace(/\/+$/, "")}/v1/tabs/${encodeURIComponent(id)}`,
+    `${url.replace(/\/+$/, "")}/api/v1/tabs/${encodeURIComponent(id)}`,
     { method: "DELETE", headers: apiHeaders(apiKey) }
   );
   if (!response.ok)
@@ -545,11 +566,14 @@ export async function restoreTabsOnLocalServer(
   tabs: LocalServerTab[],
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
-  const response = await fetch(`${url.replace(/\/+$/, "")}/v1/tabs/restore`, {
-    method: "POST",
-    headers: apiHeaders(apiKey),
-    body: JSON.stringify(tabs),
-  });
+  const response = await fetch(
+    `${url.replace(/\/+$/, "")}/api/v1/tabs/restore`,
+    {
+      method: "POST",
+      headers: apiHeaders(apiKey),
+      body: JSON.stringify(tabs),
+    }
+  );
   if (!response.ok)
     throw new Error(
       "TabVault local server could not restore the undo snapshot"
@@ -564,7 +588,7 @@ export async function configureIndexHealthCheck(
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
   const response = await fetch(
-    `${url.replace(/\/+$/, "")}/v1/index/health-check`,
+    `${url.replace(/\/+$/, "")}/api/v1/index/health-check`,
     {
       method: "PUT",
       headers: apiHeaders(apiKey),
@@ -575,7 +599,8 @@ export async function configureIndexHealthCheck(
     throw new Error(
       "TabVault local server could not save the health-check schedule"
     );
-  return response.json() as Promise<IndexHealthCheck>;
+  const payload = (await response.json()) as { data: IndexHealthCheck };
+  return payload.data;
 }
 
 export async function configureExtensionHealthAlerts(
@@ -603,12 +628,13 @@ export async function runIndexHealthCheck(
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
   const response = await fetch(
-    `${url.replace(/\/+$/, "")}/v1/index/health-check/run`,
+    `${url.replace(/\/+$/, "")}/api/v1/index/health-check/run`,
     { method: "POST", headers: apiHeaders(apiKey) }
   );
   if (!response.ok)
     throw new Error("TabVault local server could not run the health check");
-  return response.json() as Promise<IndexHealthCheck>;
+  const payload = (await response.json()) as { data: IndexHealthCheck };
+  return payload.data;
 }
 
 export async function getActiveChromeTab() {

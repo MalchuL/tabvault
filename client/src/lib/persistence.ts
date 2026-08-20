@@ -66,8 +66,7 @@ export class HybridStorageAdapter<
     if (!this.server) return browserValue;
     try {
       if (!browserValue) return this.fromServer(await this.server.load());
-      const merged = await this.server.merge(this.toServer(browserValue));
-      if (merged.document) return this.fromServer(merged.document as S);
+      await this.server.merge(this.toServer(browserValue));
       return this.fromServer(await this.server.load());
     } catch {
       return browserValue;

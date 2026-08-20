@@ -1,3 +1,5 @@
+import { tabsForSelection } from "./popup-selection.js";
+
 const state = {
   allTabs: [],
   activeTab: null,
@@ -6,40 +8,17 @@ const state = {
 };
 
 const tabCount = document.querySelector("#tab-count");
-const selectionSummary = document.querySelector("#selection-summary");
 const selectionCopy = document.querySelector("#selection-copy");
-const saveButton = document.querySelector("#save-selected");
 const result = document.querySelector("#result");
 const directionButtons = [...document.querySelectorAll(".direction-button")];
-
-function describeSelection() {
-  const count = state.selectedTabs.length;
-  const noun = count === 1 ? "tab" : "tabs";
-  const label =
-    state.mode === "chrome" ? "Chrome selection" : `${state.mode} selection`;
-  selectionSummary.textContent = `${count} ${noun} in ${label}.`;
-  saveButton.textContent = `Save ${count || "no"} selected & close`;
-  saveButton.disabled = count === 0;
-}
+const selectionControls = [
+  ...directionButtons,
+  document.querySelector("#use-chrome-selection"),
+];
 
 function setSelection(mode) {
   state.mode = mode;
-  const activeIndex = state.allTabs.findIndex(
-    tab => tab.id === state.activeTab?.id
-  );
-  if (mode === "left")
-    state.selectedTabs = state.allTabs.slice(0, Math.max(activeIndex, 0));
-  if (mode === "all") state.selectedTabs = [...state.allTabs];
-  if (mode === "right")
-    state.selectedTabs = state.allTabs.slice(activeIndex + 1);
-  if (mode === "chrome") {
-    const highlighted = state.allTabs.filter(tab => tab.highlighted);
-    state.selectedTabs = highlighted.length
-      ? highlighted
-      : state.activeTab
-        ? [state.activeTab]
-        : [];
-  }
+  state.selectedTabs = tabsForSelection(state.allTabs, state.activeTab, mode);
 
   directionButtons.forEach(button => {
     const active = button.dataset.selection === mode;
@@ -49,8 +28,18 @@ function setSelection(mode) {
   selectionCopy.textContent =
     mode === "chrome"
       ? "Using tabs highlighted in Chrome. If none are highlighted, the active tab is used."
-      : "Select a direction, then save it to Inbox and close those tabs.";
-  describeSelection();
+      : "Saving this tab set to Inbox and closing those tabs.";
+}
+
+function updateSelectionCounts() {
+  document.querySelectorAll("[data-selection-count]").forEach(element => {
+    const count = tabsForSelection(
+      state.allTabs,
+      state.activeTab,
+      element.dataset.selectionCount
+    ).length;
+    element.textContent = `{${count}}`;
+  });
 }
 
 async function loadTabs() {
@@ -58,6 +47,7 @@ async function loadTabs() {
   state.allTabs = tabs.filter(tab => Boolean(tab.id));
   state.activeTab = state.allTabs.find(tab => tab.active) || null;
   tabCount.textContent = `${state.allTabs.length} open`;
+  updateSelectionCounts();
   setSelection("all");
 }
 
@@ -73,24 +63,30 @@ async function openWorkspace() {
 
 async function saveAndClose() {
   if (!state.selectedTabs.length) return;
-  result.hidden = true;
-  saveButton.disabled = true;
-  saveButton.textContent = "Saving selected tabs…";
-  const response = await chrome.runtime.sendMessage({
-    type: "TABVAULT_FAST_SAVE_AND_CLOSE",
-    tabs: state.selectedTabs.map(tab => ({
-      id: tab.id,
-      url: tab.url,
-      title: tab.title,
-      favIconUrl: tab.favIconUrl,
-    })),
-  });
-
+  selectionControls.forEach(button => (button.disabled = true));
+  result.classList.remove("is-error");
+  result.textContent = "Saving selected tabs…";
   result.hidden = false;
+
+  let response;
+  try {
+    response = await chrome.runtime.sendMessage({
+      type: "TABVAULT_FAST_SAVE_AND_CLOSE",
+      tabs: state.selectedTabs.map(tab => ({
+        id: tab.id,
+        url: tab.url,
+        title: tab.title,
+        favIconUrl: tab.favIconUrl,
+      })),
+    });
+  } catch {
+    response = { error: true };
+  }
+
   if (response?.error) {
     result.classList.add("is-error");
     result.textContent = "Could not save those tabs. They were left open.";
-    describeSelection();
+    selectionControls.forEach(button => (button.disabled = false));
     return;
   }
   result.classList.remove("is-error");
@@ -102,21 +98,24 @@ async function saveAndClose() {
 }
 
 directionButtons.forEach(button => {
-  button.addEventListener("click", () =>
-    setSelection(button.dataset.selection)
-  );
+  button.addEventListener("click", () => {
+    setSelection(button.dataset.selection);
+    void saveAndClose();
+  });
 });
 document
   .querySelector("#use-chrome-selection")
-  .addEventListener("click", () => setSelection("chrome"));
+  .addEventListener("click", () => {
+    setSelection("chrome");
+    void saveAndClose();
+  });
 document
   .querySelector("#open-workspace")
   .addEventListener("click", () => void openWorkspace());
-saveButton.addEventListener("click", () => void saveAndClose());
-
 void loadTabs().catch(() => {
   tabCount.textContent = "Tabs unavailable";
-  selectionSummary.textContent =
-    "Open a normal browser window, then try again.";
-  saveButton.disabled = true;
+  result.classList.add("is-error");
+  result.textContent = "Open a normal browser window, then try again.";
+  result.hidden = false;
+  selectionControls.forEach(button => (button.disabled = true));
 });

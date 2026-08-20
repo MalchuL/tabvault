@@ -3,3 +3,9 @@ node_modules
 .git
 *.min.js
 *.min.css
+.agents
+.cursor
+pnpm-lock.yaml
+docs/MANUS_TRANSFER.md
+docs/PRD_AI_Tab_Manager.md
+docs/TabVault_API_and_MCP_Spec.md
