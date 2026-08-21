@@ -130,14 +130,27 @@ async def test_web_capture_rejects_private_hosts(
 
 
 class FakeCapture:
+    def __init__(self) -> None:
+        self.image_urls: list[str] = []
+
     async def fetch_html(self, url: str) -> CapturedResponse:
         return CapturedResponse(
-            b'<html><head><title>Reader</title></head><body><article><h1>Reader</h1><script>alert(1)</script><p>Useful text</p><img src="/image.png"></article></body></html>',
+            (
+                b'<html><head><title>Reader</title></head><body><div id="nav">'
+                b'Navigation noise<img src="/outside.png"></div><main><article><h1>Reader</h1>'
+                b"<script>alert(1)</script><p>"
+                + b"Useful text for the main article. " * 30
+                + b'</p><img src="/first.png"><p>'
+                + b"More useful article text follows the representative image. " * 20
+                + b'</p><img src="/second.png"></article></main>'
+                b'<div id="footer">Footer noise</div></body></html>'
+            ),
             "text/html",
             url,
         )
 
     async def fetch_image(self, url: str) -> CapturedResponse:
+        self.image_urls.append(url)
         return CapturedResponse(b"fake-image", "image/png", url)
 
 
@@ -162,11 +175,17 @@ async def test_preview_sanitizes_rewrites_and_stores_assets(tmp_path: Path) -> N
         )
         db.add(tab)
         await db.commit()
-        result = await PreviewService(db, settings, FakeCapture()).capture_tab(tab.id)
+        capture = FakeCapture()
+        result = await PreviewService(db, settings, capture).capture_tab(tab.id)
         assert result["status"] == "ready"
         preview = await db.get(__import__("models").Preview, tab.id)
         assert preview and "script" not in (preview.content_html or "")
+        assert "Navigation noise" not in (preview.content_html or "")
+        assert (preview.content_html or "").count("<img") == 1
         assert "tabvault-asset://" in (preview.content_html or "")
+        assert "https://example.com/first.png" in capture.image_urls
+        assert "https://example.com/second.png" not in capture.image_urls
+        assert "https://example.com/outside.png" not in capture.image_urls
         assert settings.asset_dir.joinpath("images").exists()
     await engine.dispose()
 

@@ -64,9 +64,10 @@ class PreviewService:
         source = content.decode("utf-8", errors="replace")
         doc = Document(source)
         summary = doc.summary(html_partial=True, keep_all_images=True)
-        tree = lxml_html.fromstring(source)
-        image_urls = [urljoin(base_url, value) for value in tree.xpath("//img/@src") if value]
-        icon_values = tree.xpath("//link[contains(translate(@rel,'ICON','icon'),'icon')]/@href")
+        source_tree = lxml_html.fromstring(source)
+        icon_values = source_tree.xpath(
+            "//link[contains(translate(@rel,'ICON','icon'),'icon')]/@href"
+        )
         icon_url = (
             urljoin(base_url, icon_values[0]) if icon_values else urljoin(base_url, "/favicon.ico")
         )
@@ -99,6 +100,12 @@ class PreviewService:
             attributes={"a": {"href", "title"}, "img": {"src", "alt", "title"}},
             url_relative=("rewrite_with_base", base_url),
         )
+        article_tree = lxml_html.fromstring(cleaned)
+        images = article_tree.xpath("//img")
+        for image in images[1:]:
+            image.drop_tree()
+        cleaned = lxml_html.tostring(article_tree, encoding="unicode")
+        image_urls = [images[0].get("src")] if images and images[0].get("src") else []
         text = " ".join(lxml_html.fromstring(cleaned).itertext()).strip() if cleaned else ""
         title = doc.short_title() or doc.title()
         return (
