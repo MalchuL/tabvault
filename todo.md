@@ -10,11 +10,13 @@
 - [x] Store somewhere instant previews.
 - [x] Store images, icons inside folders and ignore errors if they are not found and place some mock images. icons, images must return from the server.
 - [x] Make tests to cover all cases inside backend
+- Add docstrings and normal types.
 
 # UI
 
 - [x] Inside UI when we open single group we should see buttons that corresponds to openall, share, delete.
 - [x] Empty groups mustn't be hidden if they are empty
+- Add for each group empty item where we can drag and drop items. This will avoid many redrawings. After moving item new space must be created. Currently empty space is not used
 
 # Extension
 

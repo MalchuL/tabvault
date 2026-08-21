@@ -22,7 +22,6 @@ async function startNativeDrag(
   const origin = await activator.boundingBox();
   if (!origin) throw new Error("Could not measure the drag origin.");
   const title = (await source.getByRole("link").first().textContent())?.trim();
-
   const startX = origin.x + origin.width / 2;
   const startY = origin.y + origin.height / 2;
   const delta = { x: 18, y: 14 };
@@ -31,6 +30,7 @@ async function startNativeDrag(
   await page.mouse.move(startX + delta.x, startY + delta.y, { steps: 3 });
 
   await expect(source).toHaveAttribute("data-dragging", "true");
+  await expect(source).toHaveCSS("opacity", "0");
   await expect(page.getByTestId("tab-drag-preview")).toContainText(title ?? "");
 }
 
@@ -47,20 +47,27 @@ async function finishBelowTarget(page: Page, target: Locator) {
   await page.mouse.up();
 }
 
-async function finishOnGroup(page: Page, target: Locator) {
+async function moveOnGroupGap(page: Page, target: Locator) {
   const targetRect = await target.boundingBox();
   if (!targetRect) throw new Error("Could not measure the collection target.");
+  const gapHeight = await target.evaluate(element =>
+    Number.parseFloat(getComputedStyle(element).paddingBottom)
+  );
   await page.mouse.move(
     targetRect.x + targetRect.width / 2,
-    targetRect.y + targetRect.height / 2,
+    targetRect.y + targetRect.height - gapHeight / 2,
     { steps: 8 }
   );
   await page.waitForTimeout(80);
   await page.mouse.move(
     targetRect.x + targetRect.width / 2 + 1,
-    targetRect.y + targetRect.height / 2 + 1
+    targetRect.y + targetRect.height - gapHeight / 2 + 1
   );
   await page.waitForTimeout(120);
+}
+
+async function finishOnGroup(page: Page, target: Locator) {
+  await moveOnGroupGap(page, target);
   await page.mouse.up();
 }
 
@@ -158,11 +165,16 @@ test.describe("native tab reordering", () => {
     await expectOrder(page, "llm-papers");
   });
 
-  test("moves a dragged tab onto a collection separator", async ({ page }) => {
+  test("moves a dragged tab onto a collection empty item", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1800 });
     await openFreshLibrary(page);
-    await startNativeDrag(page, page.getByTestId("tab-row-t-1006"));
-    await finishOnGroup(page, page.getByTestId("group-separator-research"));
+    await page.getByRole("button", { name: "Compact tab view" }).click();
+    await startNativeDrag(
+      page,
+      page.getByTestId("tab-row-t-1006"),
+      page.getByTestId("tab-drag-handle-t-1006")
+    );
+    await finishOnGroup(page, page.getByTestId("tab-group-research"));
     await expect(
       page.getByTestId("tab-group-research").getByTestId("tab-row-t-1006")
     ).toBeVisible();
@@ -171,48 +183,124 @@ test.describe("native tab reordering", () => {
     ).toHaveCount(0);
   });
 
-  test("previews an empty-group move and restores it when canceled", async ({
+  test("uses the dragged row as the correctly sized destination gap", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 1800 });
     await openFreshLibrary(page);
     const source = page.getByTestId("tab-row-t-1006");
-    const sourceRect = await source.boundingBox();
-    if (!sourceRect) throw new Error("Could not measure the source tab.");
+    await expect(page.locator("[data-drop-gap-height]")).toHaveCount(5);
+    const standardHeights = await page
+      .locator("[data-testid^='tab-row-']")
+      .evaluateAll(rows =>
+        Array.from(new Set(rows.map(row => row.getBoundingClientRect().height)))
+      );
+    expect(standardHeights).toEqual([128]);
+    await expect(source.getByText("edit", { exact: true })).toHaveCount(0);
 
-    await startNativeDrag(page, source);
-    const emptyArea = page.getByTestId("group-drop-area-research");
-    await expect(emptyArea).toHaveAttribute("data-empty", "true");
+    const standardEmptyArea = page.getByTestId("tab-group-research");
     await expect
-      .poll(async () => (await emptyArea.boundingBox())?.height)
-      .toBeCloseTo(sourceRect.height, 0);
+      .poll(() =>
+        standardEmptyArea.evaluate(element =>
+          Number.parseFloat(getComputedStyle(element).paddingBottom)
+        )
+      )
+      .toBe(128);
+    await page.getByRole("button", { name: "Compact tab view" }).click();
+    await expect
+      .poll(() =>
+        standardEmptyArea.evaluate(element =>
+          Number.parseFloat(getComputedStyle(element).paddingBottom)
+        )
+      )
+      .toBe(45);
+    const compactRowHeight = (await source.boundingBox())?.height;
+    expect(compactRowHeight).toBe(45);
 
-    const targetRect = await emptyArea.boundingBox();
-    if (!targetRect) throw new Error("Could not measure the empty collection.");
-    await page.mouse.move(
-      targetRect.x + targetRect.width / 2,
-      targetRect.y + targetRect.height / 2
+    await startNativeDrag(
+      page,
+      source,
+      page.getByTestId("tab-drag-handle-t-1006")
     );
-    const insertionGap = page
-      .getByTestId("tab-group-research")
-      .getByTestId("tab-row-t-1006");
-    await expect(insertionGap).toHaveCSS("opacity", "0");
+    const emptyArea = standardEmptyArea;
     await expect
-      .poll(async () => (await insertionGap.boundingBox())?.height)
-      .toBeCloseTo(sourceRect.height, 0);
+      .poll(() =>
+        emptyArea.evaluate(element =>
+          Number.parseFloat(getComputedStyle(element).paddingBottom)
+        )
+      )
+      .toBe(compactRowHeight);
 
+    await moveOnGroupGap(page, emptyArea);
+    await expect(
+      page.getByTestId("tab-group-llm-papers").getByTestId("tab-row-t-1006")
+    ).toHaveCount(0);
+    await expect(
+      page.getByTestId("tab-group-research").getByTestId("tab-row-t-1006")
+    ).toHaveCSS("opacity", "0");
+    await expect
+      .poll(
+        async () =>
+          (await page.getByTestId("tab-row-t-1006").boundingBox())?.height
+      )
+      .toBe(compactRowHeight);
+    await expect
+      .poll(() =>
+        page
+          .getByTestId("tab-group-llm-papers")
+          .evaluate(element =>
+            Number.parseFloat(getComputedStyle(element).paddingBottom)
+          )
+      )
+      .toBe(compactRowHeight);
+    await expect(emptyArea).toHaveCSS(
+      "padding-bottom",
+      `${compactRowHeight}px`
+    );
+    await expect(page.getByTestId("group-insertion-gap")).toHaveCount(0);
+
+    await page.mouse.up();
+    await expect(
+      page.getByTestId("tab-group-research").getByTestId("tab-row-t-1006")
+    ).toBeVisible();
+    await expect(emptyArea).toHaveCSS("padding-bottom", "45px");
+  });
+
+  test("restores the original collection when a cross-list drag is canceled", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 1800 });
+    await openFreshLibrary(page);
+    const source = page.getByTestId("tab-row-t-1006");
+    await page.getByRole("button", { name: "Compact tab view" }).click();
+    await startNativeDrag(
+      page,
+      source,
+      page.getByTestId("tab-drag-handle-t-1006")
+    );
+    await moveOnGroupGap(page, page.getByTestId("tab-group-research"));
+    await expect(
+      page.getByTestId("tab-group-research").getByTestId("tab-row-t-1006")
+    ).toHaveCSS("opacity", "0");
+    await expect(
+      page.getByTestId("tab-group-llm-papers").getByTestId("tab-row-t-1006")
+    ).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(
       page.getByTestId("tab-group-llm-papers").getByTestId("tab-row-t-1006")
     ).toBeVisible();
-    await expect(emptyArea).toHaveAttribute("data-empty", "true");
+    await expect(
+      page.getByTestId("tab-group-research").getByTestId("tab-row-t-1006")
+    ).toHaveCount(0);
   });
 
   test("moves a dragged tab with the Quick move shelf", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openFreshLibrary(page);
     await startNativeDrag(page, page.getByTestId(`tab-row-${SOURCE_ID}`));
-    await page.getByTestId("collection-drop-build").hover({ force: true });
+    const buildDropTarget = page.getByTestId("collection-drop-build");
+    await buildDropTarget.hover({ force: true });
+    await expect(buildDropTarget).toHaveAttribute("data-drop-active", "true");
     await page.waitForTimeout(120);
     await page.mouse.up();
     await expect(
@@ -220,25 +308,146 @@ test.describe("native tab reordering", () => {
     ).toBeVisible();
   });
 
-  test("moves a dragged tab directly into a flattened group at a requested position", async ({
+  test("moves a dragged tab directly into a flattened group", async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 1440, height: 1400 });
+    await page.setViewportSize({ width: 1440, height: 1800 });
     await openFreshLibrary(page);
     const targetRow = page.getByTestId("tab-row-t-1006");
     await expect(targetRow).toBeVisible();
-    await startNativeDrag(page, page.getByTestId(`tab-row-${SOURCE_ID}`));
-    await finishAboveTarget(page, targetRow);
+    const sourceRow = page.getByTestId(`tab-row-${SOURCE_ID}`);
+    await page.getByRole("button", { name: "Compact tab view" }).click();
+    await startNativeDrag(
+      page,
+      sourceRow,
+      page.getByTestId(`tab-drag-handle-${SOURCE_ID}`)
+    );
+    const targetRect = await targetRow.boundingBox();
+    if (!targetRect) throw new Error("Could not measure rows.");
+    await page.mouse.move(
+      targetRect.x + targetRect.width / 2,
+      targetRect.y + 8,
+      {
+        steps: 8,
+      }
+    );
+
+    await expect(page.getByTestId("group-insertion-gap")).toHaveCount(0);
+    await expect(
+      page.getByTestId("tab-group-inbox").getByTestId(`tab-row-${SOURCE_ID}`)
+    ).toHaveCount(0);
+    await expect(
+      page
+        .getByTestId("tab-group-llm-papers")
+        .getByTestId(`tab-row-${SOURCE_ID}`)
+    ).toHaveCSS("opacity", "0");
+    const currentTargetRect = await targetRow.boundingBox();
+    if (!currentTargetRect) throw new Error("Could not remeasure target row.");
+    await page.mouse.move(
+      currentTargetRect.x + currentTargetRect.width / 2,
+      currentTargetRect.y + 4
+    );
+    await page.waitForTimeout(120);
+    await page.mouse.up();
 
     const targetGroupOrder = await page
       .getByTestId("tab-group-llm-papers")
       .locator("[data-testid^='tab-row-']")
       .evaluateAll(rows => rows.map(row => row.getAttribute("data-testid")));
-    expect(targetGroupOrder.indexOf(`tab-row-${SOURCE_ID}`)).toBe(0);
-    expect(targetGroupOrder.indexOf("tab-row-t-1006")).toBeGreaterThan(0);
+    expect(targetGroupOrder).toHaveLength(2);
+    expect(targetGroupOrder).toContain(`tab-row-${SOURCE_ID}`);
+    expect(targetGroupOrder).toContain("tab-row-t-1006");
     await expect(
       page.getByTestId("tab-group-inbox").getByTestId(`tab-row-${SOURCE_ID}`)
     ).toHaveCount(0);
+  });
+
+  test("continues sorting after entering another collection", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 1800 });
+    await openFreshLibrary(page);
+    await page
+      .getByTestId(`tab-row-${TARGET_ID}`)
+      .getByLabel(/Move /)
+      .selectOption("llm-papers");
+    await page.getByRole("button", { name: "Compact tab view" }).click();
+
+    await startNativeDrag(
+      page,
+      page.getByTestId(`tab-row-${SOURCE_ID}`),
+      page.getByTestId(`tab-drag-handle-${SOURCE_ID}`)
+    );
+    const firstTarget = page.getByTestId("tab-row-t-1006");
+    const firstRect = await firstTarget.boundingBox();
+    if (!firstRect) throw new Error("Could not measure the first target.");
+    await page.mouse.move(firstRect.x + firstRect.width / 2, firstRect.y + 8, {
+      steps: 8,
+    });
+    await expect(
+      page
+        .getByTestId("tab-group-llm-papers")
+        .getByTestId(`tab-row-${SOURCE_ID}`)
+    ).toHaveCSS("opacity", "0");
+
+    const secondTarget = page.getByTestId(`tab-row-${TARGET_ID}`);
+    const secondRect = await secondTarget.boundingBox();
+    if (!secondRect) throw new Error("Could not measure the second target.");
+    await page.mouse.move(
+      secondRect.x + secondRect.width / 2,
+      secondRect.y + secondRect.height - 12,
+      { steps: 8 }
+    );
+    await page.waitForTimeout(120);
+    await page.mouse.move(
+      secondRect.x + secondRect.width / 2 + 1,
+      secondRect.y + secondRect.height - 11
+    );
+    await page.waitForTimeout(120);
+    await page.mouse.up();
+
+    const finalOrder = await page
+      .getByTestId("tab-group-llm-papers")
+      .locator("[data-testid^='tab-row-']")
+      .evaluateAll(rows => rows.map(row => row.getAttribute("data-testid")));
+    expect(finalOrder).toEqual([
+      "tab-row-t-1006",
+      `tab-row-${SOURCE_ID}`,
+      `tab-row-${TARGET_ID}`,
+    ]);
+  });
+
+  test("keeps the trailing collection gap stable for the last position", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 1800 });
+    await openFreshLibrary(page);
+    await page
+      .getByTestId(`tab-row-${TARGET_ID}`)
+      .getByLabel(/Move /)
+      .selectOption("llm-papers");
+    await page.getByRole("button", { name: "Compact tab view" }).click();
+
+    await startNativeDrag(
+      page,
+      page.getByTestId(`tab-row-${SOURCE_ID}`),
+      page.getByTestId(`tab-drag-handle-${SOURCE_ID}`)
+    );
+    const destination = page.getByTestId("tab-group-llm-papers");
+    await moveOnGroupGap(page, destination);
+    await expect(destination).toHaveAttribute("data-drop-active", "true");
+    await page.waitForTimeout(200);
+    await expect(destination).toHaveAttribute("data-drop-active", "true");
+    await page.mouse.up();
+
+    const finalOrder = await destination
+      .locator("[data-testid^='tab-row-']")
+      .evaluateAll(rows => rows.map(row => row.getAttribute("data-testid")));
+    expect(finalOrder).toEqual([
+      "tab-row-t-1006",
+      `tab-row-${TARGET_ID}`,
+      `tab-row-${SOURCE_ID}`,
+    ]);
   });
 
   test("moves selected tabs into another collection", async ({ page }) => {

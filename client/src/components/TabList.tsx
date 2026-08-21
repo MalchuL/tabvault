@@ -18,7 +18,6 @@ import {
   GripVertical,
   LoaderCircle,
   MoreHorizontal,
-  Pencil,
   RefreshCw,
   Share2,
   Trash2,
@@ -65,7 +64,7 @@ type Props = {
   groups: Array<{ id: string; name: string }>;
   visibleGroupIds?: Set<string>;
   previewBackend?: { url: string; apiKey: string };
-  dragPlaceholderHeight?: number;
+  activeDragHeight?: number;
 };
 
 export function TabList({
@@ -92,7 +91,7 @@ export function TabList({
   groups,
   visibleGroupIds,
   previewBackend,
-  dragPlaceholderHeight,
+  activeDragHeight,
 }: Props) {
   const tabGroups = useMemo(() => {
     const groupedTabs = tabs.reduce<Map<string, TabListItem[]>>(
@@ -127,8 +126,16 @@ export function TabList({
           groups.find(group => group.id === groupId)?.name ?? "Collection";
         const showGroupLabel = collapsibleGroups || tabGroups.length > 1;
         const isCollapsed = collapsedGroupIds.has(groupId);
+        const dropGapHeight = isCollapsed
+          ? 0
+          : (activeDragHeight ?? (viewMode === "compact" ? 45 : 128));
         return (
-          <section key={groupId} data-testid={`tab-group-${groupId}`}>
+          <DroppableGroup
+            key={groupId}
+            groupId={groupId}
+            groupName={groupName}
+            dropGapHeight={dropGapHeight}
+          >
             {showGroupLabel && (
               <GroupSeparator
                 groupId={groupId}
@@ -143,12 +150,7 @@ export function TabList({
               />
             )}
             {!isCollapsed && (
-              <GroupDropArea
-                groupId={groupId}
-                groupName={groupName}
-                empty={groupTabs.length === 0}
-                placeholderHeight={dragPlaceholderHeight}
-              >
+              <>
                 <SortableContext
                   items={groupTabs.map(tab => tab.id)}
                   strategy={verticalListSortingStrategy}
@@ -181,26 +183,24 @@ export function TabList({
                     );
                   })}
                 </SortableContext>
-              </GroupDropArea>
+              </>
             )}
-          </section>
+          </DroppableGroup>
         );
       })}
     </div>
   );
 }
 
-function GroupDropArea({
+function DroppableGroup({
   groupId,
   groupName,
-  empty,
-  placeholderHeight,
+  dropGapHeight,
   children,
 }: {
   groupId: string;
   groupName: string;
-  empty: boolean;
-  placeholderHeight?: number;
+  dropGapHeight: number;
   children: ReactNode;
 }) {
   const { isOver, setNodeRef } = useDroppable({
@@ -209,17 +209,16 @@ function GroupDropArea({
   });
 
   return (
-    <div
+    <section
       ref={setNodeRef}
-      data-testid={`group-drop-area-${groupId}`}
+      style={{ paddingBottom: dropGapHeight }}
+      data-testid={`tab-group-${groupId}`}
       data-drop-active={isOver ? "true" : "false"}
-      data-empty={empty ? "true" : "false"}
+      data-drop-gap-height={dropGapHeight}
       aria-label={`Drop a tab into ${groupName}`}
-      style={{ minHeight: empty ? (placeholderHeight ?? 48) : undefined }}
-      className={`relative transition-colors ${isOver ? "bg-[#fff7f1] outline outline-1 outline-inset outline-[#eaa889]" : ""}`}
     >
       {children}
-    </div>
+    </section>
   );
 }
 
@@ -244,17 +243,10 @@ function GroupSeparator({
   onShare?: (groupId: string) => void;
   onDelete?: (groupId: string) => void;
 }) {
-  const { isOver, setNodeRef } = useDroppable({
-    id: `group-drop:${groupId}`,
-    data: { groupId },
-  });
-
   return (
     <div
-      ref={setNodeRef}
       data-testid={`group-separator-${groupId}`}
-      data-drop-active={isOver ? "true" : "false"}
-      className={`flex min-h-10 items-center justify-between gap-3 border-y px-3 py-2 font-mono text-[9px] uppercase tracking-[0.1em] transition-colors ${isOver ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#dfdbd0] bg-[#f9f7f1] text-[#777d75]"}`}
+      className="flex min-h-10 items-center justify-between gap-3 border-y border-[#dfdbd0] bg-[#f9f7f1] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.1em] text-[#777d75]"
     >
       <div className="flex min-w-0 items-center gap-1.5">
         {collapsible ? (
@@ -315,32 +307,12 @@ function GroupSeparator({
           </div>
         )}
       </div>
-      <span className="shrink-0">
-        {isOver ? "Drop here" : `${tabCount} tabs`}
-      </span>
+      <span className="shrink-0">{tabCount} tabs</span>
     </div>
   );
 }
 
-function SortableTabRow({
-  tab,
-  index,
-  viewMode,
-  query,
-  selectionEnabled,
-  isSelected,
-  isKeyboardActive,
-  score,
-  fallbackMode,
-  onActiveIndex,
-  onToggleSelection,
-  onMove,
-  onEdit,
-  onDelete,
-  onOpenTagManager,
-  groups,
-  previewBackend,
-}: {
+type TabRowProps = {
   tab: TabListItem;
   index: number;
   viewMode: TabViewMode;
@@ -358,40 +330,124 @@ function SortableTabRow({
   onOpenTagManager: () => void;
   groups: Array<{ id: string; name: string }>;
   previewBackend?: { url: string; apiKey: string };
+};
+
+type SortableBindings = Pick<
+  ReturnType<typeof useSortable>,
+  | "attributes"
+  | "listeners"
+  | "setNodeRef"
+  | "transform"
+  | "transition"
+  | "isDragging"
+>;
+
+const ignore = () => undefined;
+
+export function TabDragPreview({
+  tab,
+  viewMode,
+  query,
+  selectionEnabled,
+  isSelected,
+  score,
+  fallbackMode,
+  groups,
+  previewBackend,
+}: {
+  tab: TabListItem;
+  viewMode: TabViewMode;
+  query: string;
+  selectionEnabled: boolean;
+  isSelected: boolean;
+  score?: number;
+  fallbackMode?: "text_fallback" | "semantic";
+  groups: Array<{ id: string; name: string }>;
+  previewBackend?: { url: string; apiKey: string };
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: tab.id });
+  return (
+    <TabRowPresentation
+      tab={tab}
+      index={0}
+      viewMode={viewMode}
+      query={query}
+      selectionEnabled={selectionEnabled}
+      isSelected={isSelected}
+      isKeyboardActive={false}
+      score={score}
+      fallbackMode={fallbackMode}
+      onActiveIndex={ignore}
+      onToggleSelection={ignore}
+      onMove={ignore}
+      onEdit={ignore}
+      onDelete={ignore}
+      onOpenTagManager={ignore}
+      groups={groups}
+      previewBackend={previewBackend}
+      overlay
+    />
+  );
+}
+
+function SortableTabRow(props: TabRowProps) {
+  const sortable = useSortable({ id: props.tab.id });
+  return <TabRowPresentation {...props} sortable={sortable} />;
+}
+
+function TabRowPresentation({
+  tab,
+  index,
+  viewMode,
+  query,
+  selectionEnabled,
+  isSelected,
+  isKeyboardActive,
+  score,
+  fallbackMode,
+  onActiveIndex,
+  onToggleSelection,
+  onMove,
+  onEdit,
+  onDelete,
+  onOpenTagManager,
+  groups,
+  previewBackend,
+  sortable,
+  overlay = false,
+}: TabRowProps & { sortable?: SortableBindings; overlay?: boolean }) {
+  const attributes = sortable?.attributes;
+  const listeners = sortable?.listeners;
+  const setNodeRef = sortable?.setNodeRef;
+  const transform = sortable?.transform;
+  const transition = sortable?.transition;
+  const isDragging = sortable?.isDragging ?? false;
   const compact = viewMode === "compact";
   const instantPreview = viewMode === "preview";
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform: CSS.Transform.toString(transform ?? null),
     transition,
   };
-  const rowState = isDragging
-    ? "pointer-events-none cursor-grabbing opacity-0"
-    : isSelected
-      ? "bg-[#edf2ea] outline outline-1 outline-[#b7cbb4]"
-      : isKeyboardActive
-        ? "bg-[#fff7f1] outline outline-1 outline-[#eab79d]"
-        : "bg-[#f6f3ec]/55 hover:bg-[#fffdf8]";
+  const rowState = overlay
+    ? "pointer-events-none cursor-grabbing bg-[#fffdf8] shadow-lg"
+    : isDragging
+      ? "pointer-events-none cursor-grabbing opacity-0"
+      : isSelected
+        ? "bg-[#edf2ea] outline outline-1 outline-[#b7cbb4]"
+        : isKeyboardActive
+          ? "bg-[#fff7f1] outline outline-1 outline-[#eab79d]"
+          : "bg-[#f6f3ec]/55 hover:bg-[#fffdf8]";
 
   return (
     <article
       ref={setNodeRef}
       style={style}
-      id={`search-result-${tab.id}`}
-      data-testid={`tab-row-${tab.id}`}
+      id={overlay ? undefined : `search-result-${tab.id}`}
+      data-testid={overlay ? "tab-drag-preview" : `tab-row-${tab.id}`}
       data-dragging={isDragging ? "true" : "false"}
       onMouseEnter={() => {
         if (query) onActiveIndex(index);
       }}
-      className={`group relative border-b border-[#dfdbd0] transition-[background-color,box-shadow] duration-150 ${compact ? "flex items-center gap-2.5 px-2 py-2.5" : "flex gap-3 pr-2 sm:px-2 " + (instantPreview ? "py-3" : "py-4")} ${rowState}`}
+      className={`group relative overflow-hidden border-b border-[#dfdbd0] transition-[background-color,box-shadow] duration-150 ${compact ? "flex h-[45px] items-center gap-2.5 px-2 py-2.5" : "flex gap-3 pr-2 sm:px-2 " + (instantPreview ? "py-3" : "h-32 py-3")} ${rowState}`}
     >
       {(query || selectionEnabled) && (
         <label
@@ -530,7 +586,6 @@ function SortableTabRow({
           score={score}
           fallbackMode={fallbackMode}
           onOpenTagManager={onOpenTagManager}
-          onEdit={onEdit}
         />
       )}
 
@@ -611,53 +666,62 @@ function StandardTabContent({
   score,
   fallbackMode,
   onOpenTagManager,
-  onEdit,
 }: {
   tab: TabListItem;
   query: string;
   score?: number;
   fallbackMode?: "text_fallback" | "semantic";
   onOpenTagManager: () => void;
-  onEdit: (tab: TabListItem) => void;
 }) {
   return (
     <>
       <TabFavicon tab={tab} size="standard" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start gap-2">
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <div className="flex min-w-0 items-start gap-2">
           <a
             href={tab.url}
             target="_blank"
             rel="noreferrer"
-            className="min-w-0 text-[13px] font-bold leading-5 tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
+            className="block min-w-0 flex-1 truncate text-[13px] font-bold leading-5 tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
+            title={tab.title}
           >
             {tab.title}
           </a>
           <ArrowUpRight className="mt-1 hidden h-3.5 w-3.5 shrink-0 text-[#9a9c95] group-hover:block" />
         </div>
-        <p className="mt-1 text-[10px] font-medium text-[#84877f]">
+        <p
+          className="mt-1 truncate text-[10px] font-medium text-[#84877f]"
+          title={`${tab.domain} · updated ${tab.updated}`}
+        >
           {tab.domain} <span className="mx-1.5 text-[#c4c1b9]">·</span> updated{" "}
           {tab.updated}
         </p>
-        <p className="mt-2 max-w-2xl text-[11px] leading-5 text-[#666d65]">
+        <p
+          className="mt-1.5 max-w-2xl truncate text-[11px] leading-5 text-[#666d65]"
+          title={tab.note}
+        >
           {tab.note}
         </p>
-        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          {tab.tags.map(tag => (
+        <div className="mt-2 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+          {tab.tags.slice(0, 3).map(tag => (
             <button
               key={tag}
               onClick={onOpenTagManager}
-              className="rounded border border-[#ded9cd] bg-[#f9f7f1] px-1.5 py-[3px] font-mono text-[9px] text-[#747a72] transition hover:border-[#e95224] hover:text-[#e95224]"
+              title={tag}
+              className="max-w-28 shrink truncate rounded border border-[#ded9cd] bg-[#f9f7f1] px-1.5 py-[3px] font-mono text-[9px] text-[#747a72] transition hover:border-[#e95224] hover:text-[#e95224]"
             >
               {tag}
             </button>
           ))}
-          <button
-            onClick={() => onEdit(tab)}
-            className="ml-1 inline-flex items-center gap-1 font-mono text-[9px] text-[#858a82] hover:text-[#e95224]"
-          >
-            <Pencil className="h-3 w-3" /> edit
-          </button>
+          {tab.tags.length > 3 && (
+            <button
+              onClick={onOpenTagManager}
+              title={tab.tags.slice(3).join(", ")}
+              className="shrink-0 rounded border border-[#ded9cd] bg-[#f9f7f1] px-1.5 py-[3px] font-mono text-[9px] text-[#747a72] transition hover:border-[#e95224] hover:text-[#e95224]"
+            >
+              +{tab.tags.length - 3}
+            </button>
+          )}
           {query && score === undefined && (
             <span className="ml-1 font-mono text-[9px] text-[#be742e]">
               {fallbackMode === "text_fallback" ? "text match" : "local match"}

@@ -15,7 +15,6 @@ import {
   KeyboardSensor,
   PointerSensor,
   pointerWithin,
-  useDroppable,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -53,8 +52,32 @@ import {
   type SyncStatus,
 } from "@/lib/extension";
 import { fromServerDocument, toServerDocument } from "@/lib/library";
-import { TabList, type TabViewMode } from "@/components/TabList";
+import { TabDragPreview, TabList } from "@/components/TabList";
 import { ContextHelp } from "@/components/ContextHelp";
+import { CollectionBoard } from "@/domain/library/components/CollectionBoard";
+import {
+  CreateCollectionDialog,
+  DeleteCollectionDialog,
+  DeleteTabDialog,
+  EditCollectionDialog,
+  EditTabDialog,
+  TagManagerDialog,
+} from "@/domain/library/components/LibraryDialogs";
+import { CollectionDropShelf } from "@/domain/library/components/LibraryDragUi";
+import {
+  initialGroups,
+  initialTags,
+  startingTabs,
+} from "@/domain/library/data";
+import type {
+  GroupId,
+  LibraryViewMode,
+  PersistedVault,
+  SavedSearch,
+  UndoSnapshot,
+  VaultGroup,
+  VaultTab,
+} from "@/domain/library/types";
 import { canonicalizeTabUrl } from "@/lib/url";
 import {
   BrowserStorageAdapter,
@@ -68,18 +91,14 @@ import {
   Boxes,
   ChevronRight,
   Command,
-  FolderPlus,
-  FolderOpen,
   Eye,
   LayoutList,
   LayoutDashboard,
   Plus,
   RefreshCw,
   Rows3,
-  Save,
   Search,
   Settings2,
-  Share2,
   Sparkles,
   Tag,
   Trash2,
@@ -89,169 +108,6 @@ import { toast } from "sonner";
 
 const logoUrl = "/icon-128.png";
 
-type GroupId = string;
-
-type VaultGroup = {
-  id: GroupId;
-  name: string;
-  parent?: GroupId;
-  accent: string;
-};
-
-type LibraryViewMode = TabViewMode | "groups";
-
-type VaultTab = {
-  id: string;
-  groupId: GroupId;
-  title: string;
-  url: string;
-  domain: string;
-  note: string;
-  tags: string[];
-  color: string;
-  icon: string;
-  updated: string;
-  archived?: boolean;
-  archivedAt?: string | null;
-};
-
-type PersistedVault = {
-  tabs: VaultTab[];
-  vaultGroups: VaultGroup[];
-  tagCatalog: Record<string, string>;
-  tabOrders: Record<GroupId, string[]>;
-  savedSearches?: SavedSearch[];
-  tabView?: LibraryViewMode;
-};
-
-type SavedSearch = {
-  id: string;
-  name: string;
-  query: string;
-  groupId: "all" | GroupId;
-};
-type UndoSnapshot = {
-  id: string;
-  label: string;
-  tabs: VaultTab[];
-  tabOrders: Record<GroupId, string[]>;
-  tagCatalog: Record<string, string>;
-};
-
-const initialGroups: VaultGroup[] = [
-  { id: "inbox", name: "Inbox", accent: "#F05A28" },
-  { id: "research", name: "Research", accent: "#829b65" },
-  {
-    id: "llm-papers",
-    name: "LLM papers",
-    parent: "research",
-    accent: "#7aa6a1",
-  },
-  { id: "build", name: "Build", accent: "#7c8bba" },
-  { id: "filed", name: "Filed", accent: "#bb9b68" },
-];
-
-const initialTags: Record<string, string> = {
-  product: "Product thinking and decisions",
-  "read later": "Links worth revisiting",
-  "vector search": "Semantic retrieval and embeddings",
-  docs: "Documentation and reference material",
-  mcp: "Model Context Protocol",
-  reference: "Primary technical reference",
-  chrome: "Chrome extension implementation",
-  ux: "Interface and workflow design",
-  "local-first": "Local ownership and resilience",
-  papers: "Research papers",
-  server: "Local server architecture",
-};
-
-const startingTabs: VaultTab[] = [
-  {
-    id: "t-1001",
-    groupId: "inbox",
-    title: "Agents can organize the web better than we can",
-    url: "https://notes.example.com/agents-organize-web",
-    domain: "notes.example.com",
-    note: "A useful framing for the agent-facing contract. Keep for product language.",
-    tags: ["product", "read later"],
-    color: "#EDB958",
-    icon: "A",
-    updated: "12m",
-  },
-  {
-    id: "t-1002",
-    groupId: "inbox",
-    title: "Zvec — embedded vector database",
-    url: "https://zvec.org/docs",
-    domain: "zvec.org",
-    note: "Check its persistence model and rebuild story before architecture review.",
-    tags: ["vector search", "docs"],
-    color: "#6b8c7e",
-    icon: "Z",
-    updated: "26m",
-  },
-  {
-    id: "t-1003",
-    groupId: "inbox",
-    title: "Model Context Protocol specification",
-    url: "https://modelcontextprotocol.io/specification",
-    domain: "modelcontextprotocol.io",
-    note: "Reference implementation details for import_data and fields=minimal.",
-    tags: ["mcp", "reference"],
-    color: "#0e3c34",
-    icon: "M",
-    updated: "1h",
-  },
-  {
-    id: "t-1004",
-    groupId: "inbox",
-    title: "A guide to browser extension side panels",
-    url: "https://developer.chrome.com/docs/extensions/reference/api/sidePanel",
-    domain: "developer.chrome.com",
-    note: "Evaluate persistent side panel navigation for nested group drag-and-drop.",
-    tags: ["chrome", "ux"],
-    color: "#4385f4",
-    icon: "C",
-    updated: "2h",
-  },
-  {
-    id: "t-1005",
-    groupId: "inbox",
-    title: "Local-first software: You own your work",
-    url: "https://www.inkandswitch.com/local-first/",
-    domain: "inkandswitch.com",
-    note: "Strong philosophy reference for the local server as the source of truth.",
-    tags: ["local-first"],
-    color: "#e5773f",
-    icon: "I",
-    updated: "Yesterday",
-  },
-  {
-    id: "t-1006",
-    groupId: "llm-papers",
-    title: "Flow Matching for Generative Modeling",
-    url: "https://arxiv.org/abs/2210.02747",
-    domain: "arxiv.org",
-    note: "Re-read the section on ODE solvers.",
-    tags: ["read later", "papers"],
-    color: "#b83b36",
-    icon: "arX",
-    updated: "2d",
-  },
-  {
-    id: "t-1007",
-    groupId: "build",
-    title: "FastAPI — validation error handling",
-    url: "https://fastapi.tiangolo.com/tutorial/handling-errors/",
-    domain: "fastapi.tiangolo.com",
-    note: "Potential source shape for batched validation reports.",
-    tags: ["server", "docs"],
-    color: "#009688",
-    icon: "F",
-    updated: "3d",
-  },
-];
-
 function BrandMark({ className = "h-8 w-8" }: { className?: string }) {
   return (
     <img
@@ -259,219 +115,6 @@ function BrandMark({ className = "h-8 w-8" }: { className?: string }) {
       alt="TabVault"
       className={`${className} object-contain`}
     />
-  );
-}
-
-function TabDragPreview({ tab }: { tab: VaultTab }) {
-  return (
-    <div
-      data-testid="tab-drag-preview"
-      className="pointer-events-none flex max-w-80 items-center gap-2 rounded border border-[#eaa889] bg-[#fffdf8] px-3 py-2 shadow-lg"
-    >
-      <span
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[8px] font-bold text-white"
-        style={{ backgroundColor: tab.color }}
-      >
-        {tab.icon}
-      </span>
-      <span className="truncate text-[12px] font-bold text-[#26342c]">
-        {tab.title}
-      </span>
-    </div>
-  );
-}
-
-function CollectionDropShelf({ groups }: { groups: VaultGroup[] }) {
-  return (
-    <div
-      data-testid="collection-drop-shelf"
-      className="flex flex-wrap items-center gap-1.5 border-b border-[#dfdbd0] bg-[#f9f7f1] px-3 py-1.5"
-    >
-      <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#9a9c95]">
-        Quick move
-      </span>
-      {groups.map(group => (
-        <CollectionDropChip key={group.id} group={group} />
-      ))}
-    </div>
-  );
-}
-
-function CollectionDropChip({ group }: { group: VaultGroup }) {
-  const { isOver, setNodeRef } = useDroppable({
-    id: `collection-drop:${group.id}`,
-    data: { groupId: group.id },
-  });
-
-  return (
-    <div
-      ref={setNodeRef}
-      data-testid={`collection-drop-${group.id}`}
-      data-drop-active={isOver ? "true" : "false"}
-      className={`flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.06em] transition ${isOver ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#d9d3c6] bg-[#fffdf8] text-[#7a7e76]"}`}
-      aria-label={`Drop a tab into ${group.name}`}
-    >
-      <span
-        className="h-1.5 w-1.5 rounded-full"
-        style={{ backgroundColor: group.accent }}
-      />
-      {group.name}
-    </div>
-  );
-}
-
-function CollectionBoard({
-  groups,
-  tabs,
-  onOpen,
-  onShare,
-  onDelete,
-  onBrowse,
-  onCreate,
-}: {
-  groups: VaultGroup[];
-  tabs: VaultTab[];
-  onOpen: (group: VaultGroup) => void;
-  onShare: (group: VaultGroup) => void;
-  onDelete: (group: VaultGroup) => void;
-  onBrowse: (groupId: GroupId) => void;
-  onCreate: () => void;
-}) {
-  const collectionIds = (groupId: GroupId) => {
-    const ids = new Set<GroupId>([groupId]);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      groups.forEach(group => {
-        if (group.parent && ids.has(group.parent) && !ids.has(group.id)) {
-          ids.add(group.id);
-          changed = true;
-        }
-      });
-    }
-    return ids;
-  };
-  const collections = groups.filter(group => !group.parent);
-
-  return (
-    <div
-      data-testid="group-board"
-      className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
-    >
-      {collections.map(group => {
-        const groupTabs = tabs.filter(tab =>
-          collectionIds(group.id).has(tab.groupId)
-        );
-        return (
-          <article
-            key={group.id}
-            data-testid={`group-card-${group.id}`}
-            className="group flex min-h-[210px] flex-col border border-[#dcd7cc] bg-[#fffdf8] p-5 shadow-[0_10px_24px_rgba(24,38,31,0.035)] transition hover:-translate-y-0.5 hover:border-[#c7c1b4]"
-          >
-            <div className="flex items-start gap-3">
-              <button
-                onClick={() => onBrowse(group.id)}
-                data-testid={`group-browse-${group.id}`}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e95224]"
-              >
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: group.accent }}
-                />
-                <span className="truncate text-[15px] font-bold tracking-[-0.025em] text-[#26342c]">
-                  {group.name}
-                </span>
-              </button>
-              <div
-                className="flex shrink-0 items-center gap-0.5"
-                aria-label={`${group.name} collection actions`}
-              >
-                <button
-                  onClick={() => onOpen(group)}
-                  className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                  aria-label={`Open all tabs in ${group.name}`}
-                  title="Open all tabs"
-                >
-                  <FolderOpen className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={() => onShare(group)}
-                  className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                  aria-label={`Copy ${group.name} as Markdown`}
-                  title="Copy as Markdown"
-                >
-                  <Share2 className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={() => onDelete(group)}
-                  disabled={group.id === "inbox"}
-                  className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] disabled:cursor-not-allowed disabled:opacity-35"
-                  aria-label={
-                    group.id === "inbox"
-                      ? "Inbox cannot be deleted"
-                      : `Delete ${group.name}`
-                  }
-                  title={
-                    group.id === "inbox"
-                      ? "Inbox is protected"
-                      : "Delete collection"
-                  }
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-            <button
-              onClick={() => onBrowse(group.id)}
-              className="mt-6 flex flex-1 items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e95224]"
-              aria-label={`Browse ${group.name}`}
-            >
-              {groupTabs.slice(0, 4).map(tab => (
-                <span
-                  key={tab.id}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#e2ddd2] bg-[#f8f5ed] text-[11px] font-bold text-[#536259]"
-                  title={tab.title}
-                >
-                  {tab.icon.slice(0, 2)}
-                </span>
-              ))}
-              {groupTabs.length > 4 ? (
-                <span className="flex h-9 min-w-9 items-center justify-center rounded-md border border-[#e2ddd2] bg-[#f8f5ed] px-2 font-mono text-[10px] text-[#667268]">
-                  +{groupTabs.length - 4}
-                </span>
-              ) : null}
-              {!groupTabs.length ? (
-                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#92958d]">
-                  Empty collection
-                </span>
-              ) : null}
-            </button>
-            <div className="mt-5 flex items-center justify-between border-t border-[#e8e3d8] pt-3 font-mono text-[9px] uppercase tracking-[0.08em] text-[#858980]">
-              <span>{groupTabs.length} tabs</span>
-              <button
-                onClick={() => onBrowse(group.id)}
-                className="font-semibold text-[#667268] hover:text-[#e95224]"
-              >
-                Browse →
-              </button>
-            </div>
-          </article>
-        );
-      })}
-      <button
-        onClick={onCreate}
-        data-testid="create-collection-card"
-        className="flex min-h-[210px] flex-col items-center justify-center border border-dashed border-[#c9c2b5] bg-[#f8f5ed]/60 px-6 text-center transition hover:border-[#e95224] hover:bg-[#fff7f1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e95224]"
-      >
-        <FolderPlus className="h-5 w-5 text-[#e95224]" />
-        <span className="mt-4 text-[14px] font-bold tracking-[-0.02em] text-[#3b4a40]">
-          Create collection
-        </span>
-        <span className="mt-1 text-[11px] leading-5 text-[#7c8179]">
-          Add a new place for related links.
-        </span>
-      </button>
-    </div>
   );
 }
 
@@ -494,21 +137,29 @@ export default function Home() {
     const pointerCollisions = pointerWithin(args).filter(
       ({ id }) => id !== args.active.id
     );
-    const explicitTarget = pointerCollisions.find(({ id }) =>
-      /^(collection-drop|group-drop):/.test(String(id))
+    const quickMoveTarget = pointerCollisions.find(({ id }) =>
+      String(id).startsWith("collection-drop:")
     );
-    if (explicitTarget) return [explicitTarget];
-    const itemCollisions = pointerCollisions.filter(
-      ({ id }) => !String(id).startsWith("group-container:")
+    if (quickMoveTarget) return [quickMoveTarget];
+    const pointerItemCollisions = pointerCollisions.filter(
+      ({ id }) =>
+        !/^(collection-drop|group-drop|group-container):/.test(String(id))
     );
-    if (itemCollisions.length) return itemCollisions;
+    if (pointerItemCollisions.length) return pointerItemCollisions;
+    const groupContainer = pointerCollisions.find(({ id }) =>
+      String(id).startsWith("group-container:")
+    );
+    if (groupContainer) return [groupContainer];
+    const itemCollisions = closestCenter(args).filter(
+      ({ id }) =>
+        !/^(collection-drop|group-drop|group-container):/.test(String(id))
+    );
+    if (itemCollisions.length) return [itemCollisions[0]];
     return pointerCollisions.length ? pointerCollisions : closestCenter(args);
   }, []);
   const [tabs, setTabs] = useState(startingTabs);
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const [dragPlaceholderHeight, setDragPlaceholderHeight] = useState<
-    number | undefined
-  >();
+  const [activeDragId, setActiveDragId] = useState<string>();
+  const [activeDragHeight, setActiveDragHeight] = useState<number>();
   const [tabOrders, setTabOrders] = useState<Record<GroupId, string[]>>(() =>
     startingTabs.reduce<Record<GroupId, string[]>>(
       (orders, tab) => ({
@@ -581,10 +232,16 @@ export default function Home() {
   const [isRefreshingLibrary, setIsRefreshingLibrary] = useState(false);
   const libraryRefreshInFlight = useRef(false);
   const vaultRef = useRef<PersistedVault | null>(null);
-  const dragSnapshotRef = useRef<{
-    tabs: VaultTab[];
-    tabOrders: Record<GroupId, string[]>;
-  } | null>(null);
+  const dragSnapshotRef = useRef<
+    | {
+        tabs: VaultTab[];
+        tabOrders: Record<GroupId, string[]>;
+      }
+    | undefined
+  >(undefined);
+  const lastCrossOverRef = useRef<
+    { groupId: GroupId; entryOverId: string; overId: string } | undefined
+  >(undefined);
   const refreshLibraryRef = useRef<
     (options?: { silent?: boolean }) => Promise<void>
   >(async () => undefined);
@@ -764,7 +421,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!storageReady) return;
+    if (!storageReady || activeDragId) return;
     const browser = new BrowserStorageAdapter<PersistedVault>();
     const server =
       storageMode === "backend" && serverOnline
@@ -806,6 +463,7 @@ export default function Home() {
     storageMode,
     localServerUrl,
     serverApiKey,
+    activeDragId,
   ]);
 
   useEffect(() => {
@@ -1460,47 +1118,6 @@ export default function Home() {
     });
   };
 
-  const moveTabAtPosition = (
-    tabId: string,
-    groupId: GroupId,
-    insertionIndex: number
-  ) => {
-    const sourceGroup = tabs.find(tab => tab.id === tabId)?.groupId;
-    const destination =
-      vaultGroups.find(group => group.id === groupId)?.name ?? "collection";
-    setTabs(current =>
-      current.map(tab =>
-        tab.id === tabId
-          ? { ...tab, groupId, updated: new Date().toISOString() }
-          : tab
-      )
-    );
-    setTabOrders(current => {
-      const withoutTab = Object.fromEntries(
-        Object.entries(current).map(([id, orderedIds]) => [
-          id,
-          orderedIds.filter(id => id !== tabId),
-        ])
-      ) as Record<GroupId, string[]>;
-      const destinationOrder = [...(withoutTab[groupId] ?? [])];
-      destinationOrder.splice(
-        Math.max(0, Math.min(insertionIndex, destinationOrder.length)),
-        0,
-        tabId
-      );
-      return {
-        ...withoutTab,
-        ...(sourceGroup
-          ? { [sourceGroup]: withoutTab[sourceGroup] ?? [] }
-          : {}),
-        [groupId]: destinationOrder,
-      };
-    });
-    toast.success(`Moved to ${destination}`, {
-      description: "Placed at the requested position in this collection.",
-    });
-  };
-
   const captureCurrentTab = async (providedTab?: ChromeTabSnapshot) => {
     if (!extensionContext) {
       toast.error("Active-tab capture is available in the Chrome extension");
@@ -1848,110 +1465,106 @@ export default function Home() {
       .slice(0, 8);
   }, [editingTab, tagCatalog, tagDraft]);
 
-  const reorderTabs = (
-    sourceId: string,
-    targetId: string | "end",
-    position: "before" | "after"
-  ) => {
-    const source = tabs.find(tab => tab.id === sourceId);
-    const target =
-      targetId === "end" ? undefined : tabs.find(tab => tab.id === targetId);
-    if (!source || (target && source.groupId !== target.groupId)) {
-      toast.info(
-        "To move a tab to another collection, drop it on the collection in the rail."
-      );
-      return;
-    }
-    setTabOrders(current => {
-      const nextOrder = [...(current[source.groupId] ?? [])].filter(
-        id => id !== sourceId
-      );
-      const insertionIndex =
-        targetId === "end"
-          ? nextOrder.length
-          : Math.max(
-              0,
-              nextOrder.indexOf(targetId) + (position === "after" ? 1 : 0)
-            );
-      nextOrder.splice(insertionIndex, 0, sourceId);
-      return { ...current, [source.groupId]: nextOrder };
-    });
-    toast.success("Order updated", {
-      description: "The tab has been repositioned in this collection.",
-    });
-  };
-
   const handleLibraryDragStart = ({ active }: DragStartEvent) => {
     dragSnapshotRef.current = { tabs, tabOrders };
+    lastCrossOverRef.current = undefined;
     setActiveDragId(String(active.id));
-    setDragPlaceholderHeight(
+    setActiveDragHeight(
       document
         .getElementById(`search-result-${String(active.id)}`)
-        ?.getBoundingClientRect().height ?? 48
+        ?.getBoundingClientRect().height ?? active.rect.current.initial?.height
     );
   };
 
-  const moveTabDuringDrag = (
-    tabId: string,
-    groupId: GroupId,
-    insertionIndex: number
-  ) => {
+  const handleLibraryDragOver = ({
+    active,
+    over,
+    activatorEvent,
+    delta,
+  }: DragOverEvent) => {
+    if (!over || active.id === over.id) return;
+    const source = tabs.find(tab => tab.id === active.id);
+    const target = tabs.find(tab => tab.id === over.id);
+    const groupId = target?.groupId ?? over.data.current?.groupId;
+    if (!source || typeof groupId !== "string") return;
+
+    if (source.groupId === groupId) {
+      const original = dragSnapshotRef.current?.tabs.find(
+        tab => tab.id === active.id
+      );
+      if (original?.groupId !== groupId && lastCrossOverRef.current) {
+        lastCrossOverRef.current.overId = String(over.id);
+      }
+      if (String(over.id).startsWith("group-container:")) {
+        setTabOrders(current => {
+          const order = current[groupId] ?? [];
+          if (order.at(-1) === source.id) return current;
+          return {
+            ...current,
+            [groupId]: [...order.filter(id => id !== source.id), source.id],
+          };
+        });
+      }
+      return;
+    }
+
+    const pointerY =
+      "clientY" in activatorEvent && typeof activatorEvent.clientY === "number"
+        ? activatorEvent.clientY + delta.y
+        : undefined;
+    const activeRect = active.rect.current.translated;
+    const placeAfter = Boolean(
+      target &&
+        (pointerY !== undefined
+          ? pointerY > over.rect.top + over.rect.height / 2
+          : activeRect && activeRect.top > over.rect.top + over.rect.height)
+    );
     setTabs(current =>
-      current.map(tab => (tab.id === tabId ? { ...tab, groupId } : tab))
+      current.map(tab => (tab.id === source.id ? { ...tab, groupId } : tab))
     );
     setTabOrders(current => {
       const next = Object.fromEntries(
         Object.entries(current).map(([id, orderedIds]) => [
           id,
-          orderedIds.filter(id => id !== tabId),
+          orderedIds.filter(id => id !== source.id),
         ])
       ) as Record<GroupId, string[]>;
       const destination = [...(next[groupId] ?? [])];
+      const targetIndex = target ? destination.indexOf(target.id) : -1;
       destination.splice(
-        Math.max(0, Math.min(insertionIndex, destination.length)),
+        targetIndex < 0
+          ? destination.length
+          : targetIndex + (placeAfter ? 1 : 0),
         0,
-        tabId
+        source.id
       );
       return { ...next, [groupId]: destination };
     });
+    lastCrossOverRef.current = {
+      groupId,
+      entryOverId: String(over.id),
+      overId: String(over.id),
+    };
   };
 
-  const handleLibraryDragOver = ({ active, over }: DragOverEvent) => {
-    if (!over || active.id === over.id) return;
-    const source = tabs.find(tab => tab.id === active.id);
-    const target = tabs.find(tab => tab.id === over.id);
-    const groupId = over.data.current?.groupId ?? target?.groupId;
-    if (!source || typeof groupId !== "string" || source.groupId === groupId)
-      return;
-
-    const targetIndex = target
-      ? (tabOrders[groupId] ?? []).indexOf(target.id)
-      : (tabOrders[groupId] ?? []).length;
-    const activeRect = active.rect.current.translated;
-    const placeAfter =
-      target && activeRect
-        ? activeRect.top + activeRect.height / 2 >
-          over.rect.top + over.rect.height / 2
-        : false;
-    moveTabDuringDrag(source.id, groupId, targetIndex + (placeAfter ? 1 : 0));
-  };
-
-  const handleLibraryDragCancel = () => {
-    const snapshot = dragSnapshotRef.current;
-    if (snapshot) {
-      setTabs(snapshot.tabs);
-      setTabOrders(snapshot.tabOrders);
+  const cancelLibraryDrag = () => {
+    if (dragSnapshotRef.current) {
+      setTabs(dragSnapshotRef.current.tabs);
+      setTabOrders(dragSnapshotRef.current.tabOrders);
     }
-    dragSnapshotRef.current = null;
-    setActiveDragId(null);
-    setDragPlaceholderHeight(undefined);
+    dragSnapshotRef.current = undefined;
+    lastCrossOverRef.current = undefined;
+    setActiveDragId(undefined);
+    setActiveDragHeight(undefined);
   };
 
   const handleLibraryDragEnd = ({ active, over }: DragEndEvent) => {
     const snapshot = dragSnapshotRef.current;
-    dragSnapshotRef.current = null;
-    setActiveDragId(null);
-    setDragPlaceholderHeight(undefined);
+    const lastCrossOver = lastCrossOverRef.current;
+    dragSnapshotRef.current = undefined;
+    lastCrossOverRef.current = undefined;
+    setActiveDragId(undefined);
+    setActiveDragHeight(undefined);
     if (!over) {
       if (snapshot) {
         setTabs(snapshot.tabs);
@@ -1959,41 +1572,51 @@ export default function Home() {
       }
       return;
     }
-    if (active.id === over.id) return;
     const source = tabs.find(tab => tab.id === active.id);
     if (!source) return;
-    const originalGroupId = snapshot?.tabs.find(
-      tab => tab.id === active.id
-    )?.groupId;
-    if (originalGroupId && originalGroupId !== source.groupId) return;
-    const groupId = over.data.current?.groupId;
-    if (typeof groupId === "string") {
-      if (source.groupId !== groupId) moveTab(source.id, groupId);
-      return;
+    const original = snapshot?.tabs.find(tab => tab.id === active.id);
+    const movedToAnotherGroup = original?.groupId !== source.groupId;
+    const finalOverId = movedToAnotherGroup
+      ? (lastCrossOver?.overId ?? String(over.id))
+      : String(over.id);
+    const target = tabs.find(tab => tab.id === finalOverId);
+    const stayedOnInitialCrossTarget =
+      movedToAnotherGroup &&
+      lastCrossOver?.entryOverId === lastCrossOver?.overId;
+    if (
+      active.id !== over.id &&
+      target?.groupId === source.groupId &&
+      !stayedOnInitialCrossTarget
+    ) {
+      setTabOrders(current => {
+        const currentOrder = current[source.groupId] ?? [];
+        const sourceIndex = currentOrder.indexOf(source.id);
+        const originalTargetIndex = currentOrder.indexOf(target.id);
+        const order = currentOrder.filter(id => id !== source.id);
+        const targetIndex = order.indexOf(target.id);
+        order.splice(
+          targetIndex < 0
+            ? order.length
+            : targetIndex + (sourceIndex < originalTargetIndex ? 1 : 0),
+          0,
+          source.id
+        );
+        return { ...current, [source.groupId]: order };
+      });
     }
-    const target = tabs.find(tab => tab.id === over.id);
-    if (!target) return;
-    const sourceIndex = (tabOrders[source.groupId] ?? []).indexOf(source.id);
-    const targetIndex = (tabOrders[target.groupId] ?? []).indexOf(target.id);
-    if (source.groupId !== target.groupId) {
-      const activeRect = active.rect.current.translated;
-      const overRect = over.rect;
-      const placeAfter = activeRect
-        ? activeRect.top + activeRect.height / 2 >
-          overRect.top + overRect.height / 2
-        : false;
-      moveTabAtPosition(
-        source.id,
-        target.groupId,
-        targetIndex + (placeAfter ? 1 : 0)
-      );
-      return;
+
+    if (movedToAnotherGroup) {
+      const destination =
+        vaultGroups.find(group => group.id === source.groupId)?.name ??
+        "collection";
+      toast.success(`Moved to ${destination}`, {
+        description: "Placed at the requested position in this collection.",
+      });
+    } else if (active.id !== over.id) {
+      toast.success("Order updated", {
+        description: "The tab has been repositioned in this collection.",
+      });
     }
-    reorderTabs(
-      source.id,
-      target.id,
-      sourceIndex < targetIndex ? "after" : "before"
-    );
   };
 
   const renameTag = (oldName: string, nextName: string) => {
@@ -2085,7 +1708,6 @@ export default function Home() {
   const activeDragTab = activeDragId
     ? tabs.find(tab => tab.id === activeDragId)
     : undefined;
-
   return (
     <DndContext
       sensors={sensors}
@@ -2093,7 +1715,7 @@ export default function Home() {
       onDragStart={handleLibraryDragStart}
       onDragOver={handleLibraryDragOver}
       onDragEnd={handleLibraryDragEnd}
-      onDragCancel={handleLibraryDragCancel}
+      onDragCancel={cancelLibraryDrag}
     >
       <div className="min-h-screen bg-[#f6f3ec] text-[#18261f] paper-grain">
         <aside
@@ -2988,7 +2610,7 @@ export default function Home() {
                           ? { url: localServerUrl, apiKey: serverApiKey }
                           : undefined
                       }
-                      dragPlaceholderHeight={dragPlaceholderHeight}
+                      activeDragHeight={activeDragHeight}
                     />
                   </>
                 ) : (
@@ -3012,466 +2634,93 @@ export default function Home() {
         </main>
 
         {showGroupDialog && (
-          <div
-            className="fixed inset-0 z-40 flex items-center justify-center bg-[#18261f]/30 p-5 backdrop-blur-[2px]"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Create collection"
-          >
-            <div className="w-full max-w-sm bg-[#fffdf8] p-5 shadow-[0_24px_70px_rgba(24,38,31,0.25)] rise-in">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#858980]">
-                    Collection
-                  </p>
-                  <h2 className="mt-1 font-['DM_Sans'] text-[20px] font-bold tracking-[-0.045em]">
-                    Name a new shelf
-                  </h2>
-                </div>
-                <button
-                  onClick={() => setShowGroupDialog(false)}
-                  className="p-1 text-[#747970] hover:text-[#18261f]"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <input
-                autoFocus
-                value={newGroupName}
-                onChange={event => setNewGroupName(event.target.value)}
-                onKeyDown={event => {
-                  if (event.key === "Enter") createGroup();
-                }}
-                placeholder="e.g. Weekend reading"
-                className="mt-5 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[13px] font-semibold outline-none focus:border-[#e95224]"
-              />
-              <div className="mt-5 flex justify-end gap-2">
-                <button
-                  onClick={() => setShowGroupDialog(false)}
-                  className="px-3 py-2 text-[11px] font-bold text-[#72776f]"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={createGroup}
-                  className="rounded-md bg-[#e95224] px-3 py-2 text-[11px] font-bold text-white hover:bg-[#d94a1e]"
-                >
-                  Create collection
-                </button>
-              </div>
-            </div>
-          </div>
+          <CreateCollectionDialog
+            name={newGroupName}
+            onNameChange={setNewGroupName}
+            onClose={() => setShowGroupDialog(false)}
+            onCreate={createGroup}
+          />
         )}
 
         {editingCollection && (
-          <div
-            className="fixed inset-0 z-40 flex items-center justify-center bg-[#18261f]/30 p-5 backdrop-blur-[2px]"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Edit collection"
-          >
-            <div className="w-full max-w-sm bg-[#fffdf8] p-5 shadow-[0_24px_70px_rgba(24,38,31,0.25)] rise-in">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#858980]">
-                    Collection
-                  </p>
-                  <h2 className="mt-1 font-['DM_Sans'] text-[20px] font-bold tracking-[-0.045em]">
-                    Edit shelf
-                  </h2>
-                </div>
-                <button
-                  onClick={() => setEditingCollection(null)}
-                  className="p-1 text-[#747970] hover:text-[#18261f]"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <label className="mt-5 block">
-                <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-                  Name
-                </span>
-                <input
-                  value={editingCollection.name}
-                  onChange={event =>
-                    setEditingCollection({
-                      ...editingCollection,
-                      name: event.target.value,
-                    })
-                  }
-                  onKeyDown={event => {
-                    if (event.key === "Enter") saveCollection();
-                  }}
-                  className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[13px] font-semibold outline-none focus:border-[#e95224]"
-                />
-              </label>
-              <div className="mt-5 flex justify-end gap-2">
-                <button
-                  onClick={() => setEditingCollection(null)}
-                  className="px-3 py-2 text-[11px] font-bold text-[#72776f]"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveCollection}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-[#e95224] px-3 py-2 text-[11px] font-bold text-white hover:bg-[#d94a1e]"
-                >
-                  <Save className="h-3.5 w-3.5" /> Save name
-                </button>
-              </div>
-            </div>
-          </div>
+          <EditCollectionDialog
+            collection={editingCollection}
+            onChange={setEditingCollection}
+            onClose={() => setEditingCollection(null)}
+            onSave={saveCollection}
+          />
         )}
 
         {collectionPendingDelete && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-[#18261f]/40 p-5 backdrop-blur-[2px]"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Delete ${collectionPendingDelete.name} collection`}
-          >
-            <div className="w-full max-w-sm border border-[#e3b7a7] bg-[#fffdf8] p-5 shadow-[0_24px_70px_rgba(24,38,31,0.25)] rise-in">
-              <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-[#c84b26]">
-                <Trash2 className="h-3.5 w-3.5" /> Remove collection
-              </p>
-              <h2 className="mt-2 font-['DM_Sans'] text-[22px] font-bold tracking-[-0.05em]">
-                Delete “{collectionPendingDelete.name}”?
-              </h2>
-              <p className="mt-3 text-[12px] leading-5 text-[#687067]">
-                The collection structure will be removed. Its saved tabs will be
-                returned to Inbox rather than deleted.
-              </p>
-              <div className="mt-6 flex justify-end gap-2">
-                <button
-                  onClick={() => setCollectionPendingDelete(null)}
-                  className="px-3 py-2 text-[11px] font-bold text-[#72776f] hover:text-[#18261f]"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => deleteCollection(collectionPendingDelete)}
-                  className="rounded-md bg-[#c84b26] px-3 py-2 text-[11px] font-bold text-white hover:bg-[#ae3b1d]"
-                >
-                  Delete collection
-                </button>
-              </div>
-            </div>
-          </div>
+          <DeleteCollectionDialog
+            collection={collectionPendingDelete}
+            onClose={() => setCollectionPendingDelete(null)}
+            onDelete={() => deleteCollection(collectionPendingDelete)}
+          />
         )}
 
         {tabPendingDelete && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-[#18261f]/40 p-5 backdrop-blur-[2px]"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${isArchivePage ? "Permanently delete" : "Archive"} ${tabPendingDelete.title}`}
-          >
-            <div className="w-full max-w-sm border border-[#e3b7a7] bg-[#fffdf8] p-5 shadow-[0_24px_70px_rgba(24,38,31,0.25)] rise-in">
-              <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.14em] text-[#c84b26]">
-                <Trash2 className="h-3.5 w-3.5" />{" "}
-                {isArchivePage ? "Permanent deletion" : "Archive saved tab"}
-              </p>
-              <h2 className="mt-2 font-['DM_Sans'] text-[22px] font-bold tracking-[-0.05em]">
-                {isArchivePage
-                  ? "Permanently delete this tab?"
-                  : "Archive this tab?"}
-              </h2>
-              <p className="mt-3 text-[12px] leading-5 text-[#687067]">
-                {isArchivePage
-                  ? `“${tabPendingDelete.title}” will be removed from local storage and the configured backend. This cannot be undone.`
-                  : `“${tabPendingDelete.title}” will leave your active library but remain recoverable in Archive. Saving the same URL restores its existing notes and tags.`}
-              </p>
-              <div className="mt-6 flex justify-end gap-2">
-                <button
-                  onClick={() => setTabPendingDelete(null)}
-                  className="px-3 py-2 text-[11px] font-bold text-[#72776f] hover:text-[#18261f]"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => void deleteTab(tabPendingDelete)}
-                  className="rounded-md bg-[#c84b26] px-3 py-2 text-[11px] font-bold text-white hover:bg-[#ae3b1d]"
-                >
-                  {isArchivePage ? "Permanently delete" : "Archive tab"}
-                </button>
-              </div>
-            </div>
-          </div>
+          <DeleteTabDialog
+            tab={tabPendingDelete}
+            permanent={isArchivePage}
+            onClose={() => setTabPendingDelete(null)}
+            onDelete={() => void deleteTab(tabPendingDelete)}
+          />
         )}
 
         {showTagManager && (
-          <div
-            className="fixed inset-0 z-40 flex items-end justify-center bg-[#18261f]/30 p-3 backdrop-blur-[2px] sm:items-center sm:p-6"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Manage tags"
-          >
-            <div className="w-full max-w-[700px] overflow-hidden bg-[#fffdf8] shadow-[0_24px_70px_rgba(24,38,31,0.25)] rise-in">
-              <div className="flex items-center justify-between border-b border-[#ded9cd] px-5 py-4 sm:px-6">
-                <div>
-                  <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#858980]">
-                    Tag directory
-                  </p>
-                  <h2 className="mt-1 font-['DM_Sans'] text-[20px] font-bold tracking-[-0.045em]">
-                    Edit your index vocabulary
-                  </h2>
-                </div>
-                <button
-                  onClick={() => setShowTagManager(false)}
-                  className="rounded-md p-2 text-[#747970] hover:bg-[#efede6]"
-                  aria-label="Close tag manager"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="border-b border-[#ded9cd] bg-[#f9f7f1] p-5 sm:p-6">
-                <p className="text-[11px] leading-5 text-[#697068]">
-                  Changing a tag name updates every linked tab. Add an optional
-                  description so an agent can understand the index without
-                  asking for context.
-                </p>
-                <div className="mt-4 flex gap-2">
-                  <input
-                    value={newTagName}
-                    onChange={event => setNewTagName(event.target.value)}
-                    onKeyDown={event => {
-                      if (event.key === "Enter") addLibraryTag();
-                    }}
-                    placeholder="New tag"
-                    className="min-w-0 flex-1 border-b border-[#bcb6a8] bg-[#fffdf8] px-3 py-2 text-[12px] font-semibold outline-none focus:border-[#e95224]"
-                  />
-                  <button
-                    onClick={addLibraryTag}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-[#e95224] px-3 py-2 text-[10px] font-bold text-white hover:bg-[#d94a1e]"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Add tag
-                  </button>
-                </div>
-              </div>
-              <div className="thin-scrollbar max-h-[380px] overflow-y-auto p-5 sm:p-6">
-                {Object.entries(tagCatalog)
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([name, description]) => (
-                    <div
-                      key={name}
-                      className="grid gap-2 border-b border-[#e6e1d7] py-3 sm:grid-cols-[170px_1fr_auto]"
-                    >
-                      <input
-                        defaultValue={name}
-                        onBlur={event => renameTag(name, event.target.value)}
-                        aria-label={`Tag name ${name}`}
-                        className="min-w-0 bg-transparent font-mono text-[11px] font-medium text-[#334438] outline-none focus:text-[#e95224]"
-                      />
-                      <input
-                        value={description}
-                        onChange={event =>
-                          setTagCatalog(current => ({
-                            ...current,
-                            [name]: event.target.value,
-                          }))
-                        }
-                        placeholder="No description"
-                        aria-label={`Description for ${name}`}
-                        className="min-w-0 bg-transparent text-[11px] text-[#697068] outline-none placeholder:text-[#aaa9a1] focus:text-[#18261f]"
-                      />
-                      <button
-                        onClick={() => removeTag(name)}
-                        className="justify-self-start rounded p-1 text-[#9a9b94] hover:bg-[#fff0ea] hover:text-[#c84725]"
-                        aria-label={`Remove ${name}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-              </div>
-              <div className="flex justify-between border-t border-[#ded9cd] bg-[#f9f7f1] px-5 py-4 sm:px-6">
-                <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[#858980]">
-                  {Object.keys(tagCatalog).length} indexed tags
-                </span>
-                <button
-                  onClick={() => {
-                    setShowTagManager(false);
-                    toast.success("Tag directory saved", {
-                      description:
-                        "The local index is ready for the next question.",
-                    });
-                  }}
-                  className="text-[11px] font-bold text-[#e95224] hover:underline"
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          </div>
+          <TagManagerDialog
+            tags={tagCatalog}
+            newTagName={newTagName}
+            onNewTagNameChange={setNewTagName}
+            onDescriptionChange={(name, description) =>
+              setTagCatalog(current => ({ ...current, [name]: description }))
+            }
+            onRename={renameTag}
+            onRemove={removeTag}
+            onAdd={addLibraryTag}
+            onClose={() => {
+              setShowTagManager(false);
+              toast.success("Tag directory saved", {
+                description: "The local index is ready for the next question.",
+              });
+            }}
+          />
         )}
 
         {editingTab && (
-          <div
-            className="fixed inset-0 z-40 flex items-end justify-center bg-[#18261f]/35 p-3 backdrop-blur-[2px] sm:items-center sm:p-6"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Edit tab"
-          >
-            <div className="thin-scrollbar w-full max-w-[760px] max-h-[calc(100vh-24px)] overflow-y-auto bg-[#fffdf8] shadow-[0_24px_70px_rgba(24,38,31,0.25)] rise-in">
-              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#ded9cd] bg-[#fffdf8]/95 px-5 py-4 backdrop-blur sm:px-6">
-                <div>
-                  <p className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#858980]">
-                    Tab record
-                  </p>
-                  <h2 className="mt-1 font-['DM_Sans'] text-[20px] font-bold tracking-[-0.045em]">
-                    Edit saved tab
-                  </h2>
-                </div>
-                <button
-                  onClick={() => setEditingTab(null)}
-                  className="rounded-md p-2 text-[#747970] hover:bg-[#efede6]"
-                  aria-label="Close tab editor"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6">
-                <label className="sm:col-span-2">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-                    Title
-                  </span>
-                  <input
-                    value={editingTab.title}
-                    onChange={event =>
-                      setEditingTab({
-                        ...editingTab,
-                        title: event.target.value,
-                      })
-                    }
-                    className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[13px] font-semibold outline-none focus:border-[#e95224]"
-                  />
-                </label>
-                <label className="sm:col-span-2">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-                    URL
-                  </span>
-                  <input
-                    value={editingTab.url}
-                    onChange={event =>
-                      setEditingTab({ ...editingTab, url: event.target.value })
-                    }
-                    className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 font-mono text-[11px] outline-none focus:border-[#e95224]"
-                  />
-                </label>
-                <label className="sm:col-span-2">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-                    Note
-                  </span>
-                  <textarea
-                    value={editingTab.note}
-                    onChange={event =>
-                      setEditingTab({ ...editingTab, note: event.target.value })
-                    }
-                    rows={4}
-                    className="mt-2 w-full resize-none border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 text-[12px] leading-5 outline-none focus:border-[#e95224]"
-                  />
-                </label>
-                <label>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-                    Collection
-                  </span>
-                  <select
-                    value={editingTab.groupId}
-                    onChange={event =>
-                      setEditingTab({
-                        ...editingTab,
-                        groupId: event.target.value,
-                      })
-                    }
-                    className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[12px] font-semibold outline-none focus:border-[#e95224]"
-                  >
-                    {vaultGroups.map(group => (
-                      <option key={group.id} value={group.id}>
-                        {group.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div>
-                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-                    Tags
-                  </span>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {editingTab.tags.map(tag => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-1 rounded border border-[#ded9cd] bg-[#f9f7f1] px-2 py-1 font-mono text-[9px] text-[#667067]"
-                      >
-                        {tag}
-                        <button
-                          onClick={() =>
-                            setEditingTab({
-                              ...editingTab,
-                              tags: editingTab.tags.filter(
-                                item => item !== tag
-                              ),
-                            })
-                          }
-                          className="text-[#989990] hover:text-[#e95224]"
-                          aria-label={`Remove ${tag}`}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="mt-2 flex">
-                    <input
-                      value={tagDraft}
-                      onChange={event => setTagDraft(event.target.value)}
-                      onKeyDown={event => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          addTagToTab();
-                        }
-                      }}
-                      list="tag-catalog-suggestions"
-                      placeholder="Search or create tag"
-                      aria-label="Search or create tag"
-                      className="min-w-0 flex-1 border-b border-[#bcb6a8] bg-transparent px-1 py-2 text-[11px] outline-none focus:border-[#e95224]"
-                    />
-                    <datalist id="tag-catalog-suggestions">
-                      {tagSuggestions.map(tag => (
-                        <option key={tag} value={tag}>
-                          {tagCatalog[tag]}
-                        </option>
-                      ))}
-                    </datalist>
-                    <button
-                      onClick={addTagToTab}
-                      className="px-2 text-[#e95224] hover:bg-[#fff0ea]"
-                      aria-label="Add tag"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-col-reverse gap-3 border-t border-[#ded9cd] bg-[#f9f7f1] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                <button
-                  onClick={() => setEditingTab(null)}
-                  className="text-left text-[11px] font-bold text-[#697068] hover:text-[#18261f]"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveTab}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-md bg-[#e95224] px-3 py-2 text-[11px] font-bold text-white hover:bg-[#d94a1e]"
-                >
-                  <Save className="h-3.5 w-3.5" /> Save tab
-                </button>
-              </div>
-            </div>
-          </div>
+          <EditTabDialog
+            tab={editingTab}
+            groups={vaultGroups}
+            tagDraft={tagDraft}
+            tagSuggestions={tagSuggestions}
+            tagCatalog={tagCatalog}
+            onChange={setEditingTab}
+            onTagDraftChange={setTagDraft}
+            onAddTag={addTagToTab}
+            onClose={() => setEditingTab(null)}
+            onSave={saveTab}
+          />
         )}
       </div>
       <DragOverlay dropAnimation={null}>
-        {activeDragTab ? <TabDragPreview tab={activeDragTab} /> : null}
+        {activeDragTab ? (
+          <TabDragPreview
+            tab={activeDragTab}
+            viewMode={tabView === "groups" ? "standard" : tabView}
+            query={query}
+            selectionEnabled={selectionMode}
+            isSelected={selectedResultIds.has(activeDragTab.id)}
+            score={semanticScores.get(activeDragTab.id)}
+            fallbackMode={remoteSearch?.mode}
+            groups={vaultGroups}
+            previewBackend={
+              storageMode === "backend" && serverOnline
+                ? { url: localServerUrl, apiKey: serverApiKey }
+                : undefined
+            }
+          />
+        ) : null}
       </DragOverlay>
     </DndContext>
   );
