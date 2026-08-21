@@ -318,9 +318,17 @@ def test_remaining_tab_creation_update_move_restore_branches(
     client: TestClient, headers: dict[str, str]
 ) -> None:
     invalid_fields = client.post(
-        "/api/v1/tabs", headers=headers, json={"tabs": [{"title": "Missing URL"}]}
+        "/api/v1/tabs",
+        headers=headers,
+        json={
+            "tabs": [
+                {"title": "Missing URL"},
+                {"url": "https://example.com/not-created"},
+            ]
+        },
     )
     assert invalid_fields.status_code == 422
+    assert client.get("/api/v1/tabs", headers=headers).json()["data"]["tabs"] == []
     invalid_group = client.post(
         "/api/v1/tabs",
         headers=headers,

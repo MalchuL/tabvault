@@ -1,3 +1,5 @@
+"""Portable library import, export, validation, and backup use cases."""
+
 from __future__ import annotations
 
 import copy
@@ -6,29 +8,43 @@ import re
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from config.settings import Settings
-from domain.tabs.dto import TabBatchCreateDTO
-from domain.tabs.repository import TabRepository
-from domain.tabs.service import TabService
-from lib.responses import issue
+from lib.responses import IssueDTO, WarningDTO, issue
 from lib.time import iso, utc_now
 from lib.url import normalize_url
-from models import Backup, Group, Job, Tab, Tag, Tombstone
+
+from .dto import (
+    BackupDTO,
+    ExportFields,
+    ImportApplyDataDTO,
+    ImportApplyResultDTO,
+    ImportCountsDTO,
+    ImportMode,
+    ImportValidationDTO,
+    MinimalTransferDocumentDTO,
+    MinimalTransferTabDTO,
+    TransferDocumentDTO,
+    TransferExportDTO,
+    TransferFormat,
+    TransferGroupDTO,
+)
+from .mapper import SystemMapper
+from .repository import SystemRepository
 
 
 def empty_document() -> dict[str, Any]:
+    """Create an empty raw portable document for the Markdown parser."""
     return {"schemaVersion": 1, "exportedAt": iso(utc_now()), "tags": [], "groups": [], "tabs": []}
 
 
-def validate_document(document: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    errors: list[dict[str, Any]] = []
-    warnings: list[dict[str, Any]] = []
+def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
+    """Validate untrusted portable-document structure and references."""
+    errors: list[IssueDTO] = []
+    warnings: list[WarningDTO] = []
     if not isinstance(document, dict):
         return [
             issue(
@@ -236,21 +252,22 @@ def validate_document(document: Any) -> tuple[list[dict[str, Any]], list[dict[st
             for tag_index, tag in enumerate(tags):
                 if tag not in tag_names:
                     warnings.append(
-                        {
-                            "code": "W_ORPHAN_TAG",
-                            "path": f"tabs[{index}].tags[{tag_index}]",
-                            "message": f"Tag {tag!r} will be created.",
-                        }
+                        WarningDTO(
+                            code="W_ORPHAN_TAG",
+                            path=f"tabs[{index}].tags[{tag_index}]",
+                            message=f"Tag {tag!r} will be created.",
+                        )
                     )
     return errors, warnings
 
 
-def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]]:
+    """Parse the documented Markdown interchange format."""
     document = empty_document()
     groups_by_level: dict[int, str | None] = {}
     active_group: str | None = None
     active_tab: dict[str, Any] | None = None
-    errors: list[dict[str, Any]] = []
+    errors: list[IssueDTO] = []
     for number, line in enumerate(content.splitlines(), 1):
         if not line.strip():
             continue
@@ -307,86 +324,50 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[dict[str,
 
 
 class TransferService:
-    def __init__(self, db: AsyncSession, settings: Settings) -> None:
+    """Orchestrate transfer and backup use cases while owning transactions."""
+
+    def __init__(self, db: AsyncSession, settings: Settings, repository: SystemRepository) -> None:
+        """Initialize the service and its persistence dependency."""
         self.db = db
         self.settings = settings
+        self.repository = repository
+        self.mapper = SystemMapper()
 
-    async def document(self) -> dict[str, Any]:
-        tags = list((await self.db.scalars(select(Tag).order_by(func.lower(Tag.name)))).all())
-        groups = list(
-            (await self.db.scalars(select(Group).order_by(Group.position, Group.id))).all()
+    async def document(self) -> TransferDocumentDTO:
+        """Build the complete portable library document."""
+        tags, groups, tabs = await self.repository.transfer_rows()
+        return TransferDocumentDTO(
+            exported_at=utc_now(),
+            tags=[self.mapper.tag_to_transfer(tag) for tag in tags],
+            groups=[self.mapper.group_to_transfer(group) for group in groups],
+            tabs=[self.mapper.tab_to_transfer(tab) for tab in tabs],
         )
-        tabs = list(
-            (
-                await self.db.scalars(
-                    select(Tab).options(selectinload(Tab.tags)).order_by(Tab.position, Tab.id)
-                )
-            ).unique()
-        )
-        return {
-            "schemaVersion": 1,
-            "exportedAt": iso(utc_now()),
-            "tags": [
-                {
-                    "name": tag.name,
-                    "description": tag.description,
-                    "createdAt": iso(tag.created_at),
-                    "updatedAt": iso(tag.updated_at),
-                }
-                for tag in tags
-            ],
-            "groups": [
-                {
-                    "id": group.id,
-                    "name": group.name,
-                    "parentId": group.parent_id,
-                    "color": group.color,
-                    "position": group.position,
-                    "archived": group.archived,
-                    "archivedAt": iso(group.archived_at),
-                    "createdAt": iso(group.created_at),
-                    "updatedAt": iso(group.updated_at),
-                }
-                for group in groups
-            ],
-            "tabs": [
-                {
-                    "id": tab.id,
-                    "url": tab.url,
-                    "title": tab.title,
-                    "favicon": f"/api/v1/assets/{tab.favicon_asset_id}"
-                    if tab.favicon_asset_id
-                    else None,
-                    "note": tab.note,
-                    "tags": [tag.name for tag in tab.tags],
-                    "groupId": tab.group_id,
-                    "position": tab.position,
-                    "archived": tab.archived,
-                    "archivedAt": iso(tab.archived_at),
-                    "createdAt": iso(tab.created_at),
-                    "updatedAt": iso(tab.updated_at),
-                }
-                for tab in tabs
-            ],
-        }
 
-    async def create_backup(self, reason: str) -> Backup:
+    async def create_backup(self, reason: str) -> BackupDTO:
+        """Atomically write and register a library backup."""
         directory = self.settings.data_dir / "backups"
         directory.mkdir(parents=True, exist_ok=True)
         backup_id = str(uuid.uuid4())
         path = directory / f"{backup_id}.json"
-        raw = json.dumps(await self.document(), ensure_ascii=False, indent=2).encode()
+        document = await self.document()
+        raw = json.dumps(
+            document.model_dump(mode="json", by_alias=True), ensure_ascii=False, indent=2
+        ).encode()
         temporary = path.with_suffix(".tmp")
         temporary.write_bytes(raw)
         temporary.replace(path)
-        backup = Backup(id=backup_id, path=str(path), reason=reason, size_bytes=len(raw))
-        self.db.add(backup)
-        await self.db.flush()
-        return backup
+        backup = self.mapper.backup(backup_id, path, reason, len(raw))
+        await self.repository.save_backup(backup)
+        return self.mapper.backup_to_dto(backup)
 
     async def export(
-        self, format: Literal["json", "markdown"], scope: str, include_subgroups: bool, fields: str
-    ) -> tuple[str | dict[str, Any], str]:
+        self,
+        format: TransferFormat,
+        scope: str,
+        include_subgroups: bool,
+        fields: ExportFields,
+    ) -> TransferExportDTO:
+        """Export a filtered library as JSON or Markdown."""
         document = await self.document()
         if scope.startswith("group:"):
             group_id = scope.split(":", 1)[1]
@@ -395,53 +376,70 @@ class TransferService:
                 changed = True
                 while changed:
                     before = len(ids)
-                    ids.update(
-                        group["id"] for group in document["groups"] if group["parentId"] in ids
-                    )
+                    ids.update(group.id for group in document.groups if group.parent_id in ids)
                     changed = before != len(ids)
-            document["groups"] = [group for group in document["groups"] if group["id"] in ids]
-            document["tabs"] = [tab for tab in document["tabs"] if tab["groupId"] in ids]
+            document.groups = [group for group in document.groups if group.id in ids]
+            document.tabs = [tab for tab in document.tabs if tab.group_id in ids]
         elif scope.startswith("tag:"):
             name = scope.split(":", 1)[1]
-            document["tabs"] = [tab for tab in document["tabs"] if name in tab["tags"]]
+            document.tabs = [tab for tab in document.tabs if name in tab.tags]
+        content: TransferDocumentDTO | MinimalTransferDocumentDTO = document
         if fields == "minimal":
-            document["tabs"] = [
-                {key: tab.get(key) for key in ("id", "url", "title", "favicon", "groupId", "tags")}
-                for tab in document["tabs"]
-            ]
+            content = MinimalTransferDocumentDTO(
+                exported_at=document.exported_at,
+                tags=document.tags,
+                groups=document.groups,
+                tabs=[
+                    MinimalTransferTabDTO(
+                        id=tab.id,
+                        url=tab.url,
+                        title=tab.title,
+                        favicon=tab.favicon,
+                        group_id=tab.group_id,
+                        tags=tab.tags,
+                    )
+                    for tab in document.tabs
+                ],
+            )
         if format == "json":
-            return document, "application/json"
-        children: dict[str | None, list[dict[str, Any]]] = {}
-        for group in document["groups"]:
-            if not group.get("archived"):
-                children.setdefault(group.get("parentId"), []).append(group)
+            return TransferExportDTO(content=content, media_type="application/json")
+        children: dict[str | None, list[TransferGroupDTO]] = {}
+        for group in document.groups:
+            if not group.archived:
+                children.setdefault(group.parent_id, []).append(group)
         lines: list[str] = []
 
         def write_tabs(group_id: str | None) -> None:
-            for tab in document["tabs"]:
-                if tab.get("groupId") == group_id and not tab.get("archived"):
-                    lines.append(f"- [{tab['title']}]({tab['url']})")
-                    lines.append(f"  id: {tab['id']}")
-                    lines.append(f"  tags: {', '.join(tab.get('tags', []))}")
+            """Append Markdown for active tabs in one group."""
+            for tab in document.tabs:
+                if tab.group_id == group_id and not tab.archived:
+                    lines.append(f"- [{tab.title}]({tab.url})")
+                    lines.append(f"  id: {tab.id}")
+                    lines.append(f"  tags: {', '.join(tab.tags)}")
                     if fields != "minimal":
-                        lines.append(f"  note: {tab.get('note') or ''}")
+                        lines.append(f"  note: {tab.note or ''}")
                     lines.append("")
 
-        def write_group(group: dict[str, Any], level: int) -> None:
-            lines.extend([f"{'#' * level} {group['name']}", ""])
-            write_tabs(group["id"])
-            for child in children.get(group["id"], []):
+        def write_group(group: TransferGroupDTO, level: int) -> None:
+            """Append Markdown for a group and its descendants."""
+            lines.extend([f"{'#' * level} {group.name}", ""])
+            write_tabs(group.id)
+            for child in children.get(group.id, []):
                 write_group(child, level + 1)
 
         for root in children.get(None, []):
             write_group(root, 2)
         lines.extend(["## Inbox", ""])
         write_tabs(None)
-        return "\n".join(lines).strip() + "\n", "text/markdown"
+        return TransferExportDTO(
+            content="\n".join(lines).strip() + "\n",
+            media_type="text/markdown",
+        )
 
     def parse(
-        self, content: Any, format: Literal["json", "markdown"]
-    ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+        self, content: Any, format: TransferFormat
+    ) -> tuple[dict[str, Any] | None, list[IssueDTO]]:
+        """Parse untrusted JSON or Markdown into a raw document."""
         if format == "markdown":
             return markdown_import(str(content))
         if isinstance(content, dict):
@@ -461,218 +459,168 @@ class TransferService:
                 )
             ]
 
-    async def validate(self, content: Any, format: Literal["json", "markdown"]) -> dict[str, Any]:
+    async def validate(self, content: Any, format: TransferFormat) -> ImportValidationDTO:
+        """Validate an import and estimate its database effects."""
         document, parse_errors = self.parse(content, format)
         if parse_errors or document is None:
-            return {
-                "valid": False,
-                "errors": parse_errors,
-                "warnings": [],
-                "wouldCreate": {},
-                "wouldUpdate": {},
-                "wouldSkip": {},
-            }
+            return ImportValidationDTO(
+                valid=False,
+                errors=parse_errors,
+                warnings=[],
+                would_create=ImportCountsDTO(),
+                would_update=ImportCountsDTO(),
+                would_skip=ImportCountsDTO(),
+            )
         errors, warnings = validate_document(document)
         if errors:
-            return {
-                "valid": False,
-                "errors": errors,
-                "warnings": warnings,
-                "wouldCreate": {},
-                "wouldUpdate": {},
-                "wouldSkip": {},
-            }
-        current_tabs = set((await self.db.scalars(select(Tab.id))).all())
-        current_groups = set((await self.db.scalars(select(Group.id))).all())
-        current_tags = {name.lower() for name in (await self.db.scalars(select(Tag.name))).all()}
-        return {
-            "valid": not errors,
-            "errors": errors,
-            "warnings": warnings,
-            "wouldCreate": {
-                "tabs": sum(tab.get("id") not in current_tabs for tab in document["tabs"]),
-                "groups": sum(
-                    group.get("id") not in current_groups for group in document["groups"]
-                ),
-                "tags": sum(
-                    str(tag.get("name", "")).lower() not in current_tags for tag in document["tags"]
-                ),
-            },
-            "wouldUpdate": {
-                "tabs": sum(tab.get("id") in current_tabs for tab in document["tabs"]),
-                "groups": sum(group.get("id") in current_groups for group in document["groups"]),
-            },
-            "wouldSkip": {},
-        }
+            return ImportValidationDTO(
+                valid=False,
+                errors=errors,
+                warnings=warnings,
+                would_create=ImportCountsDTO(),
+                would_update=ImportCountsDTO(),
+                would_skip=ImportCountsDTO(),
+            )
+        dto = TransferDocumentDTO.model_validate(document)
+        current_tabs, current_groups, current_tags = await self.repository.current_ids()
+        return ImportValidationDTO(
+            valid=True,
+            errors=[],
+            warnings=warnings,
+            would_create=ImportCountsDTO(
+                tabs=sum(tab.id not in current_tabs for tab in dto.tabs),
+                groups=sum(group.id not in current_groups for group in dto.groups),
+                tags=sum(tag.name.lower() not in current_tags for tag in dto.tags),
+            ),
+            would_update=ImportCountsDTO(
+                tabs=sum(tab.id in current_tabs for tab in dto.tabs),
+                groups=sum(group.id in current_groups for group in dto.groups),
+            ),
+            would_skip=ImportCountsDTO(),
+        )
 
     async def apply(
         self,
         content: Any,
-        format: Literal["json", "markdown"],
-        mode: Literal["upload", "replace"],
+        format: TransferFormat,
+        mode: ImportMode,
         scope: str = "all",
-    ) -> dict[str, Any]:
+    ) -> ImportApplyResultDTO:
+        """Validate and apply an imported library document."""
         document, parse_errors = self.parse(content, format)
         if parse_errors or document is None:
-            return {"success": False, "errors": parse_errors, "warnings": []}
+            return ImportApplyResultDTO(success=False, errors=parse_errors, warnings=[])
         errors, warnings = validate_document(document)
         if errors:
-            return {"success": False, "errors": errors, "warnings": warnings}
+            return ImportApplyResultDTO(success=False, errors=errors, warnings=warnings)
+        dto = TransferDocumentDTO.model_validate(document)
         backup_id: str | None = None
         if mode == "replace":
             backup = await self.create_backup("pre_replace_import")
             backup_id = backup.id
             if scope == "all":
-                await self.db.execute(delete(Tab))
-                await self.db.execute(delete(Group))
-                await self.db.execute(delete(Tag))
+                await self.repository.clear_library()
             elif scope.startswith("group:"):
                 group_id = scope.split(":", 1)[1]
-                await self.db.execute(delete(Tab).where(Tab.group_id == group_id))
-                await self.db.execute(delete(Group).where(Group.id == group_id))
-            await self.db.flush()
-        created = {"tabs": 0, "groups": 0, "tags": 0}
-        updated = {"tabs": 0, "groups": 0, "tags": 0}
-        for item in document["tags"]:
-            name = str(item["name"])
-            tag = await self.db.scalar(select(Tag).where(func.lower(Tag.name) == name.lower()))
-            incoming_updated = _datetime(item.get("updatedAt"))
+                await self.repository.replace_group(group_id)
+        created = ImportCountsDTO()
+        updated = ImportCountsDTO()
+        for tag_dto in dto.tags:
+            tag = await self.repository.get_tag(tag_dto.name)
+            incoming_updated = tag_dto.updated_at
             if tag is None:
-                self.db.add(
-                    Tag(
-                        name=name,
-                        description=item.get("description"),
-                        created_at=_datetime(item.get("createdAt")) or utc_now(),
-                        updated_at=incoming_updated or utc_now(),
-                    )
-                )
-                created["tags"] += 1
+                await self.repository.save_model(self.mapper.tag_from_transfer(tag_dto))
+                created.tags += 1
             elif incoming_updated and incoming_updated > _aware(tag.updated_at):
-                tag.description = item.get("description")
-                tag.updated_at = incoming_updated
-                updated["tags"] += 1
-        await self.db.flush()
-        pending_groups = {item["id"]: item for item in document["groups"]}
-        ordered_groups: list[dict[str, Any]] = []
+                await self.repository.apply_changes(tag, self.mapper.tag_transfer_changes(tag_dto))
+                updated.tags += 1
+        pending_groups = {group_dto.id: group_dto for group_dto in dto.groups}
+        ordered_groups: list[TransferGroupDTO] = []
         while pending_groups:
             ready = [
-                item
-                for item in pending_groups.values()
-                if not item.get("parentId") or item.get("parentId") not in pending_groups
+                group_dto
+                for group_dto in pending_groups.values()
+                if not group_dto.parent_id or group_dto.parent_id not in pending_groups
             ]
             if not ready:
                 ready = list(pending_groups.values())
-            for item in ready:
-                ordered_groups.append(item)
-                pending_groups.pop(item["id"])
-        for item in ordered_groups:
-            tombstone = await self.db.scalar(
-                select(Tombstone.id).where(
-                    Tombstone.entity_type == "group", Tombstone.entity_id == item["id"]
-                )
-            )
-            if tombstone:
+            for group_dto in ready:
+                ordered_groups.append(group_dto)
+                pending_groups.pop(group_dto.id)
+        for group_dto in ordered_groups:
+            if await self.repository.tombstone_exists("group", group_dto.id):
                 continue
-            group = await self.db.get(Group, item["id"])
-            incoming_updated = _datetime(item.get("updatedAt"))
+            group = await self.repository.get_group(group_dto.id)
+            incoming_updated = group_dto.updated_at
             if group is None:
-                self.db.add(
-                    Group(
-                        id=item["id"],
-                        name=item["name"],
-                        parent_id=item.get("parentId"),
-                        color=item.get("color"),
-                        position=float(item.get("position", 0)),
-                        archived=bool(item.get("archived", False)),
-                        archived_at=_datetime(item.get("archivedAt")),
-                        created_at=_datetime(item.get("createdAt")) or utc_now(),
-                        updated_at=incoming_updated or utc_now(),
-                    )
-                )
-                await self.db.flush()
-                created["groups"] += 1
+                await self.repository.save_model(self.mapper.group_from_transfer(group_dto))
+                created.groups += 1
             elif incoming_updated and incoming_updated > _aware(group.updated_at):
-                group.name = item["name"]
-                group.parent_id = item.get("parentId")
-                group.color = item.get("color")
-                group.position = float(item.get("position", group.position))
-                group.archived = bool(item.get("archived", False))
-                group.archived_at = _datetime(item.get("archivedAt"))
-                group.updated_at = incoming_updated
-                updated["groups"] += 1
-        await self.db.flush()
-        tab_service = TabService(self.db, TabRepository(self.db))
-        skipped = 0
-        for item in document["tabs"]:
-            tombstone = await self.db.scalar(
-                select(Tombstone.id).where(
-                    Tombstone.entity_type == "tab", Tombstone.entity_id == item["id"]
+                await self.repository.apply_changes(
+                    group, self.mapper.group_transfer_changes(group_dto)
                 )
-            )
-            if tombstone:
+                updated.groups += 1
+        skipped = 0
+        for tab_dto in dto.tabs:
+            if await self.repository.tombstone_exists("tab", tab_dto.id):
                 skipped += 1
                 continue
-            tab = await tab_service.repository.get(item["id"])
-            incoming_updated = _datetime(item.get("updatedAt"))
+            tab = await self.repository.get_transfer_tab(tab_dto.id)
+            incoming_updated = tab_dto.updated_at
             if tab is None:
-                result, _ = await tab_service.create_batch(
-                    TabBatchCreateDTO(tabs=[item], dedupe=True, dedupe_strategy="merge"),
-                    atomic=True,
-                    commit=False,
+                normalized = normalize_url(tab_dto.url)
+                duplicate = await self.repository.find_tab_url(normalized)
+                if duplicate is not None:
+                    tags = await self.repository.resolve_tags(
+                        [*[tag.name for tag in duplicate.tags], *tab_dto.tags]
+                    )
+                    await self.repository.apply_changes(
+                        duplicate,
+                        self.mapper.tab_duplicate_changes(tab_dto, tags),
+                    )
+                    skipped += 1
+                    continue
+                tags = await self.repository.resolve_tags(tab_dto.tags)
+                await self.repository.save_model(
+                    self.mapper.tab_from_transfer(tab_dto, normalized, tags)
                 )
-                created["tabs"] += int(
-                    bool(result["created"] and not result["created"][0].get("wasDuplicate"))
-                )
-                skipped += int(bool(result["skipped"]))
+                created.tabs += 1
             elif incoming_updated and incoming_updated > _aware(tab.updated_at):
-                tab.title = item["title"]
-                tab.note = item.get("note")
-                tab.group_id = (
-                    None if item.get("groupId") in {None, "", "inbox"} else item.get("groupId")
+                await self.repository.apply_changes(
+                    tab,
+                    self.mapper.tab_transfer_changes(
+                        tab_dto, await self.repository.resolve_tags(tab_dto.tags)
+                    ),
                 )
-                tab.position = float(item.get("position", tab.position))
-                tab.archived = bool(item.get("archived", False))
-                tab.archived_at = _datetime(item.get("archivedAt"))
-                tab.tags = await tab_service._tags(item.get("tags", []))
-                tab.updated_at = incoming_updated
-                updated["tabs"] += 1
+                updated.tabs += 1
         await self.db.commit()
-        return {
-            "success": True,
-            "data": {
-                "mode": mode,
-                "created": created,
-                "updated": updated,
-                "skippedDuplicates": skipped,
-                "backupSnapshotId": backup_id,
-            },
-            "warnings": warnings,
-        }
+        return ImportApplyResultDTO(
+            success=True,
+            data=ImportApplyDataDTO(
+                mode=mode,
+                created=created,
+                updated=updated,
+                skipped_duplicates=skipped,
+                backup_snapshot_id=backup_id,
+            ),
+            warnings=warnings,
+        )
 
     async def restore_backup(self, backup_id: str) -> str | None:
-        backup = await self.db.get(Backup, backup_id)
+        """Queue replacement import from a stored backup file."""
+        backup = await self.repository.get_backup(backup_id)
         if backup is None or not Path(backup.path).exists():
             return None
-        job = Job(
-            kind="backup_restore",
+        job = self.mapper.job(
+            "backup_restore",
             target_id=backup_id,
             result={"content": json.loads(Path(backup.path).read_text(encoding="utf-8"))},
         )
-        self.db.add(job)
+        await self.repository.add_job(job)
         await self.db.commit()
         return job.id
 
 
-def _datetime(value: Any) -> datetime | None:
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        return _aware(value)
-    try:
-        return _aware(datetime.fromisoformat(str(value).replace("Z", "+00:00")))
-    except ValueError:
-        return None
-
-
 def _aware(value: datetime) -> datetime:
+    """Attach the local UTC timezone to naive persisted datetimes."""
     return value.replace(tzinfo=utc_now().tzinfo) if value.tzinfo is None else value

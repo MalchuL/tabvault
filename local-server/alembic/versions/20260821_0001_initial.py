@@ -10,8 +10,10 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create the initial relational TabVault schema."""
     Base.metadata.create_all(bind=op.get_bind())
 
 
 def downgrade() -> None:
+    """Drop the initial relational TabVault schema."""
     Base.metadata.drop_all(bind=op.get_bind())

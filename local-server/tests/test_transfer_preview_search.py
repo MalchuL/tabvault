@@ -10,6 +10,7 @@ from clients.web_capture.protocol import CapturedResponse
 from config.settings import Settings
 from db.session import configure_database
 from domain.system.preview import PreviewService
+from domain.system.repository import SystemRepository
 from domain.system.search import LocalVectorIndex
 from domain.system.transfer import markdown_import, validate_document
 from models import Base, Tab
@@ -59,7 +60,7 @@ def test_document_validation_and_markdown_parser_collect_errors() -> None:
             "tabs": [{"id": "t", "url": "bad", "title": "", "groupId": "missing"}],
         }
     )
-    assert {item["code"] for item in errors} >= {
+    assert {item.code for item in errors} >= {
         "E_UNKNOWN_GROUP_REFERENCE",
         "E_INVALID_URL",
         "E_MISSING_REQUIRED_FIELD",
@@ -72,7 +73,7 @@ def test_document_validation_and_markdown_parser_collect_errors() -> None:
 
 
 def test_document_validation_exercises_duplicate_cycle_and_shape_errors() -> None:
-    assert validate_document(["not", "an", "object"])[0][0]["code"] == "E_INVALID_DOCUMENT"
+    assert validate_document(["not", "an", "object"])[0][0].code == "E_INVALID_DOCUMENT"
     document = {
         "schemaVersion": 1,
         "tags": [{"name": "known"}, "bad-tag"],
@@ -97,19 +98,19 @@ def test_document_validation_exercises_duplicate_cycle_and_shape_errors() -> Non
         ],
     }
     errors, warnings = validate_document(document)
-    codes = {item["code"] for item in errors}
+    codes = {item.code for item in errors}
     assert {
         "E_INVALID_OBJECT",
         "E_DUPLICATE_ID",
         "E_CYCLIC_GROUP_REFERENCE",
         "E_INVALID_TAGS",
     } <= codes
-    assert warnings[0]["code"] == "W_ORPHAN_TAG"
+    assert warnings[0].code == "W_ORPHAN_TAG"
     parsed, markdown_errors = markdown_import(
         "## Inbox\n- [One](https://example.com)\n  id: fixed\n  note: hello\ninvalid"
     )
     assert parsed is None
-    assert markdown_errors[0]["code"] == "E_MARKDOWN_PARSE_ERROR"
+    assert markdown_errors[0].code == "E_MARKDOWN_PARSE_ERROR"
 
 
 @pytest.mark.asyncio
@@ -176,8 +177,10 @@ async def test_preview_sanitizes_rewrites_and_stores_assets(tmp_path: Path) -> N
         db.add(tab)
         await db.commit()
         capture = FakeCapture()
-        result = await PreviewService(db, settings, capture).capture_tab(tab.id)
-        assert result["status"] == "ready"
+        result = await PreviewService(db, settings, capture, SystemRepository(db)).capture_tab(
+            tab.id
+        )
+        assert result.status == "ready"
         preview = await db.get(__import__("models").Preview, tab.id)
         assert preview and "script" not in (preview.content_html or "")
         assert "Navigation noise" not in (preview.content_html or "")
@@ -214,7 +217,7 @@ async def test_vector_async_success_empty_reopen_and_failure(tmp_path: Path) -> 
     index = LocalVectorIndex(Settings(data_dir=tmp_path))
     index._model = FakeModel()
     assert await index.rebuild([("a", "python")]) == 1
-    assert index.status()["status"] == "ready"
+    assert index.status().status == "ready"
     index._collection = None
     assert index._open_or_create(2) is not None
     assert await index.search("python", 1)

@@ -1,3 +1,5 @@
+"""SSRF-resistant streaming HTTP capture client."""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,14 +15,18 @@ from .protocol import CapturedResponse
 
 
 class CaptureRejectedError(ValueError):
-    pass
+    """Indicate that a remote capture violates safety or size limits."""
 
 
 class WebCaptureClient:
+    """Fetch bounded public HTTP resources for preview capture."""
+
     def __init__(self, settings: Settings) -> None:
+        """Initialize the client with capture limits and policy."""
         self.settings = settings
 
     async def _validate_url(self, url: str) -> None:
+        """Resolve and reject non-public destinations unless explicitly allowed."""
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise CaptureRejectedError("Only absolute HTTP(S) URLs are allowed")
@@ -39,6 +45,7 @@ class WebCaptureClient:
                 )
 
     async def _fetch(self, url: str, accepted: tuple[str, ...], limit: int) -> CapturedResponse:
+        """Stream a validated resource with redirect and byte limits."""
         current = url
         async with httpx.AsyncClient(timeout=self.settings.preview_timeout_seconds) as client:
             for _ in range(6):
@@ -75,9 +82,11 @@ class WebCaptureClient:
             raise CaptureRejectedError("Too many redirects")
 
     async def fetch_html(self, url: str) -> CapturedResponse:
+        """Fetch an HTML document."""
         return await self._fetch(
             url, ("text/html", "application/xhtml+xml"), self.settings.preview_max_html_bytes
         )
 
     async def fetch_image(self, url: str) -> CapturedResponse:
+        """Fetch an image resource."""
         return await self._fetch(url, ("image/*",), self.settings.preview_max_image_bytes)

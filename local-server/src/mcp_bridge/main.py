@@ -1,3 +1,5 @@
+"""MCP tools that proxy the local TabVault HTTP API."""
+
 from __future__ import annotations
 
 import json
@@ -15,16 +17,19 @@ DEFAULT_SERVER_URL = "http://127.0.0.1:47821"
 
 
 class TabVaultApiError(RuntimeError):
-    pass
+    """Indicate an unavailable or unsuccessful local API request."""
 
 
 @dataclass(frozen=True)
 class TabVaultApi:
+    """Small standard-library client for the local TabVault API."""
+
     base_url: str
     api_key: str | None
 
     @classmethod
     def from_environment(cls) -> TabVaultApi:
+        """Build a client from server URL and API key environment values."""
         return cls(
             os.environ.get("TABVAULT_SERVER_URL", DEFAULT_SERVER_URL).rstrip("/"),
             os.environ.get("TABVAULT_API_KEY") or None,
@@ -38,6 +43,7 @@ class TabVaultApi:
         query: dict[str, Any] | None = None,
         content_type: str = "application/json",
     ) -> dict[str, Any]:
+        """Send one request and return its structured JSON response."""
         query_values = {key: value for key, value in (query or {}).items() if value is not None}
         url = f"{self.base_url}/api/v1{path}"
         if query_values:
@@ -79,6 +85,7 @@ class TabVaultApi:
 
 
 def api() -> TabVaultApi:
+    """Build the current environment-backed API client."""
     return TabVaultApi.from_environment()
 
 
@@ -299,6 +306,7 @@ def validate_import(format: Literal["json", "markdown"], content: Any) -> dict[s
 
 
 def main() -> None:
+    """Run the MCP server over its configured transport."""
     mcp.run()
 
 

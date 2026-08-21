@@ -1,3 +1,5 @@
+"""Configure Alembic for the runtime database URL and model metadata."""
+
 from __future__ import annotations
 
 from logging.config import fileConfig
@@ -17,6 +19,7 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
+    """Run migrations using only a configured database URL."""
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
@@ -29,6 +32,7 @@ def run_migrations_offline() -> None:
 
 
 def run_online_migrations() -> None:
+    """Run migrations through a synchronous migration connection."""
     engine = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

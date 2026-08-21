@@ -1,20 +1,36 @@
+"""Tab application service and transaction boundaries."""
+
 from __future__ import annotations
 
-from builtins import list as list_type
+import builtins
 from collections.abc import Sequence
-from typing import Any
 
-from pydantic import ValidationError
-from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.cursor import decode_cursor, encode_cursor
-from lib.responses import issue
+from lib.responses import IssueDTO, WarningDTO, issue
 from lib.time import utc_now
 from lib.url import normalize_url
-from models import Group, Job, Tab, Tag, Tombstone
+from models import Tag
 
-from .dto import TabBatchCreateDTO, TabCreateDTO, TabMoveDTO, TabRestoreDTO, TabUpdateDTO
+from .dto import (
+    TabBatchCreateDTO,
+    TabBatchDeleteResultDTO,
+    TabCreatedDTO,
+    TabCreateDTO,
+    TabCreateResultDTO,
+    TabDeleteResultDTO,
+    TabDTO,
+    TabJobDTO,
+    TabListMetaDTO,
+    TabListOptionsDTO,
+    TabListResultDTO,
+    TabMoveDTO,
+    TabRestoreDTO,
+    TabRestoreResultDTO,
+    TabSkippedDTO,
+    TabUpdateDTO,
+)
 from .error import (
     ActiveTabDeleteError,
     EmptyUpdateError,
@@ -27,59 +43,60 @@ from .repository import TabRepository
 
 
 class TabService:
+    """Orchestrate tab use cases while owning transactions."""
+
     def __init__(self, db: AsyncSession, repository: TabRepository) -> None:
+        """Initialize the service.
+
+        Args:
+            db: Request-scoped session used only for transactions.
+            repository: Tab persistence operations.
+        """
         self.db = db
         self.repository = repository
         self.mapper = TabMapper()
 
     async def _group_exists(self, group_id: str | None) -> bool:
-        if group_id in {None, "", "inbox"}:
-            return True
-        return bool(
-            await self.db.scalar(
-                select(Group.id).where(Group.id == group_id, Group.archived.is_(False))
-            )
-        )
+        """Check whether a requested group target is active."""
+        return await self.repository.active_group_exists(group_id)
 
     async def _tags(self, names: list[str]) -> list[Tag]:
-        result: list[Tag] = []
-        for raw in dict.fromkeys(name.strip() for name in names if name.strip()):
-            tag = await self.db.scalar(select(Tag).where(func.lower(Tag.name) == raw.lower()))
-            if tag is None:
-                tag = Tag(name=raw, description=None)
-                self.db.add(tag)
-                await self.db.flush()
-            result.append(tag)
-        return result
+        """Resolve tag models through the repository."""
+        return await self.repository.resolve_tags(names)
 
-    async def list(self, **options: Any) -> dict[str, Any]:
-        limit = min(max(int(options.get("limit", 50)), 1), 200)
-        sort_by = options.get("sort_by", "position")
+    async def list(self, options: TabListOptionsDTO) -> TabListResultDTO:
+        """List tabs using validated filters and cursor pagination.
+
+        Args:
+            options: Validated list filters.
+
+        Returns:
+            Projected tabs with pagination metadata and warnings.
+
+        Raises:
+            InvalidCursorError: If the cursor cannot be decoded.
+        """
+        limit = min(max(options.limit, 1), 200)
+        sort_by = options.sort_by
         try:
-            cursor = decode_cursor(options["cursor"], sort_by) if options.get("cursor") else None
+            cursor = decode_cursor(options.cursor, sort_by) if options.cursor else None
         except ValueError as error:
             raise InvalidCursorError(str(error)) from error
         rows, total = await self.repository.list_tabs(
-            group_id=options.get("group_id", "all"),
-            group_ids=options.get("group_ids"),
-            tags_any=options.get("tags_any", []),
-            tags_all=options.get("tags_all", []),
-            search=options.get("search"),
+            group_id=options.group_id,
+            group_ids=options.group_ids,
+            tags_any=options.tags_any,
+            tags_all=options.tags_all,
+            search=options.search,
             sort_by=sort_by,
-            sort_dir=options.get("sort_dir", "asc"),
+            sort_dir=options.sort_dir,
             limit=limit,
             cursor=cursor,
-            include_archived=options.get("include_archived", False),
+            include_archived=options.include_archived,
         )
         has_more = len(rows) > limit
         rows = rows[:limit]
-        data = [
-            self._project(
-                self.mapper.to_dto(row).model_dump(mode="json", by_alias=True),
-                options.get("fields", "full"),
-            )
-            for row in rows
-        ]
+        data = [self.mapper.to_projection(row, options.fields) for row in rows]
         next_cursor = None
         if has_more and rows:
             last = rows[-1]
@@ -90,70 +107,51 @@ class TabService:
                 "title": last.title.lower(),
             }[sort_by]
             next_cursor = encode_cursor(sort_by, value, last.id)
-        warnings = []
-        if int(options.get("requested_limit", limit)) > 200:
+        warnings: list[WarningDTO] = []
+        if options.requested_limit > 200:
             warnings.append(
-                {
-                    "code": "W_LIMIT_CAPPED",
-                    "path": "query.limit",
-                    "message": "limit was capped at 200",
-                }
+                WarningDTO(
+                    code="W_LIMIT_CAPPED",
+                    path="query.limit",
+                    message="limit was capped at 200",
+                )
             )
-        return {
-            "tabs": data,
-            "meta": {"nextCursor": next_cursor, "hasMore": has_more, "totalCount": total},
-            "warnings": warnings,
-        }
-
-    @staticmethod
-    def _project(tab: dict[str, Any], fields: str) -> dict[str, Any]:
-        if fields == "full":
-            return tab
-        allowed = (
-            {"id", "url", "title", "favicon", "groupId", "tags"}
-            if fields == "minimal"
-            else set(fields.split(","))
+        return TabListResultDTO(
+            tabs=data,
+            meta=TabListMetaDTO(
+                next_cursor=next_cursor,
+                has_more=has_more,
+                total_count=total,
+            ),
+            warnings=warnings,
         )
-        return {key: value for key, value in tab.items() if key in allowed}
 
-    async def get(self, tab_id: str) -> dict[str, Any]:
+    async def get(self, tab_id: str) -> TabDTO:
+        """Return one tab by ID."""
         tab = await self.repository.get(tab_id)
         if tab is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")
-        return self.mapper.to_dto(tab).model_dump(mode="json", by_alias=True)
+        return self.mapper.to_dto(tab)
 
     async def create_batch(
         self, body: TabBatchCreateDTO, atomic: bool, *, commit: bool = True
-    ) -> tuple[dict[str, Any], int]:
+    ) -> tuple[TabCreateResultDTO, int]:
+        """Create a batch of tabs and optionally commit it atomically."""
         valid: list[tuple[int, TabCreateDTO]] = []
-        errors: list[dict[str, Any]] = []
-        for index, raw in enumerate(body.tabs):
+        errors: list[IssueDTO] = []
+        for index, dto in enumerate(body.tabs):
             try:
-                dto = TabCreateDTO.model_validate(raw)
                 normalize_url(dto.url)
                 if not await self._group_exists(dto.group_id):
                     raise InvalidGroupError(f"Group {dto.group_id!r} does not exist")
                 valid.append((index, dto))
-            except ValidationError as error:
-                for validation_item in error.errors(include_url=False):
-                    path = ".".join(str(part) for part in validation_item["loc"])
-                    errors.append(
-                        issue(
-                            "E_INVALID_FIELD",
-                            f"body.tabs[{index}].{path}",
-                            validation_item["type"],
-                            validation_item.get("input"),
-                            validation_item["msg"],
-                            422,
-                        )
-                    )
             except ValueError:
                 errors.append(
                     issue(
                         "E_INVALID_URL",
                         f"body.tabs[{index}].url",
                         "absolute http/https URL",
-                        raw.get("url"),
+                        dto.url,
                         "URL must start with http:// or https://.",
                         422,
                     )
@@ -164,17 +162,17 @@ class TabService:
                         error.code,
                         f"body.tabs[{index}].groupId",
                         "existing active group",
-                        raw.get("groupId"),
+                        dto.group_id,
                         str(error),
                         error.status_code,
                     )
                 )
         if errors and atomic:
-            return {"created": [], "skipped": [], "errors": errors, "jobs": []}, 422
+            return TabCreateResultDTO(created=[], skipped=[], errors=errors, jobs=[]), 422
 
-        created: list[dict[str, Any]] = []
-        skipped: list[dict[str, Any]] = []
-        jobs: list[dict[str, str]] = []
+        created: list[TabCreatedDTO] = []
+        skipped: list[TabSkippedDTO] = []
+        jobs: list[TabJobDTO] = []
         try:
             for _index, dto in valid:
                 normalized = normalize_url(dto.url)
@@ -185,128 +183,114 @@ class TabService:
                 )
                 if duplicate:
                     if body.dedupe_strategy == "merge":
-                        duplicate.tags = await self._tags(
-                            [*[tag.name for tag in duplicate.tags], *dto.tags]
+                        await self.repository.apply_changes(
+                            duplicate,
+                            self.mapper.to_merge_dict(
+                                dto,
+                                await self._tags(
+                                    [*[tag.name for tag in duplicate.tags], *dto.tags]
+                                ),
+                            ),
                         )
-                        if dto.title:
-                            duplicate.title = dto.title
-                        if dto.note:
-                            duplicate.note = dto.note
-                        duplicate.updated_at = utc_now()
                     if duplicate.archived:
-                        duplicate.archived = False
-                        duplicate.archived_at = None
-                    tab_item: dict[str, Any] = self.mapper.to_dto(duplicate).model_dump(
-                        mode="json", by_alias=True
-                    )
-                    tab_item["wasDuplicate"] = True
-                    created.append(tab_item)
+                        await self.repository.apply_changes(
+                            duplicate,
+                            {"archived": False, "archived_at": None},
+                        )
+                    created.append(self.mapper.to_created_dto(duplicate, True))
                     skipped.append(
-                        {"url": dto.url, "existingId": duplicate.id, "reason": "duplicate_url"}
+                        TabSkippedDTO(
+                            url=dto.url,
+                            existing_id=duplicate.id,
+                            reason="duplicate_url",
+                        )
                     )
                     continue
                 group_id = None if dto.group_id in {None, "", "inbox"} else dto.group_id
                 position = dto.position
                 if position is None:
-                    position = (
-                        float(
-                            await self.db.scalar(
-                                select(func.coalesce(func.max(Tab.position), -1)).where(
-                                    Tab.group_id == group_id
-                                )
-                            )
-                            or -1
-                        )
-                        + 1
-                    )
-                values: dict[str, Any] = dict(
-                    url=normalized,
+                    position = await self.repository.next_position(group_id)
+                tab = self.mapper.from_create_dto(
+                    dto,
                     normalized_url=normalized,
-                    title=dto.title or normalized,
-                    note=dto.note,
                     group_id=group_id,
                     position=position,
-                    archived=dto.archived,
-                    archived_at=dto.archived_at,
-                    created_at=dto.created_at or utc_now(),
-                    updated_at=dto.updated_at or utc_now(),
                     tags=await self._tags(dto.tags),
                 )
-                if dto.id is not None:
-                    values["id"] = dto.id
-                tab = Tab(**values)
-                self.db.add(tab)
-                await self.db.flush()
-                job = Job(kind="preview_capture", target_id=tab.id)
-                self.db.add(job)
-                await self.db.flush()
-                tab_item = self.mapper.to_dto(tab).model_dump(mode="json", by_alias=True)
-                tab_item["wasDuplicate"] = False
-                created.append(tab_item)
-                jobs.append({"tabId": tab.id, "jobId": job.id})
+                await self.repository.add_tab(tab)
+                job = await self.repository.add_preview_job(tab.id)
+                created.append(self.mapper.to_created_dto(tab, False))
+                jobs.append(TabJobDTO(tab_id=tab.id, job_id=job.id))
             if commit:
                 await self.db.commit()
         except Exception:
             await self.db.rollback()
             raise
         status = 207 if errors and created else 422 if errors else 201
-        return {"created": created, "skipped": skipped, "errors": errors, "jobs": jobs}, status
+        return TabCreateResultDTO(
+            created=created,
+            skipped=skipped,
+            errors=errors,
+            jobs=jobs,
+        ), status
 
-    async def update(self, tab_id: str, dto: TabUpdateDTO) -> dict[str, Any]:
+    async def update(self, tab_id: str, dto: TabUpdateDTO) -> TabDTO:
+        """Update one tab from a partial DTO."""
         tab = await self.repository.get(tab_id)
         if tab is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")
-        changes = dto.model_dump(exclude_unset=True)
+        changes = self.mapper.to_update_dict(dto)
         if not changes:
             raise EmptyUpdateError("At least one tab field is required")
         if "group_id" in changes and not await self._group_exists(changes["group_id"]):
             raise InvalidGroupError(f"Group {changes['group_id']!r} does not exist")
         if "tags" in changes:
-            tab.tags = await self._tags(changes.pop("tags") or [])
-        for key, value in changes.items():
-            if key == "group_id" and value in {"", "inbox"}:
-                value = None
-            setattr(tab, key, value)
+            changes["tags"] = await self._tags(changes["tags"] or [])
+        if changes.get("group_id") in {"", "inbox"}:
+            changes["group_id"] = None
         if changes.get("archived") is True and not tab.archived_at:
-            tab.archived_at = utc_now()
+            changes["archived_at"] = utc_now()
         if changes.get("archived") is False:
-            tab.archived_at = None
-        tab.updated_at = utc_now()
+            changes["archived_at"] = None
+        changes["updated_at"] = utc_now()
+        await self.repository.apply_changes(tab, changes)
         await self.db.commit()
-        return self.mapper.to_dto(tab).model_dump(mode="json", by_alias=True)
+        return self.mapper.to_dto(tab)
 
-    async def delete(self, tab_id: str, hard: bool) -> dict[str, Any]:
+    async def delete(self, tab_id: str, hard: bool, *, commit: bool = True) -> TabDeleteResultDTO:
+        """Archive or permanently delete one tab."""
         tab = await self.repository.get(tab_id)
         if tab is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")
         if hard:
             if not tab.archived:
                 raise ActiveTabDeleteError("Archive the tab before permanently deleting it")
-            await self.db.execute(delete(Tab).where(Tab.id == tab_id))
-            self.db.add(Tombstone(entity_type="tab", entity_id=tab_id))
+            await self.repository.hard_delete(tab_id)
         else:
-            tab.archived = True
-            tab.archived_at = utc_now()
-            tab.updated_at = utc_now()
-        await self.db.commit()
-        return {
-            "id": tab_id,
-            "deletedAt": utc_now().isoformat().replace("+00:00", "Z"),
-            "hard": hard,
-        }
+            await self.repository.archive(tab)
+        if commit:
+            await self.db.commit()
+        return TabDeleteResultDTO(id=tab_id, deleted_at=utc_now(), hard=hard)
 
-    async def batch_delete(self, ids: Sequence[str], hard: bool) -> dict[str, Any]:
-        deleted_ids: list_type[str] = []
-        missing: list_type[str] = []
-        for tab_id in ids:
-            try:
-                await self.delete(tab_id, hard)
-                deleted_ids.append(tab_id)
-            except TabNotFoundError:
-                missing.append(tab_id)
-        return {"deleted": deleted_ids, "notFound": missing}
+    async def batch_delete(self, ids: Sequence[str], hard: bool) -> TabBatchDeleteResultDTO:
+        """Delete multiple tabs in one transaction."""
+        deleted_ids: list[str] = []
+        missing: list[str] = []
+        try:
+            for tab_id in ids:
+                try:
+                    await self.delete(tab_id, hard, commit=False)
+                    deleted_ids.append(tab_id)
+                except TabNotFoundError:
+                    missing.append(tab_id)
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+        return TabBatchDeleteResultDTO(deleted=deleted_ids, not_found=missing)
 
-    async def move(self, tab_id: str, dto: TabMoveDTO) -> dict[str, Any]:
+    async def move(self, tab_id: str, dto: TabMoveDTO) -> TabDTO:
+        """Move one tab to a calculated position."""
         if not await self._group_exists(dto.target_group_id):
             raise InvalidGroupError(f"Group {dto.target_group_id!r} does not exist")
         tab = await self.repository.get(tab_id)
@@ -327,8 +311,7 @@ class TabService:
         else:
             position = (before + after) / 2
             if position in {before, after}:
-                for offset, row in enumerate(rows):
-                    row.position = float(offset)
+                await self.repository.renumber(rows)
                 before = rows[index - 1].position if index else None
                 after = rows[index].position if index < len(rows) else None
                 position = (
@@ -336,71 +319,61 @@ class TabService:
                     if before is not None and after is not None
                     else (-1.0 if before is None else before + 1)
                 )
-        tab.group_id = target
-        tab.position = position
-        tab.updated_at = utc_now()
+        await self.repository.apply_changes(tab, self.mapper.to_move_dict(dto, position=position))
         await self.db.commit()
-        return self.mapper.to_dto(tab).model_dump(mode="json", by_alias=True)
+        return self.mapper.to_dto(tab)
 
     async def tag(
         self, tab_id: str, name: str, add: bool
-    ) -> tuple[dict[str, Any], list_type[dict[str, Any]]]:
+    ) -> tuple[TabDTO, builtins.list[WarningDTO]]:
+        """Attach or detach a tag from a tab."""
         tab = await self.repository.get(tab_id)
         if tab is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")
         existing = next((tag for tag in tab.tags if tag.name.lower() == name.lower()), None)
-        warnings: list_type[dict[str, Any]] = []
+        warnings: list[WarningDTO] = []
         if add and existing is None:
-            known = await self.db.scalar(select(Tag).where(func.lower(Tag.name) == name.lower()))
-            if known is None:
-                known = Tag(name=name, description=None)
-                self.db.add(known)
+            known, created = await self.repository.get_or_create_tag(name)
+            if created:
                 warnings.append(
-                    {
-                        "code": "W_ORPHAN_TAG",
-                        "path": "body.tagName",
-                        "message": f"Tag {name!r} was created automatically.",
-                    }
+                    WarningDTO(
+                        code="W_ORPHAN_TAG",
+                        path="body.tagName",
+                        message=f"Tag {name!r} was created automatically.",
+                    )
                 )
-            tab.tags.append(known)
+            await self.repository.attach_tag(tab, known)
         elif not add and existing is not None:
-            tab.tags.remove(existing)
-        tab.updated_at = utc_now()
+            await self.repository.detach_tag(tab, existing)
+        await self.repository.apply_changes(tab, {"updated_at": utc_now()})
         await self.db.commit()
-        return self.mapper.to_dto(tab).model_dump(mode="json", by_alias=True), warnings
+        return self.mapper.to_dto(tab), warnings
 
-    async def restore(self, items: Sequence[TabRestoreDTO]) -> dict[str, int]:
+    async def restore(self, items: Sequence[TabRestoreDTO]) -> TabRestoreResultDTO:
+        """Restore newer synchronized tabs unless tombstoned."""
         restored = 0
         for dto in items:
-            tombstone = await self.db.scalar(
-                select(Tombstone.id).where(
-                    Tombstone.entity_type == "tab", Tombstone.entity_id == dto.id
-                )
-            )
-            if tombstone:
+            if await self.repository.tombstone_exists(dto.id):
                 continue
             tab = await self.repository.get(dto.id)
             if tab is None:
                 result, _ = await self.create_batch(
                     TabBatchCreateDTO(
-                        tabs=[dto.model_dump(by_alias=True)],
+                        tabs=[dto],
                         dedupe=False,
                         dedupe_strategy="createAnyway",
                     ),
                     atomic=True,
                     commit=False,
                 )
-                restored += len(result["created"])
+                restored += len(result.created)
             elif dto.updated_at and dto.updated_at > tab.updated_at.replace(
                 tzinfo=tab.updated_at.tzinfo or dto.updated_at.tzinfo
             ):
-                tab.title = dto.title or tab.title
-                tab.note = dto.note
-                tab.group_id = dto.group_id
-                tab.position = dto.position or 0
-                tab.archived = dto.archived
-                tab.archived_at = dto.archived_at
-                tab.tags = await self._tags(dto.tags)
+                await self.repository.apply_changes(
+                    tab,
+                    self.mapper.to_restore_dict(dto, await self._tags(dto.tags)),
+                )
                 restored += 1
         await self.db.commit()
-        return {"restored": restored}
+        return TabRestoreResultDTO(restored=restored)

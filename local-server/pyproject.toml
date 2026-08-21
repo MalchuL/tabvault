@@ -64,7 +64,13 @@ line-length = 100
 extend-exclude = [".venv"]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM"]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D"]
 
 [tool.ruff.format]
 quote-style = "double"

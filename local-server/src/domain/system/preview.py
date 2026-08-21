@@ -1,3 +1,5 @@
+"""Secure web preview capture and local asset storage."""
+
 from __future__ import annotations
 
 import asyncio
@@ -9,26 +11,47 @@ from urllib.parse import urljoin, urlparse
 import nh3
 from lxml import html as lxml_html
 from readability import Document
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clients.web_capture.protocol import WebCaptureProtocol
 from config.settings import Settings
 from lib.time import utc_now
-from models import Asset, Preview, Tab
+from models import Asset
+
+from .dto import AssetKind, ExtractedArticleDTO, PreviewCaptureResultDTO
+from .mapper import SystemMapper
+from .repository import SystemRepository
 
 logger = logging.getLogger(__name__)
 
 
 class PreviewService:
-    def __init__(self, db: AsyncSession, settings: Settings, capture: WebCaptureProtocol) -> None:
+    """Capture sanitized tab previews while owning transactions."""
+
+    def __init__(
+        self,
+        db: AsyncSession,
+        settings: Settings,
+        capture: WebCaptureProtocol,
+        repository: SystemRepository,
+    ) -> None:
+        """Initialize preview capture dependencies."""
         self.db = db
         self.settings = settings
         self.capture = capture
+        self.repository = repository
+        self.mapper = SystemMapper()
 
-    async def _asset(self, kind: str, content: bytes, content_type: str, source_url: str) -> Asset:
+    async def _asset(
+        self,
+        kind: AssetKind,
+        content: bytes,
+        content_type: str,
+        source_url: str,
+    ) -> Asset:
+        """Write and persist one deduplicated captured asset."""
         checksum = hashlib.sha256(content).hexdigest()
-        existing = await self.db.scalar(select(Asset).where(Asset.checksum == checksum))
+        existing = await self.repository.find_asset_checksum(checksum)
         if existing:
             return existing
         suffixes = {
@@ -45,22 +68,21 @@ class PreviewService:
         temporary = path.with_suffix(path.suffix + ".tmp")
         temporary.write_bytes(content)
         temporary.replace(path)
-        asset = Asset(
+        asset = self.mapper.asset(
             kind=kind,
-            path=str(relative),
+            path=relative,
             content_type=content_type,
             size_bytes=len(content),
             checksum=checksum,
             source_url=source_url,
         )
-        self.db.add(asset)
-        await self.db.flush()
-        return asset
+        return await self.repository.save_asset(asset)
 
     @staticmethod
     def _extract(
         content: bytes, base_url: str
-    ) -> tuple[dict[str, str | int | None], list[str], str | None]:
+    ) -> tuple[ExtractedArticleDTO, list[str], str | None]:
+        """Extract and sanitize readable article content from HTML."""
         source = content.decode("utf-8", errors="replace")
         doc = Document(source)
         summary = doc.summary(html_partial=True, keep_all_images=True)
@@ -109,34 +131,34 @@ class PreviewService:
         text = " ".join(lxml_html.fromstring(cleaned).itertext()).strip() if cleaned else ""
         title = doc.short_title() or doc.title()
         return (
-            {
-                "title": title,
-                "byline": None,
-                "siteName": urlparse(base_url).hostname,
-                "excerpt": text[:500] or None,
-                "contentHtml": cleaned,
-                "length": len(text),
-            },
+            ExtractedArticleDTO(
+                title=title,
+                byline=None,
+                site_name=urlparse(base_url).hostname,
+                excerpt=text[:500] or None,
+                content_html=cleaned,
+                length=len(text),
+            ),
             image_urls,
             icon_url,
         )
 
-    async def capture_tab(self, tab_id: str) -> dict[str, object]:
-        tab = await self.db.get(Tab, tab_id)
+    async def capture_tab(self, tab_id: str) -> PreviewCaptureResultDTO:
+        """Capture, sanitize, and persist preview content for one tab."""
+        tab = await self.repository.get_tab(tab_id)
         if tab is None:
-            return {"skipped": "tab_not_found"}
-        preview = await self.db.get(Preview, tab_id)
+            return PreviewCaptureResultDTO(skipped="tab_not_found")
+        preview = await self.repository.get_preview(tab_id)
         if preview is None:
-            preview = Preview(tab_id=tab_id)
-            self.db.add(preview)
-        preview.status = "running"
+            preview = await self.repository.save_preview(self.mapper.preview(tab_id))
+        await self.repository.apply_changes(preview, {"status": "running"})
         await self.db.commit()
         try:
             page = await self.capture.fetch_html(tab.url)
             article, image_urls, icon_url = await asyncio.to_thread(
                 self._extract, page.content, page.url
             )
-            html = str(article["contentHtml"] or "")
+            html = article.content_html
             total = len(page.content)
             for image_url in dict.fromkeys(image_urls):
                 if total >= self.settings.preview_max_total_bytes:
@@ -153,28 +175,40 @@ class PreviewService:
             if icon_url:
                 try:
                     icon = await self.capture.fetch_image(icon_url)
-                    tab.favicon_asset_id = (
-                        await self._asset("icon", icon.content, icon.content_type, icon.url)
-                    ).id
+                    icon_asset = await self._asset(
+                        "icon", icon.content, icon.content_type, icon.url
+                    )
+                    await self.repository.apply_changes(tab, {"favicon_asset_id": icon_asset.id})
                 except Exception as error:
                     logger.info("Favicon was skipped: %s", error)
-            preview.status = "ready"
-            preview.title = str(article["title"] or tab.title)
-            preview.byline = None
-            preview.site_name = str(article["siteName"] or "") or None
-            preview.excerpt = str(article["excerpt"] or "") or None
-            preview.content_html = html
-            preview.length = int(article["length"] or 0)
-            preview.source_url = page.url
-            preview.error = None
-            preview.fetched_at = utc_now()
+            title = article.title or tab.title
+            await self.repository.apply_changes(
+                preview,
+                {
+                    "status": "ready",
+                    "title": title,
+                    "byline": article.byline,
+                    "site_name": article.site_name,
+                    "excerpt": article.excerpt,
+                    "content_html": html,
+                    "length": article.length,
+                    "source_url": page.url,
+                    "error": None,
+                    "fetched_at": utc_now(),
+                },
+            )
             if tab.title == tab.url or tab.title == tab.normalized_url:
-                tab.title = preview.title
+                await self.repository.apply_changes(tab, {"title": title})
             await self.db.commit()
-            return {"tabId": tab_id, "status": "ready"}
+            return PreviewCaptureResultDTO(tab_id=tab_id, status="ready")
         except Exception as error:
-            preview.status = "unavailable"
-            preview.error = str(error)
-            preview.fetched_at = utc_now()
+            await self.repository.apply_changes(
+                preview,
+                {
+                    "status": "unavailable",
+                    "error": str(error),
+                    "fetched_at": utc_now(),
+                },
+            )
             await self.db.commit()
-            return {"tabId": tab_id, "status": "unavailable", "error": str(error)}
+            return PreviewCaptureResultDTO(tab_id=tab_id, status="unavailable", error=str(error))

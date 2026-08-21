@@ -1,3 +1,5 @@
+"""Aggregate all versioned API domain routers."""
+
 from fastapi import APIRouter
 
 from domain.groups.controller import router as groups_router

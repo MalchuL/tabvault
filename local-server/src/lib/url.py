@@ -1,3 +1,5 @@
+"""URL validation and normalization helpers."""
+
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 TRACKING_PREFIXES = ("utm_",)
@@ -5,6 +7,7 @@ TRACKING_KEYS = {"gclid", "fbclid", "mc_cid", "mc_eid"}
 
 
 def normalize_url(value: str) -> str:
+    """Validate and normalize an absolute HTTP or HTTPS URL."""
     parsed = urlparse(value.strip())
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
         raise ValueError("URL must be an absolute http or https URL")

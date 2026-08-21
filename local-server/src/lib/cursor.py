@@ -1,3 +1,5 @@
+"""Opaque cursor encoding and validation."""
+
 from __future__ import annotations
 
 import base64
@@ -8,17 +10,21 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class Cursor:
+    """Represent a decoded cursor position."""
+
     sort: str
     value: Any
     id: str
 
 
 def encode_cursor(sort: str, value: Any, row_id: str) -> str:
+    """Encode a sort value and row ID into an opaque cursor."""
     raw = json.dumps({"v": 1, "sort": sort, "value": value, "id": row_id}, separators=(",", ":"))
     return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
 
 
 def decode_cursor(value: str, expected_sort: str) -> Cursor:
+    """Decode and validate an opaque cursor for one sort key."""
     try:
         payload = json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
         if payload.get("v") != 1 or payload.get("sort") != expected_sort:

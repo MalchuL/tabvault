@@ -1,3 +1,5 @@
+"""Shared Advanced Alchemy repository base."""
+
 from __future__ import annotations
 
 from typing import Generic, TypeVar
@@ -11,5 +13,8 @@ ModelT = TypeVar("ModelT", bound=Base)
 
 
 class BaseRepository(SQLAlchemyAsyncRepository[ModelT], Generic[ModelT]):  # type: ignore[type-var]
+    """Configure repositories for explicit service-owned transactions."""
+
     def __init__(self, session: AsyncSession) -> None:
+        """Initialize Advanced Alchemy without automatic commits."""
         super().__init__(session=session)
