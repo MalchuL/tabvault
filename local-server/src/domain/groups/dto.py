@@ -16,6 +16,7 @@ class GroupCreateDTO(BaseModel):
     """Describe a group to create."""
 
     name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default="", max_length=20_000)
     parent_id: str | None = Field(default=None, max_length=128)
     color: str | None = Field(default=None, max_length=32)
     position: float | None = Field(default=None, ge=0)
@@ -31,6 +32,7 @@ class GroupUpdateDTO(BaseModel):
     """Describe fields that may be changed on a group."""
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=20_000)
     parent_id: str | None = Field(default=None, max_length=128)
     color: str | None = Field(default=None, max_length=32)
     position: float | None = Field(default=None, ge=0)
@@ -42,6 +44,7 @@ class GroupDTO(BaseModel):
 
     id: str
     name: str
+    description: str = ""
     parent_id: str | None
     color: str | None
     position: float

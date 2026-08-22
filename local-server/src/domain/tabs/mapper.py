@@ -37,6 +37,8 @@ class TabMapper:
             title=tab.title,
             favicon=f"/api/v1/assets/{tab.favicon_asset_id}" if tab.favicon_asset_id else None,
             note=tab.note,
+            agent_review=tab.agent_review,
+            viewed=tab.viewed,
             tags=[tag.name for tag in tab.tags],
             group_id=tab.group_id,
             position=tab.position,
@@ -108,7 +110,9 @@ class TabMapper:
             "url": normalized_url,
             "normalized_url": normalized_url,
             "title": dto.title or normalized_url,
-            "note": dto.note,
+            "note": dto.note or "",
+            "agent_review": dto.agent_review or "",
+            "viewed": dto.viewed,
             "group_id": group_id,
             "position": position,
             "archived": dto.archived,
@@ -131,7 +135,11 @@ class TabMapper:
         Returns:
             Snake-case values suitable for repository mutation.
         """
-        return dto.model_dump(exclude_unset=True)
+        values = dto.model_dump(exclude_unset=True)
+        for field in ("note", "agent_review"):
+            if field in values and values[field] is None:
+                values[field] = ""
+        return values
 
     @staticmethod
     def to_merge_dict(dto: TabCreateDTO, tags: list[Tag]) -> dict[str, Any]:
@@ -149,6 +157,10 @@ class TabMapper:
             values["title"] = dto.title
         if dto.note:
             values["note"] = dto.note
+        if dto.agent_review:
+            values["agent_review"] = dto.agent_review
+        if dto.viewed:
+            values["viewed"] = True
         return values
 
     @staticmethod
@@ -178,7 +190,9 @@ class TabMapper:
         """
         return {
             "title": dto.title,
-            "note": dto.note,
+            "note": dto.note or "",
+            "agent_review": dto.agent_review or "",
+            "viewed": dto.viewed,
             "group_id": dto.group_id,
             "position": dto.position or 0,
             "archived": dto.archived,

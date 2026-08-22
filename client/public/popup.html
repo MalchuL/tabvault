@@ -8,16 +8,26 @@
   </head>
   <body>
     <main class="popup-shell">
-      <button
-        id="open-workspace"
-        class="workspace-link"
-        type="button"
-        title="Open the TabVault side panel in this browser window"
-      >
-        <span class="brand-mark" aria-hidden="true">▮</span>
-        <span>Open TabVault workspace</span>
-        <span aria-hidden="true">↗</span>
-      </button>
+      <div class="workspace-actions">
+        <button
+          id="open-workspace"
+          class="workspace-link"
+          type="button"
+          title="Open the TabVault side panel in this browser window"
+        >
+          <span class="brand-mark" aria-hidden="true">▮</span>
+          <span>Open TabVault workspace</span>
+        </button>
+        <button
+          id="open-workspace-page"
+          class="workspace-page-link"
+          type="button"
+          title="Open TabVault in a new tab"
+          aria-label="Open TabVault in a new tab"
+        >
+          <span aria-hidden="true">↗</span>
+        </button>
+      </div>
 
       <section class="selection-panel" aria-labelledby="selection-title">
         <div class="eyebrow-row">

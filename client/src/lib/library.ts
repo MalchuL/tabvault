@@ -5,6 +5,7 @@
 export type VaultGroup = {
   id: string;
   name: string;
+  description: string;
   parent?: string;
   accent: string;
 };
@@ -16,6 +17,8 @@ export type VaultTab = {
   url: string;
   domain: string;
   note: string;
+  agentReview: string;
+  viewed: boolean;
   tags: string[];
   color: string;
   icon: string;
@@ -43,16 +46,17 @@ export type PersistedVault = {
 };
 
 export const DEFAULT_LIBRARY_GROUPS: VaultGroup[] = [
-  { id: "inbox", name: "Inbox", accent: "#F05A28" },
-  { id: "research", name: "Research", accent: "#829b65" },
+  { id: "inbox", name: "Inbox", description: "", accent: "#F05A28" },
+  { id: "research", name: "Research", description: "", accent: "#829b65" },
   {
     id: "llm-papers",
     name: "LLM papers",
+    description: "",
     parent: "research",
     accent: "#7aa6a1",
   },
-  { id: "build", name: "Build", accent: "#7c8bba" },
-  { id: "filed", name: "Filed", accent: "#bb9b68" },
+  { id: "build", name: "Build", description: "", accent: "#7c8bba" },
+  { id: "filed", name: "Filed", description: "", accent: "#bb9b68" },
 ];
 
 export const LIBRARY_REFRESH_INTERVALS = [
@@ -94,6 +98,7 @@ export function toServerDocument(
     groups: vault.vaultGroups.map((group, position) => ({
       id: group.id,
       name: group.name,
+      description: group.description,
       parentId: group.parent ?? null,
       color: group.accent,
       position,
@@ -103,6 +108,8 @@ export function toServerDocument(
       url: tab.url,
       title: tab.title,
       note: tab.note,
+      agentReview: tab.agentReview,
+      viewed: tab.viewed,
       tags: tab.tags,
       groupId: tab.groupId,
       archived: Boolean(tab.archived),
@@ -130,6 +137,7 @@ export function fromServerDocument(
   const vaultGroups = remoteGroups.map(group => ({
     id: String(group.id),
     name: String(group.name),
+    description: typeof group.description === "string" ? group.description : "",
     parent: typeof group.parentId === "string" ? group.parentId : undefined,
     accent: typeof group.color === "string" ? group.color : "#829b65",
   }));
@@ -145,6 +153,8 @@ export function fromServerDocument(
       url: String(tab.url ?? ""),
       domain: domainFromUrl(String(tab.url ?? "")),
       note: typeof tab.note === "string" ? tab.note : "",
+      agentReview: typeof tab.agentReview === "string" ? tab.agentReview : "",
+      viewed: Boolean(tab.viewed),
       tags: Array.isArray(tab.tags) ? tab.tags.map(String) : [],
       color: "#6b8c7e",
       icon:

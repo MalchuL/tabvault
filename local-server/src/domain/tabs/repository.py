@@ -113,6 +113,7 @@ class TabRepository(BaseRepository[Tab]):
                     func.lower(Tab.title).like(pattern),
                     func.lower(Tab.url).like(pattern),
                     func.lower(Tab.note).like(pattern),
+                    func.lower(Tab.agent_review).like(pattern),
                 )
             )
         for name in tags_all:

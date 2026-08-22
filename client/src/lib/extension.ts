@@ -73,6 +73,7 @@ export type StorageMode = "local" | "backend";
 type OpenTabsResponse = {
   openedCount: number;
   requestedCount: number;
+  openedUrls: string[];
 };
 
 export type LocalServerTab = {
@@ -80,6 +81,8 @@ export type LocalServerTab = {
   url: string;
   title: string;
   note?: string | null;
+  agentReview?: string | null;
+  viewed?: boolean;
   tags: string[];
   groupId?: string | null;
   position?: number;
@@ -172,15 +175,17 @@ export async function openTabUrls(urls: string[]): Promise<OpenTabsResponse> {
   );
   if (isExtensionContext() && window.chrome?.tabs?.create) {
     let openedCount = 0;
+    const openedUrls: string[] = [];
     for (const url of validUrls) {
       try {
         await window.chrome.tabs.create({ url, active: false });
         openedCount += 1;
+        openedUrls.push(url);
       } catch {
         // Continue opening the remainder and report the completed count.
       }
     }
-    return { openedCount, requestedCount: validUrls.length };
+    return { openedCount, requestedCount: validUrls.length, openedUrls };
   }
   if (isExtensionContext() && window.chrome?.runtime?.sendMessage) {
     return window.chrome.runtime.sendMessage<OpenTabsResponse>({
@@ -193,11 +198,15 @@ export async function openTabUrls(urls: string[]): Promise<OpenTabsResponse> {
   // hosted-browser popup blockers, while the extension path above retains
   // authoritative chrome.tabs.create counts.
   let openedCount = 0;
+  const openedUrls: string[] = [];
   for (const url of validUrls) {
     const opened = window.open(url, "_blank", "noopener,noreferrer");
-    if (opened) openedCount += 1;
+    if (opened) {
+      openedCount += 1;
+      openedUrls.push(url);
+    }
   }
-  return { openedCount, requestedCount: validUrls.length };
+  return { openedCount, requestedCount: validUrls.length, openedUrls };
 }
 
 export async function readExtensionVault<T>() {
@@ -450,6 +459,8 @@ export async function saveTabToLocalServer(
     url: string;
     title: string;
     note: string;
+    agentReview?: string;
+    viewed?: boolean;
     tags: string[];
     groupId: string | null;
     favicon?: string | null;
@@ -544,6 +555,25 @@ export async function updateTabOnLocalServer(
   );
   if (!response.ok)
     throw new Error("TabVault local server could not update the tab");
+  return response.json();
+}
+
+export async function updateGroupOnLocalServer(
+  url: string,
+  id: string,
+  updates: Record<string, unknown>,
+  apiKey = DEFAULT_TABVAULT_API_KEY
+) {
+  const response = await fetch(
+    `${url.replace(/\/+$/, "")}/api/v1/groups/${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      headers: apiHeaders(apiKey),
+      body: JSON.stringify(updates),
+    }
+  );
+  if (!response.ok)
+    throw new Error("TabVault local server could not update the collection");
   return response.json();
 }
 

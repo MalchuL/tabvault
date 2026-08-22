@@ -61,6 +61,14 @@ async function openWorkspace() {
   window.close();
 }
 
+async function openWorkspacePage() {
+  await chrome.tabs.create({
+    url: chrome.runtime.getURL("index.html?view=tab"),
+    active: true,
+  });
+  window.close();
+}
+
 async function saveAndClose() {
   if (!state.selectedTabs.length) return;
   selectionControls.forEach(button => (button.disabled = true));
@@ -112,6 +120,9 @@ document
 document
   .querySelector("#open-workspace")
   .addEventListener("click", () => void openWorkspace());
+document
+  .querySelector("#open-workspace-page")
+  .addEventListener("click", () => void openWorkspacePage());
 void loadTabs().catch(() => {
   tabCount.textContent = "Tabs unavailable";
   result.classList.add("is-error");

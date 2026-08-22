@@ -5,6 +5,7 @@ export type GroupId = string;
 export type VaultGroup = {
   id: GroupId;
   name: string;
+  description: string;
   parent?: GroupId;
   accent: string;
 };
@@ -18,6 +19,8 @@ export type VaultTab = {
   url: string;
   domain: string;
   note: string;
+  agentReview: string;
+  viewed: boolean;
   tags: string[];
   color: string;
   icon: string;

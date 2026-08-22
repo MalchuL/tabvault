@@ -86,14 +86,19 @@ def test_all_mcp_functions_forward_rest_shapes(monkeypatch) -> None:
     assert bridge.list_tabs()["success"]
     bridge.search_tabs("query")
     bridge.get_tab("tab")
-    bridge.save_tab("https://example.com", groupId="group")
+    bridge.save_tab(
+        "https://example.com",
+        agentReview="Agent summary",
+        viewed=True,
+        groupId="group",
+    )
     bridge.save_tabs_batch([{"url": "https://example.com"}], atomic=True)
-    bridge.update_tab("tab", title="Changed")
+    bridge.update_tab("tab", title="Changed", agentReview="Revised", viewed=False)
     bridge.delete_tab("tab", hard=True)
     bridge.move_tab("tab", targetGroupId="group", position=1)
     bridge.list_groups()
-    bridge.create_group("Group")
-    bridge.update_group("group", color="#fff")
+    bridge.create_group("Group", description="Filing context")
+    bridge.update_group("group", description="Updated context", color="#fff")
     bridge.delete_group("group", "promote")
     bridge.list_tags()
     bridge.tag_tab("tab", "docs")
@@ -103,6 +108,9 @@ def test_all_mcp_functions_forward_rest_shapes(monkeypatch) -> None:
     bridge.validate_import("markdown", "## Inbox")
     assert len(calls) == len(MANDATORY)
     assert all(str(args[1]).startswith("/") for args, _kwargs in calls)
+    assert calls[3][0][2]["tabs"][0]["agentReview"] == "Agent summary"
+    assert calls[3][0][2]["tabs"][0]["viewed"] is True
+    assert calls[9][0][2]["description"] == "Filing context"
 
 
 def test_mcp_api_error_and_environment_paths(monkeypatch) -> None:

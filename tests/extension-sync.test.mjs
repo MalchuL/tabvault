@@ -75,6 +75,10 @@ test("extension fast-save syncs with FastAPI's default local URL and persists sy
     JSON.parse(fetches[0].options.body).tabs[0].url,
     "https://example.com/project?a=1&b=2"
   );
+  assert.equal(JSON.parse(fetches[0].options.body).tabs[0].note, "");
+  assert.equal(JSON.parse(fetches[0].options.body).tabs[0].agentReview, "");
+  assert.equal(JSON.parse(fetches[0].options.body).tabs[0].viewed, false);
   assert.equal(storage["tabvault-sync-status"].state, "synced");
   assert.equal(storage["tabvault-v1"].tabs.length, 1);
+  assert.equal(storage["tabvault-v1"].tabs[0].note, "");
 });

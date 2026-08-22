@@ -27,6 +27,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "name": { "type": "string", "minLength": 1 },
+        "description": { "type": ["string", "null"] },
         "parentId": { "type": ["string", "null"] },
         "color": { "type": ["string", "null"] },
         "position": { "type": "number" }
@@ -40,6 +41,8 @@
         "url": { "type": "string", "format": "uri" },
         "title": { "type": "string", "minLength": 1 },
         "note": { "type": ["string", "null"] },
+        "agentReview": { "type": ["string", "null"] },
+        "viewed": { "type": "boolean" },
         "tags": { "type": "array", "items": { "type": "string" } },
         "groupId": { "type": ["string", "null"] },
         "position": { "type": "number" }

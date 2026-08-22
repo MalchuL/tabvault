@@ -37,7 +37,9 @@ function buildSavedTab(tab) {
     title: tab.title?.trim() || domainFor(url) || "Saved tab",
     url,
     domain: domainFor(url),
-    note: "Captured with TabVault fast save. Add a note or move it when ready.",
+    note: "",
+    agentReview: "",
+    viewed: false,
     tags: ["quick save"],
     color: "#F05A28",
     icon: "●",
@@ -67,6 +69,8 @@ async function syncQuickTabs(tabs) {
             url: tab.url,
             title: tab.title,
             note: tab.note,
+            agentReview: tab.agentReview,
+            viewed: tab.viewed,
             tags: tab.tags,
             groupId: null,
           },
@@ -101,6 +105,12 @@ async function saveAndCloseTabs(sourceTabs) {
   const stored = await chrome.storage.local.get(VAULT_STORAGE_KEY);
   const vault = stored[VAULT_STORAGE_KEY] || defaultVault();
   vault.tabs ||= [];
+  vault.tabs = vault.tabs.map(tab => ({
+    ...tab,
+    note: typeof tab.note === "string" ? tab.note : "",
+    agentReview: typeof tab.agentReview === "string" ? tab.agentReview : "",
+    viewed: Boolean(tab.viewed),
+  }));
   vault.tabOrders ||= {};
   vault.tabOrders.inbox ||= [];
   vault.tagCatalog ||= {};
@@ -202,10 +212,12 @@ async function openVaultTabs(urls) {
     /^https?:\/\//i.test(url)
   );
   let openedCount = 0;
+  const openedUrls = [];
   for (const url of validUrls) {
     try {
       await chrome.tabs.create({ url, active: false });
       openedCount += 1;
+      openedUrls.push(url);
     } catch {
       // Continue opening the remainder and return an accurate completed count.
     }
@@ -213,6 +225,7 @@ async function openVaultTabs(urls) {
   return {
     openedCount,
     requestedCount: validUrls.length,
+    openedUrls,
   };
 }
 
@@ -350,6 +363,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({
           openedCount: 0,
           requestedCount: Array.isArray(message.urls) ? message.urls.length : 0,
+          openedUrls: [],
           error: String(error),
         })
       );

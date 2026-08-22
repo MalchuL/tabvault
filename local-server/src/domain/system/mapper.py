@@ -110,6 +110,7 @@ class SystemMapper:
         return TransferGroupDTO(
             id=group.id,
             name=group.name,
+            description=group.description,
             parent_id=group.parent_id,
             color=group.color,
             position=group.position,
@@ -128,6 +129,8 @@ class SystemMapper:
             title=tab.title,
             favicon=f"/api/v1/assets/{tab.favicon_asset_id}" if tab.favicon_asset_id else None,
             note=tab.note,
+            agent_review=tab.agent_review,
+            viewed=tab.viewed,
             tags=[tag.name for tag in tab.tags],
             group_id=tab.group_id,
             position=tab.position,
@@ -153,6 +156,7 @@ class SystemMapper:
         return Group(
             id=dto.id,
             name=dto.name,
+            description=dto.description or "",
             parent_id=dto.parent_id,
             color=dto.color,
             position=dto.position,
@@ -172,6 +176,7 @@ class SystemMapper:
         """Map newer portable group data to ORM fields."""
         return {
             "name": dto.name,
+            "description": dto.description or "",
             "parent_id": dto.parent_id,
             "color": dto.color,
             "position": dto.position,
@@ -188,7 +193,9 @@ class SystemMapper:
             url=normalized_url,
             normalized_url=normalized_url,
             title=dto.title,
-            note=dto.note,
+            note=dto.note or "",
+            agent_review=dto.agent_review or "",
+            viewed=dto.viewed,
             group_id=dto.group_id,
             position=dto.position,
             archived=dto.archived,
@@ -203,7 +210,9 @@ class SystemMapper:
         """Map newer portable tab data to ORM fields."""
         return {
             "title": dto.title,
-            "note": dto.note,
+            "note": dto.note or "",
+            "agent_review": dto.agent_review or "",
+            "viewed": dto.viewed,
             "group_id": dto.group_id,
             "position": dto.position,
             "archived": dto.archived,
@@ -225,6 +234,10 @@ class SystemMapper:
             changes["title"] = dto.title
         if dto.note:
             changes["note"] = dto.note
+        if dto.agent_review:
+            changes["agent_review"] = dto.agent_review
+        if dto.viewed:
+            changes["viewed"] = True
         return changes
 
     @staticmethod

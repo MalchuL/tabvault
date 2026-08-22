@@ -4,14 +4,18 @@ import type { VaultGroup, VaultTab } from "../types";
 
 type CreateCollectionDialogProps = {
   name: string;
+  description: string;
   onNameChange: (name: string) => void;
+  onDescriptionChange: (description: string) => void;
   onClose: () => void;
   onCreate: () => void;
 };
 
 export function CreateCollectionDialog({
   name,
+  description,
   onNameChange,
+  onDescriptionChange,
   onClose,
   onCreate,
 }: CreateCollectionDialogProps) {
@@ -35,6 +39,13 @@ export function CreateCollectionDialog({
           onKeyDown={event => event.key === "Enter" && onCreate()}
           placeholder="e.g. Weekend reading"
           className="mt-5 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[13px] font-semibold outline-none focus:border-[#e95224]"
+        />
+        <textarea
+          value={description}
+          onChange={event => onDescriptionChange(event.target.value)}
+          placeholder="Description for agents (optional)"
+          rows={3}
+          className="mt-4 w-full resize-none border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 text-[12px] leading-5 outline-none focus:border-[#e95224]"
         />
         <DialogActions
           onCancel={onClose}
@@ -85,10 +96,24 @@ export function EditCollectionDialog({
             className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[13px] font-semibold outline-none focus:border-[#e95224]"
           />
         </label>
+        <label className="mt-4 block">
+          <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
+            Description
+          </span>
+          <textarea
+            value={collection.description}
+            onChange={event =>
+              onChange({ ...collection, description: event.target.value })
+            }
+            rows={4}
+            placeholder="Context that helps agents file tabs correctly"
+            className="mt-2 w-full resize-none border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 text-[12px] leading-5 outline-none focus:border-[#e95224]"
+          />
+        </label>
         <DialogActions
           onCancel={onClose}
           onConfirm={onSave}
-          confirmLabel="Save name"
+          confirmLabel="Save collection"
           icon
         />
       </div>
@@ -318,6 +343,33 @@ export function EditTabDialog({
               className="mt-2 w-full resize-none border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 text-[12px] leading-5 outline-none focus:border-[#e95224]"
             />
           </Field>
+          <Field label="Agent review" className="sm:col-span-2">
+            <textarea
+              value={tab.agentReview}
+              onChange={event =>
+                onChange({ ...tab, agentReview: event.target.value })
+              }
+              rows={4}
+              placeholder="Summary or additional context written by an AI agent"
+              className="mt-2 w-full resize-none border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 text-[12px] leading-5 outline-none focus:border-[#e95224]"
+            />
+          </Field>
+          <div>
+            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
+              Viewed
+            </span>
+            <label className="mt-2 flex items-center gap-2 py-3 text-[12px] font-semibold text-[#3f4e44]">
+              <input
+                type="checkbox"
+                checked={tab.viewed}
+                onChange={event =>
+                  onChange({ ...tab, viewed: event.target.checked })
+                }
+                className="h-4 w-4 accent-[#e95224]"
+              />
+              Mark as viewed
+            </label>
+          </div>
           <Field label="Collection">
             <select
               value={tab.groupId}

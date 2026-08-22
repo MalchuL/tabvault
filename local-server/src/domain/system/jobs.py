@@ -81,7 +81,15 @@ class JobWorker:
                     result_value = {
                         "indexedCount": await self.vectors.rebuild(
                             [
-                                (tab.id, "\n".join(filter(None, [tab.title, tab.note, tab.url])))
+                                (
+                                    tab.id,
+                                    "\n".join(
+                                        filter(
+                                            None,
+                                            [tab.title, tab.note, tab.agent_review, tab.url],
+                                        )
+                                    ),
+                                )
                                 for tab in tabs
                             ]
                         )

@@ -40,6 +40,9 @@ def test_nested_dtos_literals_aliases_and_response_envelope() -> None:
     )
     assert isinstance(body.tabs[0], TabCreateDTO)
     assert body.tabs[0].group_id == "group"
+    assert body.tabs[0].note == ""
+    assert body.tabs[0].agent_review == ""
+    assert body.tabs[0].viewed is False
     assert json_data(success(body))["data"]["tabs"][0]["groupId"] == "group"
     assert set(json_data(success(body))) == {"success", "data"}
 
@@ -75,7 +78,7 @@ def test_recursive_group_and_core_mapper_conversions() -> None:
         tags=[tag],
     )
     assert TabMapper.to_dto(tab).tags == ["docs"]
-    assert TabMapper.to_update_dict(TabUpdateDTO(note=None)) == {"note": None}
+    assert TabMapper.to_update_dict(TabUpdateDTO(note=None)) == {"note": ""}
     assert set(
         TabMapper.to_projection(tab, "minimal").model_dump(exclude_unset=True, by_alias=True)
     ) == {"id", "url", "title", "favicon", "groupId", "tags"}
@@ -93,6 +96,7 @@ def test_transfer_mapper_creates_models_and_update_values() -> None:
     )
     tab = mapper.tab_from_transfer(tab_dto, "https://example.com", [])
     assert tab.id == "tab" and tab.group_id == "group"
+    assert tab.note == "" and tab.agent_review == "" and tab.viewed is False
 
 
 def test_services_and_controllers_keep_database_operations_in_repositories() -> None:

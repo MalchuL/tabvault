@@ -99,6 +99,7 @@ class SystemService:
                 "title": row.title.lower(),
                 "url": row.url.lower(),
                 "note": (row.note or "").lower(),
+                "agentReview": row.agent_review.lower(),
             }
             matches = [(name, sum(term in text for term in terms)) for name, text in fields.items()]
             name, count = max(matches, key=lambda item: item[1])

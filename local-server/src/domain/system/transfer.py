@@ -266,6 +266,7 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
     document = empty_document()
     groups_by_level: dict[int, str | None] = {}
     active_group: str | None = None
+    active_group_record: dict[str, Any] | None = None
     active_tab: dict[str, Any] | None = None
     errors: list[IssueDTO] = []
     for number, line in enumerate(content.splitlines(), 1):
@@ -279,23 +280,26 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
             active_tab = None
             if name.lower() == "inbox":
                 active_group = None
+                active_group_record = None
                 continue
             active_group = f"g-{uuid.uuid4()}"
-            document["groups"].append(
-                {
-                    "id": active_group,
-                    "name": name,
-                    "parentId": groups_by_level.get(level - 1),
-                    "position": len(document["groups"]),
-                }
-            )
+            active_group_record = {
+                "id": active_group,
+                "name": name,
+                "description": "",
+                "parentId": groups_by_level.get(level - 1),
+                "position": len(document["groups"]),
+            }
+            document["groups"].append(active_group_record)
             groups_by_level[level] = active_group
         elif link:
             active_tab = {
                 "id": str(uuid.uuid4()),
                 "url": link.group(2),
                 "title": link.group(1),
-                "note": None,
+                "note": "",
+                "agentReview": "",
+                "viewed": False,
                 "tags": [],
                 "groupId": active_group,
                 "position": len(document["tabs"]),
@@ -308,7 +312,15 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
             elif key == "tags":
                 active_tab["tags"] = [item.strip() for item in value.split(",") if item.strip()]
             elif key == "note":
-                active_tab["note"] = value or None
+                active_tab["note"] = value
+            elif key == "agentReview":
+                active_tab["agentReview"] = value
+            elif key == "viewed":
+                active_tab["viewed"] = value.lower() == "true"
+        elif metadata and active_group_record is not None:
+            key, value = metadata.groups()
+            if key == "description":
+                active_group_record["description"] = value
         else:
             errors.append(
                 issue(
@@ -418,11 +430,16 @@ class TransferService:
                     lines.append(f"  tags: {', '.join(tab.tags)}")
                     if fields != "minimal":
                         lines.append(f"  note: {tab.note or ''}")
+                        lines.append(f"  agentReview: {tab.agent_review or ''}")
+                        lines.append(f"  viewed: {str(tab.viewed).lower()}")
                     lines.append("")
 
         def write_group(group: TransferGroupDTO, level: int) -> None:
             """Append Markdown for a group and its descendants."""
-            lines.extend([f"{'#' * level} {group.name}", ""])
+            lines.append(f"{'#' * level} {group.name}")
+            if fields != "minimal":
+                lines.append(f"  description: {group.description or ''}")
+            lines.append("")
             write_tabs(group.id)
             for child in children.get(group.id, []):
                 write_group(child, level + 1)

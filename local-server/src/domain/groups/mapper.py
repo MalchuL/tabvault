@@ -17,6 +17,7 @@ class GroupMapper:
         return GroupDTO(
             id=group.id,
             name=group.name,
+            description=group.description,
             parent_id=group.parent_id,
             color=group.color,
             position=group.position,
@@ -30,6 +31,7 @@ class GroupMapper:
         """Create a group model from a validated request."""
         values: dict[str, Any] = {
             "name": dto.name,
+            "description": dto.description or "",
             "parent_id": dto.parent_id,
             "color": dto.color,
             "position": position,
@@ -45,4 +47,7 @@ class GroupMapper:
     @staticmethod
     def to_update_dict(dto: GroupUpdateDTO) -> dict[str, Any]:
         """Convert an update DTO to supplied ORM field values."""
-        return dto.model_dump(exclude_unset=True)
+        values = dto.model_dump(exclude_unset=True)
+        if "description" in values and values["description"] is None:
+            values["description"] = ""
+        return values

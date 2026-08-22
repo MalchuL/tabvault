@@ -45,6 +45,9 @@ def test_selected_group_persists_and_empty_groups_are_listed(
     create_group(client, headers, "Empty")
     tab = create_tab(client, headers, group_id=group_id)
     assert tab["groupId"] == group_id
+    assert tab["note"] == ""
+    assert tab["agentReview"] == ""
+    assert tab["viewed"] is False
     loaded = client.get(f"/api/v1/tabs/{tab['id']}", headers=headers)
     assert loaded.json()["data"]["groupId"] == group_id
     groups = client.get("/api/v1/groups?flat=true", headers=headers).json()["data"]["groups"]
@@ -167,6 +170,15 @@ def test_search_keyword_jobs_preview_fallback_and_meta_routes(
     client.patch(f"/api/v1/tabs/{tab['id']}", headers=headers, json={"note": "async python guide"})
     result = client.get("/api/v1/search?q=python&mode=keyword", headers=headers).json()
     assert result["data"]["results"][0]["matchType"] == "keyword"
+    client.patch(
+        f"/api/v1/tabs/{tab['id']}",
+        headers=headers,
+        json={"agentReview": "quantum filing summary"},
+    )
+    agent_result = client.get("/api/v1/search?q=quantum&mode=keyword", headers=headers).json()[
+        "data"
+    ]["results"][0]
+    assert agent_result["matchedOn"] == "agentReview"
     queued = client.post("/api/v1/search/reindex", headers=headers)
     assert queued.status_code == 202
     job_id = queued.json()["data"]["jobId"]
@@ -195,10 +207,18 @@ def test_tab_update_filter_tag_move_batch_delete_and_not_found_errors(
     updated = client.patch(
         f"/api/v1/tabs/{first['id']}",
         headers=headers,
-        json={"title": "Changed", "note": None, "tags": ["alpha", "beta"]},
+        json={
+            "title": "Changed",
+            "note": None,
+            "agentReview": "Agent summary",
+            "viewed": True,
+            "tags": ["alpha", "beta"],
+        },
     ).json()["data"]
     assert updated["title"] == "Changed"
-    assert updated["note"] is None
+    assert updated["note"] == ""
+    assert updated["agentReview"] == "Agent summary"
+    assert updated["viewed"] is True
     assert (
         client.delete(f"/api/v1/tabs/{first['id']}/tags/alpha", headers=headers).status_code == 200
     )
@@ -231,9 +251,12 @@ def test_group_tree_counts_update_cascade_and_not_found(
     ]
     assert tree[0]["totalTabCount"] == 1
     renamed = client.patch(
-        f"/api/v1/groups/{child}", headers=headers, json={"name": "Renamed", "parentId": None}
+        f"/api/v1/groups/{child}",
+        headers=headers,
+        json={"name": "Renamed", "description": "Agent filing context", "parentId": None},
     )
     assert renamed.json()["data"]["name"] == "Renamed"
+    assert renamed.json()["data"]["description"] == "Agent filing context"
     assert (
         client.patch("/api/v1/groups/missing", headers=headers, json={"name": "X"}).status_code
         == 404

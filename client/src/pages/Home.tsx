@@ -43,6 +43,7 @@ import {
   saveTabToLocalServer,
   searchLocalServer,
   updateTabOnLocalServer,
+  updateGroupOnLocalServer,
   writeApiKey,
   writeLocalServerUrl,
   type ChromeTabSnapshot,
@@ -215,6 +216,7 @@ export default function Home() {
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showTagManager, setShowTagManager] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupDescription, setNewGroupDescription] = useState("");
   const [newTagName, setNewTagName] = useState("");
   const [tagDraft, setTagDraft] = useState("");
   const [showMobileRail, setShowMobileRail] = useState(false);
@@ -340,6 +342,8 @@ export default function Home() {
           url: tab.url,
           domain: normaliseUrl(tab.url),
           note: tab.note ?? "",
+          agentReview: tab.agentReview ?? "",
+          viewed: Boolean(tab.viewed),
           tags: tab.tags ?? [],
           color: "#6b8c7e",
           icon: tab.title.slice(0, 1).toUpperCase() || "T",
@@ -351,7 +355,7 @@ export default function Home() {
       (isArchivePage ? archivedTabs : activeTabs).filter(
         tab =>
           (searchGroupFilter === "all" || tab.groupId === searchGroupFilter) &&
-          [tab.title, tab.note, tab.domain, ...tab.tags]
+          [tab.title, tab.note, tab.agentReview, tab.domain, ...tab.tags]
             .join(" ")
             .toLowerCase()
             .includes(normalized)
@@ -400,8 +404,22 @@ export default function Home() {
           saved.tagCatalog &&
           saved.tabOrders
         ) {
-          setTabs(saved.tabs);
-          setVaultGroups(saved.vaultGroups);
+          setTabs(
+            saved.tabs.map(tab => ({
+              ...tab,
+              note: typeof tab.note === "string" ? tab.note : "",
+              agentReview:
+                typeof tab.agentReview === "string" ? tab.agentReview : "",
+              viewed: Boolean(tab.viewed),
+            }))
+          );
+          setVaultGroups(
+            saved.vaultGroups.map(group => ({
+              ...group,
+              description:
+                typeof group.description === "string" ? group.description : "",
+            }))
+          );
           setTagCatalog(saved.tagCatalog);
           setTabOrders(saved.tabOrders);
           setSavedSearches(saved.savedSearches ?? []);
@@ -829,6 +847,8 @@ export default function Home() {
           url: tab.url,
           title: tab.title,
           note: tab.note,
+          agentReview: tab.agentReview,
+          viewed: tab.viewed,
           tags: tab.tags,
           groupId: tab.groupId,
           updatedAt: tab.updated,
@@ -1169,6 +1189,8 @@ export default function Home() {
               url,
               title,
               note: restoredTab.note,
+              agentReview: restoredTab.agentReview,
+              viewed: restoredTab.viewed,
               tags: restoredTab.tags,
               groupId: null,
               favicon: activeTab.favIconUrl,
@@ -1193,7 +1215,9 @@ export default function Home() {
       title,
       url,
       domain: normaliseUrl(url),
-      note: "Captured from the active Chrome tab. Add a note or move it when ready.",
+      note: "",
+      agentReview: "",
+      viewed: false,
       tags: ["quick save"],
       color: "#F05A28",
       icon: "●",
@@ -1219,6 +1243,8 @@ export default function Home() {
             url,
             title,
             note: newTab.note,
+            agentReview: newTab.agentReview,
+            viewed: newTab.viewed,
             tags: newTab.tags,
             groupId: null,
             favicon: activeTab?.favIconUrl,
@@ -1284,8 +1310,17 @@ export default function Home() {
       return;
     }
     const id = `collection-${Date.now()}`;
-    setVaultGroups(current => [...current, { id, name, accent: "#8a9c92" }]);
+    setVaultGroups(current => [
+      ...current,
+      {
+        id,
+        name,
+        description: newGroupDescription.trim(),
+        accent: "#8a9c92",
+      },
+    ]);
     setNewGroupName("");
+    setNewGroupDescription("");
     setShowGroupDialog(false);
     selectCollection(id);
     toast.success(`“${name}” is ready`, {
@@ -1293,7 +1328,7 @@ export default function Home() {
     });
   };
 
-  const saveCollection = () => {
+  const saveCollection = async () => {
     if (!editingCollection) return;
     const name = editingCollection.name.trim();
     if (!name) {
@@ -1302,11 +1337,28 @@ export default function Home() {
     }
     setVaultGroups(current =>
       current.map(group =>
-        group.id === editingCollection.id ? { ...group, name } : group
+        group.id === editingCollection.id
+          ? {
+              ...editingCollection,
+              name,
+              description: editingCollection.description.trim(),
+            }
+          : group
       )
     );
+    if (storageMode === "backend" && serverOnline) {
+      await updateGroupOnLocalServer(
+        localServerUrl,
+        editingCollection.id,
+        {
+          name,
+          description: editingCollection.description.trim(),
+        },
+        serverApiKey
+      ).catch(() => setServerOnline(false));
+    }
     toast.success("Collection updated", {
-      description: `The shelf is now called “${name}”.`,
+      description: "Its name and agent-facing description are saved.",
     });
     setEditingCollection(null);
   };
@@ -1316,6 +1368,41 @@ export default function Home() {
       tabs.filter(tab => descendantCollectionIds(groupId).has(tab.groupId))
     );
 
+  const setTabViewed = (tabId: string, viewed: boolean) => {
+    setTabs(current =>
+      current.map(tab =>
+        tab.id === tabId
+          ? { ...tab, viewed, updated: new Date().toISOString() }
+          : tab
+      )
+    );
+  };
+
+  const markOpenedUrlsViewed = (openedUrls: string[]) => {
+    const opened = new Set(
+      openedUrls.map(url => {
+        try {
+          return canonicalizeTabUrl(url);
+        } catch {
+          return url;
+        }
+      })
+    );
+    setTabs(current =>
+      current.map(tab => {
+        let url = tab.url;
+        try {
+          url = canonicalizeTabUrl(tab.url);
+        } catch {
+          // Keep the original URL for older local records.
+        }
+        return opened.has(url)
+          ? { ...tab, viewed: true, updated: new Date().toISOString() }
+          : tab;
+      })
+    );
+  };
+
   const openCollectionTabs = async (group: VaultGroup) => {
     const collectionTabs = tabsForCollection(group.id);
     if (!collectionTabs.length) {
@@ -1323,6 +1410,7 @@ export default function Home() {
       return;
     }
     const result = await openTabUrls(collectionTabs.map(tab => tab.url));
+    markOpenedUrlsViewed(result.openedUrls ?? []);
     if (result.openedCount === result.requestedCount) {
       toast.success(
         `Opened ${result.openedCount} tab${result.openedCount === 1 ? "" : "s"}`
@@ -1419,6 +1507,7 @@ export default function Home() {
       title,
       url,
       note: editingTab.note.trim(),
+      agentReview: editingTab.agentReview.trim(),
       domain: normaliseUrl(url),
       tags: editingTab.tags.map(tag => tag.trim()).filter(Boolean),
       updated: new Date().toISOString(),
@@ -2546,6 +2635,7 @@ export default function Home() {
                       if (group.id !== "inbox")
                         setCollectionPendingDelete(group);
                     }}
+                    onEdit={group => setEditingCollection({ ...group })}
                     onBrowse={groupId => {
                       setSearchGroupFilter(groupId);
                       setQuery("");
@@ -2581,6 +2671,7 @@ export default function Home() {
                       onToggleSelection={toggleResultSelection}
                       onMove={moveTab}
                       onEdit={openTabEditor}
+                      onViewedChange={setTabViewed}
                       onDelete={tab => setTabPendingDelete(tab)}
                       onOpenTagManager={() => setShowTagManager(true)}
                       onOpenGroup={groupId => {
@@ -2602,6 +2693,12 @@ export default function Home() {
                         if (group && group.id !== "inbox") {
                           setCollectionPendingDelete(group);
                         }
+                      }}
+                      onEditGroup={groupId => {
+                        const group = vaultGroups.find(
+                          item => item.id === groupId
+                        );
+                        if (group) setEditingCollection({ ...group });
                       }}
                       groups={vaultGroups}
                       visibleGroupIds={visibleGroupIds}
@@ -2636,7 +2733,9 @@ export default function Home() {
         {showGroupDialog && (
           <CreateCollectionDialog
             name={newGroupName}
+            description={newGroupDescription}
             onNameChange={setNewGroupName}
+            onDescriptionChange={setNewGroupDescription}
             onClose={() => setShowGroupDialog(false)}
             onCreate={createGroup}
           />

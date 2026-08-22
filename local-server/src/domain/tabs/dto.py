@@ -21,7 +21,9 @@ class TabCreateDTO(BaseModel):
     url: str = Field(min_length=1, max_length=4096)
     title: str | None = Field(default=None, max_length=1024)
     favicon: str | None = Field(default=None, max_length=4096)
-    note: str | None = Field(default=None, max_length=20_000)
+    note: str | None = Field(default="", max_length=20_000)
+    agent_review: str | None = Field(default="", max_length=20_000)
+    viewed: bool = False
     tags: list[str] = Field(default_factory=list, max_length=64)
     group_id: str | None = Field(default=None, max_length=128)
     position: float | None = Field(default=None, ge=0)
@@ -65,6 +67,8 @@ class TabUpdateDTO(BaseModel):
 
     title: str | None = Field(default=None, min_length=1, max_length=1024)
     note: str | None = Field(default=None, max_length=20_000)
+    agent_review: str | None = Field(default=None, max_length=20_000)
+    viewed: bool | None = None
     tags: list[str] | None = Field(default=None, max_length=64)
     favicon: str | None = Field(default=None, max_length=4096)
     group_id: str | None = Field(default=None, max_length=128)
@@ -110,7 +114,9 @@ class TabDTO(BaseModel):
     url: str
     title: str
     favicon: str | None
-    note: str | None
+    note: str
+    agent_review: str
+    viewed: bool
     tags: list[str]
     group_id: str | None
     position: float
@@ -129,6 +135,8 @@ class TabProjectionDTO(BaseModel):
     title: str | None = None
     favicon: str | None = None
     note: str | None = None
+    agent_review: str | None = None
+    viewed: bool | None = None
     tags: list[str] | None = None
     group_id: str | None = None
     position: float | None = None

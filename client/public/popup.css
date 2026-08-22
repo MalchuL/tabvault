@@ -29,9 +29,14 @@ button {
   padding: 12px;
 }
 
+.workspace-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .workspace-link {
   display: flex;
-  width: 100%;
+  flex: 1;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -48,10 +53,25 @@ button {
 }
 
 .workspace-link:hover,
-.workspace-link:focus-visible {
+.workspace-link:focus-visible,
+.workspace-page-link:hover,
+.workspace-page-link:focus-visible {
   border-color: #e95224;
   color: #be4724;
   outline: none;
+}
+
+.workspace-page-link {
+  display: grid;
+  width: 39px;
+  flex: 0 0 39px;
+  place-items: center;
+  border: 1px solid #d9d4c8;
+  background: #fffdf8;
+  color: #334438;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
 }
 
 .brand-mark {

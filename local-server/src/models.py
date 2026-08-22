@@ -55,6 +55,7 @@ class Group(Base):
     __tablename__ = "groups"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
     color: Mapped[str | None] = mapped_column(String(32))
     position: Mapped[float] = mapped_column(Float, default=0)
@@ -77,7 +78,9 @@ class Tab(Base):
     favicon_asset_id: Mapped[str | None] = mapped_column(
         ForeignKey("assets.id", ondelete="SET NULL")
     )
-    note: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str] = mapped_column(Text, default="")
+    agent_review: Mapped[str] = mapped_column(Text, default="")
+    viewed: Mapped[bool] = mapped_column(Boolean, default=False)
     group_id: Mapped[str | None] = mapped_column(
         ForeignKey("groups.id", ondelete="SET NULL"), index=True
     )

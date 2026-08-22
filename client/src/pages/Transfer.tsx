@@ -68,6 +68,8 @@ function serverDocumentToVault(
     ? (document.groups as Array<Record<string, unknown>>).map(group => ({
         id: String(group.id),
         name: String(group.name),
+        description:
+          typeof group.description === "string" ? group.description : "",
         ...(typeof group.parentId === "string"
           ? { parent: group.parentId }
           : {}),
@@ -88,6 +90,8 @@ function serverDocumentToVault(
           }
         })(),
         note: typeof tab.note === "string" ? tab.note : "",
+        agentReview: typeof tab.agentReview === "string" ? tab.agentReview : "",
+        viewed: Boolean(tab.viewed),
         tags: Array.isArray(tab.tags) ? tab.tags.map(String) : [],
         color: "#6b8c7e",
         icon:

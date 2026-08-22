@@ -12,7 +12,7 @@ from lib.responses import IssueDTO, WarningDTO
 
 SearchMode: TypeAlias = Literal["semantic", "keyword", "hybrid"]
 SearchMatchType: TypeAlias = Literal["both", "semantic", "keyword"]
-SearchMatchedOn: TypeAlias = Literal["title", "url", "note", "tags", "semantic"]
+SearchMatchedOn: TypeAlias = Literal["title", "url", "note", "agentReview", "tags", "semantic"]
 TransferFormat: TypeAlias = Literal["json", "markdown"]
 ImportMode: TypeAlias = Literal["upload", "replace"]
 ExportFields: TypeAlias = Literal["full", "minimal"]
@@ -210,6 +210,7 @@ class TransferGroupDTO(BaseModel):
 
     id: str
     name: str
+    description: str | None = ""
     parent_id: str | None = None
     color: str | None = None
     position: float = 0
@@ -228,6 +229,8 @@ class TransferTabDTO(BaseModel):
     title: str
     favicon: str | None = None
     note: str | None = None
+    agent_review: str | None = ""
+    viewed: bool = False
     tags: list[str] = Field(default_factory=list)
     group_id: str | None = None
     position: float = 0

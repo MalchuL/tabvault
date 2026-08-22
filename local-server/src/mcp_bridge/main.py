@@ -151,7 +151,9 @@ def get_tab(id: str) -> dict[str, Any]:
 def save_tab(
     url: str,
     title: str | None = None,
-    note: str | None = None,
+    note: str = "",
+    agentReview: str = "",
+    viewed: bool = False,
     tags: list[str] | None = None,
     groupId: str | None = None,
 ) -> dict[str, Any]:
@@ -161,7 +163,15 @@ def save_tab(
         "/tabs",
         {
             "tabs": [
-                {"url": url, "title": title, "note": note, "tags": tags or [], "groupId": groupId}
+                {
+                    "url": url,
+                    "title": title,
+                    "note": note,
+                    "agentReview": agentReview,
+                    "viewed": viewed,
+                    "tags": tags or [],
+                    "groupId": groupId,
+                }
             ]
         },
     )
@@ -187,11 +197,20 @@ def update_tab(
     id: str,
     title: str | None = None,
     note: str | None = None,
+    agentReview: str | None = None,
+    viewed: bool | None = None,
     tags: list[str] | None = None,
     groupId: str | None = None,
 ) -> dict[str, Any]:
     """Update supplied fields on one tab."""
-    values = {"title": title, "note": note, "tags": tags, "groupId": groupId}
+    values = {
+        "title": title,
+        "note": note,
+        "agentReview": agentReview,
+        "viewed": viewed,
+        "tags": tags,
+        "groupId": groupId,
+    }
     return api().request(
         "PATCH", f"/tabs/{id}", {key: value for key, value in values.items() if value is not None}
     )
@@ -221,22 +240,36 @@ def list_groups(flat: bool = True) -> dict[str, Any]:
 
 @mcp.tool(annotations=WRITE, structured_output=True)
 def create_group(
-    name: str, parentId: str | None = None, color: str | None = None
+    name: str,
+    description: str = "",
+    parentId: str | None = None,
+    color: str | None = None,
 ) -> dict[str, Any]:
     """Create a group."""
-    return api().request("POST", "/groups", {"name": name, "parentId": parentId, "color": color})
+    return api().request(
+        "POST",
+        "/groups",
+        {"name": name, "description": description, "parentId": parentId, "color": color},
+    )
 
 
 @mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)
 def update_group(
     id: str,
     name: str | None = None,
+    description: str | None = None,
     parentId: str | None = None,
     color: str | None = None,
     position: float | None = None,
 ) -> dict[str, Any]:
     """Update supplied fields on a group."""
-    values = {"name": name, "parentId": parentId, "color": color, "position": position}
+    values = {
+        "name": name,
+        "description": description,
+        "parentId": parentId,
+        "color": color,
+        "position": position,
+    }
     return api().request(
         "PATCH", f"/groups/{id}", {key: value for key, value in values.items() if value is not None}
     )

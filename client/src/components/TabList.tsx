@@ -18,6 +18,7 @@ import {
   GripVertical,
   LoaderCircle,
   MoreHorizontal,
+  Pencil,
   RefreshCw,
   Share2,
   Trash2,
@@ -34,6 +35,8 @@ export type TabListItem = {
   url: string;
   domain: string;
   note: string;
+  agentReview: string;
+  viewed: boolean;
   tags: string[];
   color: string;
   icon: string;
@@ -56,11 +59,13 @@ type Props = {
   onToggleSelection: (id: string) => void;
   onMove: (id: string, groupId: string) => void;
   onEdit: (tab: TabListItem) => void;
+  onViewedChange: (id: string, viewed: boolean) => void;
   onDelete: (tab: TabListItem) => void;
   onOpenTagManager: () => void;
   onOpenGroup?: (groupId: string) => void;
   onShareGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
+  onEditGroup?: (groupId: string) => void;
   groups: Array<{ id: string; name: string }>;
   visibleGroupIds?: Set<string>;
   previewBackend?: { url: string; apiKey: string };
@@ -83,11 +88,13 @@ export function TabList({
   onToggleSelection,
   onMove,
   onEdit,
+  onViewedChange,
   onDelete,
   onOpenTagManager,
   onOpenGroup,
   onShareGroup,
   onDeleteGroup,
+  onEditGroup,
   groups,
   visibleGroupIds,
   previewBackend,
@@ -147,6 +154,7 @@ export function TabList({
                 onOpen={onOpenGroup}
                 onShare={onShareGroup}
                 onDelete={onDeleteGroup}
+                onEdit={onEditGroup}
               />
             )}
             {!isCollapsed && (
@@ -175,6 +183,7 @@ export function TabList({
                         onToggleSelection={onToggleSelection}
                         onMove={onMove}
                         onEdit={onEdit}
+                        onViewedChange={onViewedChange}
                         onDelete={onDelete}
                         onOpenTagManager={onOpenTagManager}
                         groups={groups}
@@ -232,6 +241,7 @@ function GroupSeparator({
   onOpen,
   onShare,
   onDelete,
+  onEdit,
 }: {
   groupId: string;
   groupName: string;
@@ -242,6 +252,7 @@ function GroupSeparator({
   onOpen?: (groupId: string) => void;
   onShare?: (groupId: string) => void;
   onDelete?: (groupId: string) => void;
+  onEdit?: (groupId: string) => void;
 }) {
   return (
     <div
@@ -290,6 +301,15 @@ function GroupSeparator({
             </button>
             <button
               type="button"
+              onClick={() => onEdit?.(groupId)}
+              className="rounded p-1 text-[#7b8078] hover:bg-white hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+              aria-label={`Edit ${groupName}`}
+              title="Edit collection"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
               onClick={() => onDelete?.(groupId)}
               disabled={groupId === "inbox"}
               className="rounded p-1 text-[#7b8078] hover:bg-white hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] disabled:cursor-not-allowed disabled:opacity-35"
@@ -326,6 +346,7 @@ type TabRowProps = {
   onToggleSelection: (id: string) => void;
   onMove: (id: string, groupId: string) => void;
   onEdit: (tab: TabListItem) => void;
+  onViewedChange: (id: string, viewed: boolean) => void;
   onDelete: (tab: TabListItem) => void;
   onOpenTagManager: () => void;
   groups: Array<{ id: string; name: string }>;
@@ -380,6 +401,7 @@ export function TabDragPreview({
       onToggleSelection={ignore}
       onMove={ignore}
       onEdit={ignore}
+      onViewedChange={ignore}
       onDelete={ignore}
       onOpenTagManager={ignore}
       groups={groups}
@@ -408,6 +430,7 @@ function TabRowPresentation({
   onToggleSelection,
   onMove,
   onEdit,
+  onViewedChange,
   onDelete,
   onOpenTagManager,
   groups,
@@ -491,12 +514,14 @@ function TabRowPresentation({
             href={tab.url}
             target="_blank"
             rel="noreferrer"
+            onClick={() => onViewedChange(tab.id, true)}
             onPointerDown={event => event.stopPropagation()}
             className="min-w-0 flex-1 truncate text-[12px] font-bold tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
             title={tab.title}
           >
             {tab.title}
           </a>
+          <ViewedCheckbox tab={tab} onChange={onViewedChange} />
           <span
             {...attributes}
             {...listeners}
@@ -533,7 +558,11 @@ function TabRowPresentation({
         </>
       ) : instantPreview ? (
         <div className="min-w-0 flex-1">
-          <ReadableArticlePreview tab={tab} backend={previewBackend} />
+          <ReadableArticlePreview
+            tab={tab}
+            backend={previewBackend}
+            onViewedChange={onViewedChange}
+          />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-1">
             <button
               onClick={onOpenTagManager}
@@ -586,6 +615,7 @@ function TabRowPresentation({
           score={score}
           fallbackMode={fallbackMode}
           onOpenTagManager={onOpenTagManager}
+          onViewedChange={onViewedChange}
         />
       )}
 
@@ -666,12 +696,14 @@ function StandardTabContent({
   score,
   fallbackMode,
   onOpenTagManager,
+  onViewedChange,
 }: {
   tab: TabListItem;
   query: string;
   score?: number;
   fallbackMode?: "text_fallback" | "semantic";
   onOpenTagManager: () => void;
+  onViewedChange: (id: string, viewed: boolean) => void;
 }) {
   return (
     <>
@@ -682,11 +714,13 @@ function StandardTabContent({
             href={tab.url}
             target="_blank"
             rel="noreferrer"
+            onClick={() => onViewedChange(tab.id, true)}
             className="block min-w-0 flex-1 truncate text-[13px] font-bold leading-5 tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
             title={tab.title}
           >
             {tab.title}
           </a>
+          <ViewedCheckbox tab={tab} onChange={onViewedChange} />
           <ArrowUpRight className="mt-1 hidden h-3.5 w-3.5 shrink-0 text-[#9a9c95] group-hover:block" />
         </div>
         <p
@@ -813,9 +847,11 @@ async function loadServerArticle(
 function ReadableArticlePreview({
   tab,
   backend,
+  onViewedChange,
 }: {
   tab: TabListItem;
   backend?: { url: string; apiKey: string };
+  onViewedChange: (id: string, viewed: boolean) => void;
 }) {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<ReadabilityState>({
@@ -902,6 +938,7 @@ function ReadableArticlePreview({
               href={tab.url}
               target="_blank"
               rel="noreferrer"
+              onClick={() => onViewedChange(tab.id, true)}
               className="inline-flex items-center gap-1.5 text-[10px] font-bold text-[#43554a] hover:text-[#e95224] hover:underline"
             >
               Open original <ArrowUpRight className="h-3.5 w-3.5" />
@@ -917,9 +954,12 @@ function ReadableArticlePreview({
     <section className="overflow-hidden border border-[#d7d1c4] bg-[#fffdf8] shadow-[0_7px_18px_rgba(24,38,31,0.04)]">
       <ReaderHeader tab={tab} label="Reader preview" />
       <div className="px-4 pt-4 pb-2">
-        <h3 className="max-w-3xl font-['DM_Sans'] text-[20px] font-bold leading-[1.08] tracking-[-0.045em] text-[#26342c]">
-          {article.title || tab.title}
-        </h3>
+        <div className="flex items-start gap-2">
+          <h3 className="max-w-3xl font-['DM_Sans'] text-[20px] font-bold leading-[1.08] tracking-[-0.045em] text-[#26342c]">
+            {article.title || tab.title}
+          </h3>
+          <ViewedCheckbox tab={tab} onChange={onViewedChange} />
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[8px] uppercase tracking-[0.09em] text-[#7f867d]">
           {article.byline && <span>{article.byline}</span>}
           {article.siteName && <span>{article.siteName}</span>}
@@ -948,12 +988,34 @@ function ReadableArticlePreview({
           href={article.url}
           target="_blank"
           rel="noreferrer"
+          onClick={() => onViewedChange(tab.id, true)}
           className="ml-auto inline-flex items-center gap-1 font-mono text-[8px] uppercase tracking-[0.08em] text-[#e95224] hover:underline"
         >
           Open original <ArrowUpRight className="h-3 w-3" />
         </a>
       </div>
     </section>
+  );
+}
+
+function ViewedCheckbox({
+  tab,
+  onChange,
+}: {
+  tab: TabListItem;
+  onChange: (id: string, viewed: boolean) => void;
+}) {
+  return (
+    <input
+      type="checkbox"
+      checked={tab.viewed}
+      onChange={event => onChange(tab.id, event.target.checked)}
+      onClick={event => event.stopPropagation()}
+      onPointerDown={event => event.stopPropagation()}
+      className="mt-1 h-3.5 w-3.5 shrink-0 accent-[#e95224]"
+      aria-label={`Mark ${tab.title} as viewed`}
+      title="Viewed"
+    />
   );
 }
 

@@ -1,4 +1,4 @@
-import { FolderOpen, FolderPlus, Share2, Trash2 } from "lucide-react";
+import { FolderOpen, FolderPlus, Pencil, Share2, Trash2 } from "lucide-react";
 import type { GroupId, VaultGroup, VaultTab } from "../types";
 
 type CollectionBoardProps = {
@@ -7,6 +7,7 @@ type CollectionBoardProps = {
   onOpen: (group: VaultGroup) => void;
   onShare: (group: VaultGroup) => void;
   onDelete: (group: VaultGroup) => void;
+  onEdit: (group: VaultGroup) => void;
   onBrowse: (groupId: GroupId) => void;
   onCreate: () => void;
 };
@@ -17,6 +18,7 @@ export function CollectionBoard({
   onOpen,
   onShare,
   onDelete,
+  onEdit,
   onBrowse,
   onCreate,
 }: CollectionBoardProps) {
@@ -84,6 +86,14 @@ export function CollectionBoard({
                   title="Copy as Markdown"
                 >
                   <Share2 className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => onEdit(group)}
+                  className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+                  aria-label={`Edit ${group.name}`}
+                  title="Edit collection"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
                 </button>
                 <button
                   onClick={() => onDelete(group)}
