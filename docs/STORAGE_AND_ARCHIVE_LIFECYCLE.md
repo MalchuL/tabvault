@@ -1,35 +1,47 @@
 # Storage and Archive Lifecycle
 
-> **Product contract:** a saved URL is a durable library record, not a disposable list item. Removing it from daily work archives it; adding the same URL later restores the original record and its knowledge.
+This document summarizes the storage lifecycle defined in
+[`GROUPS_AND_AGENTS.md`](./GROUPS_AND_AGENTS.md). The ADRs in [`adr/`](./adr/)
+record the individual decisions.
 
 ## Storage modes
 
-TabVault persists every update to browser or extension storage first. The storage mode determines whether the configured backend is also used.
+TabVault writes browser-local schema-v2 data immediately. In backend mode, routine mutations use
+single-resource API requests; a failed backend request does not make browser-local data unreadable.
+Explicit synchronization may use the transactional schema-v2 transfer command. Saved Tab IDs—not
+URL equality—identify the same occurrence across browser and server storage, and record-level
+`updatedAt` last-write-wins resolves supported synchronization conflicts.
 
-| Mode                  | Local copy               | Backend behavior                                                        | When the backend is unavailable                                                  |
-| --------------------- | ------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| **Local only**        | Always saved immediately | No outbound data request is made                                        | Nothing changes; the library remains local.                                      |
-| **Backend preferred** | Always saved immediately | TabVault attempts an authenticated library push after local persistence | The update remains local and is marked as pending until a later successful push. |
+## Saved URL and occurrence identity
 
-The backend is therefore a preferred shared copy, never a prerequisite for opening, editing, archiving, or restoring a link.
+- Store the original HTTP(S) Saved URL exactly as supplied.
+- Do not store a normalized or canonical URL.
+- Every save creates a distinct Saved Tab occurrence, including repeated exact URLs.
+- `POST /api/v1/tabs` never searches for, merges, restores, or reuses a URL match.
+- Duplicate reduction is an explicit client workflow and archives non-survivors through individual
+  requests.
 
-## URL identity and restoration
+## Archive
 
-URLs are normalized using the existing canonicalization rule: HTTP(S) is required, the fragment is removed, and query parameters are kept in sorted order. The normalized URL is unique across both active and archived records.
+- Archiving sets `archivedAt`, clears `groupId`, and removes the Saved Tab from ordinary ordering.
+- Archive takes precedence over a future `hiddenUntil` deadline.
+- Restore is an ordinary PATCH that clears archive state; the Saved Tab remains Unassigned and may
+  appear in Hidden if its visibility deadline is still in the future.
+- Permanent `DELETE /api/v1/tabs/{id}?hard=true` is available only for an already archived Saved
+  Tab.
+- Deleting a Group atomically archives and Unassigns its current member tabs before permanently
+  deleting the Group.
 
-| Event                                | Result                                                                                                                 |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| Add a new normalized URL             | Create one active tab record.                                                                                          |
-| Add an already-active normalized URL | Reuse the existing record; do not create a duplicate or overwrite its notes and tags.                                  |
-| Add an archived normalized URL       | Restore the same record to Inbox, retain its title, notes, tags, and ID, and clear its archive state.                  |
-| Remove an active tab                 | Mark it archived and remove it from active collection ordering.                                                        |
-| Restore in Archive                   | Clear its archive state and return it to Inbox.                                                                        |
-| Permanently delete                   | Allowed only from Archive; removes the local record and, when backend-preferred sync is reachable, the backend record. |
+## Hidden
 
-## API behavior
-
-The server stores `archived` and `archivedAt` fields on tab records. Active library routes and semantic search exclude archived records. The full library document retains archive records so browser and backend copies can converge without losing recovery history. The permanent `DELETE /v1/tabs/{id}` operation rejects active tabs; clients must archive first.
+Only Saved Tabs carry `hiddenUntil`. All Tabs, search, counts, and user export omit active tabs with
+future deadlines. Hidden is a dedicated human view; MCP cannot read or mutate hidden or archived
+content. Group visibility is derived from current member tabs, and empty Groups remain visible in
+All Tabs.
 
 ## User interface
 
-The normal tab-list trash affordance is an archive action with a confirmation that explains recovery. Archive is a real navigation destination, not a toast or hidden status. It provides Restore and permanent Delete. Archive count appears only when there are archived tabs, so routine library work remains calm.
+All Tabs, Hidden, and Archive reuse the grouped tab-list component with lifecycle-specific actions.
+All Tabs offers Archive and Hide; Hidden offers Archive, Unhide, and Prolong; Archive offers Restore
+and permanent Delete. `[Unassigned]` is a virtual collection shown when the current view contains
+Saved Tabs without Group membership.

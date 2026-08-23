@@ -4,11 +4,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from domain.tabs.dto import TabDTO
 from lib.dto_config import model_config
 from lib.responses import IssueDTO, WarningDTO
+from lib.time import absolute_utc
 
 SearchMode: TypeAlias = Literal["semantic", "keyword", "hybrid"]
 SearchMatchType: TypeAlias = Literal["both", "semantic", "keyword"]
@@ -66,7 +67,7 @@ class HealthDTO(BaseModel):
 
     status: Literal["ok"]
     version: str
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     storage: StorageCountsDTO
     vector_index: VectorStatusDTO
     model_config = model_config()
@@ -210,12 +211,10 @@ class TransferGroupDTO(BaseModel):
 
     id: str
     name: str
+    category: str
     description: str | None = ""
-    parent_id: str | None = None
     color: str | None = None
     position: float = 0
-    archived: bool = False
-    archived_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     model_config = model_config()
@@ -236,15 +235,24 @@ class TransferTabDTO(BaseModel):
     position: float = 0
     archived: bool = False
     archived_at: datetime | None = None
+    hidden_until: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     model_config = model_config()
+
+    @field_validator("hidden_until")
+    @classmethod
+    def hidden_until_is_utc(cls, value: datetime | None) -> datetime | None:
+        """Require an absolute instant and normalize it to UTC."""
+        if value is None:
+            return None
+        return absolute_utc(value)
 
 
 class TransferDocumentDTO(BaseModel):
     """Represent the versioned portable TabVault document."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     exported_at: datetime | None = None
     tags: list[TransferTagDTO] = Field(default_factory=list)
     groups: list[TransferGroupDTO] = Field(default_factory=list)
@@ -267,7 +275,7 @@ class MinimalTransferTabDTO(BaseModel):
 class MinimalTransferDocumentDTO(BaseModel):
     """Represent a portable document with minimal tab fields."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     exported_at: datetime | None = None
     tags: list[TransferTagDTO]
     groups: list[TransferGroupDTO]

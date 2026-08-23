@@ -33,9 +33,8 @@ async def test_job_worker_all_common_paths(tmp_path: Path, monkeypatch: pytest.M
     async with factory() as db:
         tab = Tab(
             url="https://example.com",
-            normalized_url="https://example.com",
             title="Example",
-            note=None,
+            note="",
             group_id=None,
             position=0,
             archived=False,

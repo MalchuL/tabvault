@@ -7,7 +7,8 @@ import hashlib
 import hmac
 import json
 import logging
-import uuid
+import time
+from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -27,7 +28,6 @@ from api.routes.api import api_router
 from config.settings import Settings, configure_logging, get_settings
 from db.session import configure_database, dispose_database, get_session_factory
 from domain.system.jobs import JobWorker
-from domain.system.mapper import SystemMapper
 from domain.system.repository import SystemRepository
 from domain.system.search import LocalVectorIndex
 from domain.system.transfer import TransferService
@@ -113,33 +113,17 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["Content-Disposition"],
     )
+    idempotency_cache: OrderedDict[tuple[str, str], tuple[float, str, int, dict[str, object]]] = (
+        OrderedDict()
+    )
+    idempotency_lock = asyncio.Lock()
 
     @app.middleware("http")
     async def idempotency(request, call_next):  # type: ignore[no-untyped-def]
         """Replay matching POST requests identified by an idempotency key."""
         key = request.headers.get("idempotency-key")
-        if request.method != "POST" or not key:
+        if request.method != "POST" or request.url.path != f"{settings.api_prefix}/tabs" or not key:
             return await call_next(request)
-        try:
-            uuid.UUID(key)
-        except ValueError:
-            return JSONResponse(
-                json_data(
-                    failure(
-                        [
-                            issue(
-                                "E_INVALID_IDEMPOTENCY_KEY",
-                                "headers.Idempotency-Key",
-                                "UUID",
-                                key,
-                                "Idempotency-Key must be a UUID.",
-                                422,
-                            )
-                        ]
-                    )
-                ),
-                status_code=422,
-            )
         body = await request.body()
         digest = hashlib.sha256(
             b"\0".join(
@@ -151,12 +135,16 @@ def create_app() -> FastAPI:
                 ]
             )
         ).hexdigest()
-        async with get_session_factory()() as db:
-            repository = SystemRepository(db)
-            await repository.purge_idempotency(utc_now())
-            record = await repository.get_idempotency(key)
-            if record:
-                if record.request_hash != digest:
+        cache_key = (request.headers.get("x-api-key", ""), key)
+        # ponytail: one process-wide lock is enough for the local server; shard if throughput matters.
+        async with idempotency_lock:
+            now = time.monotonic()
+            while idempotency_cache and next(iter(idempotency_cache.values()))[0] <= now:
+                idempotency_cache.popitem(last=False)
+            record = idempotency_cache.get(cache_key)
+            if record is not None:
+                _expires, request_hash, status_code, response_body = record
+                if request_hash != digest:
                     return JSONResponse(
                         json_data(
                             failure(
@@ -174,32 +162,27 @@ def create_app() -> FastAPI:
                         ),
                         status_code=409,
                     )
-                return JSONResponse(record.response, status_code=record.status_code)
-            await db.commit()
-        response = await call_next(request)
-        chunks = [chunk async for chunk in response.body_iterator]
-        payload = b"".join(chunks)
-        try:
-            decoded = json.loads(payload)
-        except json.JSONDecodeError:
-            return Response(
-                payload,
-                status_code=response.status_code,
-                headers=dict(response.headers),
-                media_type=response.media_type,
-            )
-        async with get_session_factory()() as db:
-            repository = SystemRepository(db)
-            await repository.save_idempotency(
-                SystemMapper.idempotency(
-                    key=key,
-                    request_hash=digest,
+                return JSONResponse(response_body, status_code=status_code)
+            response = await call_next(request)
+            chunks = [chunk async for chunk in response.body_iterator]
+            payload = b"".join(chunks)
+            try:
+                decoded = json.loads(payload)
+            except json.JSONDecodeError:
+                return Response(
+                    payload,
                     status_code=response.status_code,
-                    response=decoded,
-                    expires_at=utc_now() + timedelta(hours=24),
+                    headers=dict(response.headers),
+                    media_type=response.media_type,
                 )
+            idempotency_cache[cache_key] = (
+                now + 600,
+                digest,
+                response.status_code,
+                decoded,
             )
-            await db.commit()
+            while len(idempotency_cache) > 10_000:
+                idempotency_cache.popitem(last=False)
         headers = dict(response.headers)
         headers.pop("content-length", None)
         return JSONResponse(decoded, status_code=response.status_code, headers=headers)

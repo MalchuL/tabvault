@@ -22,20 +22,18 @@ import {
   DEFAULT_TABVAULT_API_KEY,
   DEFAULT_TABVAULT_SERVER_URL,
   readApiKey,
+  readLibraryFromServer,
   readLocalServerUrl,
 } from "@/lib/extension";
+import {
+  emptyBrowserVault,
+  fromServerDocument,
+  isPersistedVault,
+  type PersistedVault,
+} from "@/lib/library";
 import { BrowserStorageAdapter } from "@/lib/persistence";
 
 const logoUrl = "/icon-128.png";
-
-type TransferVault = {
-  tabs?: Array<Record<string, unknown>>;
-  vaultGroups?: Array<Record<string, unknown>>;
-  tagCatalog?: Record<string, string>;
-  tabOrders?: Record<string, string[]>;
-  savedSearches?: Array<Record<string, unknown>>;
-  tabView?: string;
-};
 
 type ValidationError = {
   code?: string;
@@ -61,95 +59,14 @@ function timestamp() {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
-function serverDocumentToVault(
-  document: Record<string, unknown>
-): TransferVault {
-  const groups = Array.isArray(document.groups)
-    ? (document.groups as Array<Record<string, unknown>>).map(group => ({
-        id: String(group.id),
-        name: String(group.name),
-        description:
-          typeof group.description === "string" ? group.description : "",
-        ...(typeof group.parentId === "string"
-          ? { parent: group.parentId }
-          : {}),
-        accent: typeof group.color === "string" ? group.color : "#829b65",
-      }))
-    : [];
-  const tabs = Array.isArray(document.tabs)
-    ? (document.tabs as Array<Record<string, unknown>>).map(tab => ({
-        id: String(tab.id),
-        groupId: typeof tab.groupId === "string" ? tab.groupId : "inbox",
-        title: String(tab.title ?? "Untitled tab"),
-        url: String(tab.url ?? ""),
-        domain: (() => {
-          try {
-            return new URL(String(tab.url)).hostname.replace(/^www\./, "");
-          } catch {
-            return String(tab.url ?? "");
-          }
-        })(),
-        note: typeof tab.note === "string" ? tab.note : "",
-        agentReview: typeof tab.agentReview === "string" ? tab.agentReview : "",
-        viewed: Boolean(tab.viewed),
-        tags: Array.isArray(tab.tags) ? tab.tags.map(String) : [],
-        color: "#6b8c7e",
-        icon:
-          String(tab.title ?? "T")
-            .slice(0, 1)
-            .toUpperCase() || "T",
-        updated: new Date().toISOString(),
-      }))
-    : [];
-  const tagCatalog = Array.isArray(document.tags)
-    ? (document.tags as Array<Record<string, unknown>>).reduce<
-        Record<string, string>
-      >(
-        (catalog, tag) => ({
-          ...catalog,
-          [String(tag.name)]:
-            typeof tag.description === "string" ? tag.description : "",
-        }),
-        {}
-      )
-    : {};
-  const tabOrders = tabs.reduce<Record<string, string[]>>(
-    (orders, tab) => ({
-      ...orders,
-      [String(tab.groupId)]: [
-        ...(orders[String(tab.groupId)] ?? []),
-        String(tab.id),
-      ],
-    }),
-    {}
-  );
-  return {
-    tabs,
-    vaultGroups: groups,
-    tagCatalog,
-    tabOrders,
-    savedSearches: [],
-    tabView: "standard",
-  };
-}
-
-function isWorkspaceVault(value: unknown): value is TransferVault {
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    Array.isArray(candidate.tabs) &&
-    Array.isArray(candidate.vaultGroups) &&
-    typeof candidate.tagCatalog === "object" &&
-    typeof candidate.tabOrders === "object"
-  );
-}
-
 export default function Transfer() {
   const [, setLocation] = useLocation();
-  const storage = useMemo(() => new BrowserStorageAdapter<TransferVault>(), []);
+  const storage = useMemo(
+    () => new BrowserStorageAdapter<PersistedVault>(),
+    []
+  );
   const fileInput = useRef<HTMLInputElement>(null);
-  const [vault, setVault] = useState<TransferVault | null>(null);
+  const [vault, setVault] = useState<PersistedVault | null>(null);
   const [serverUrl, setServerUrl] = useState(DEFAULT_TABVAULT_SERVER_URL);
   const [apiKey, setApiKey] = useState(DEFAULT_TABVAULT_API_KEY);
   const [serverOnline, setServerOnline] = useState(false);
@@ -253,9 +170,9 @@ export default function Transfer() {
         if (markdown) throw new Error("Markdown import requires the API.");
         if (!parsedJson)
           throw new Error("The JSON document could not be read.");
-        const nextVault = isWorkspaceVault(parsedJson)
+        const nextVault = isPersistedVault(parsedJson)
           ? parsedJson
-          : serverDocumentToVault(parsedJson);
+          : fromServerDocument(parsedJson, emptyBrowserVault());
         if (!nextVault.tabs?.length && !nextVault.vaultGroups?.length) {
           throw new Error(
             "This file does not contain a recognizable TabVault library."
@@ -299,11 +216,13 @@ export default function Transfer() {
         });
         return;
       }
-      if (result.document) {
-        const nextVault = serverDocumentToVault(result.document);
-        await storage.save(nextVault);
-        setVault(nextVault);
-      }
+      const document = await readLibraryFromServer(serverUrl, apiKey);
+      const nextVault = fromServerDocument(
+        document,
+        vault ?? emptyBrowserVault()
+      );
+      await storage.save(nextVault);
+      setVault(nextVault);
       setIssues(result.warnings ?? []);
       toast.success(
         importMode === "replace" ? "Library replaced" : "Library merged",

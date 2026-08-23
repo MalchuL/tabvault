@@ -9,6 +9,7 @@ from typing import Any, Literal, TypeAlias
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -50,17 +51,15 @@ tab_tags = Table(
 
 
 class Group(Base):
-    """Persist a hierarchical tab group."""
+    """Persist a flat categorized tab group."""
 
     __tablename__ = "groups"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
-    parent_id: Mapped[str | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"))
+    category: Mapped[str] = mapped_column(String(128), index=True)
     color: Mapped[str | None] = mapped_column(String(32))
     position: Mapped[float] = mapped_column(Float, default=0)
-    archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
@@ -71,9 +70,13 @@ class Tab(Base):
     """Persist a saved browser tab and its archive state."""
 
     __tablename__ = "tabs"
+    # Ensure that archived tabs cannot belong to any group.
+    # If a tab is archived (archived=True), its group_id must be NULL.
+    __table_args__ = (
+        CheckConstraint("NOT archived OR group_id IS NULL", name="archived_tabs_are_unassigned"),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid4)
     url: Mapped[str] = mapped_column(Text)
-    normalized_url: Mapped[str] = mapped_column(Text, index=True)
     title: Mapped[str] = mapped_column(String(1024))
     favicon_asset_id: Mapped[str | None] = mapped_column(
         ForeignKey("assets.id", ondelete="SET NULL")
@@ -87,6 +90,7 @@ class Tab(Base):
     position: Mapped[float] = mapped_column(Float, default=0)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    hidden_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
@@ -163,17 +167,6 @@ class Backup(Base):
     reason: Mapped[BackupReason] = mapped_column(String(32))
     size_bytes: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-
-
-class IdempotencyRecord(Base):
-    """Persist a replayable POST response for one idempotency key."""
-
-    __tablename__ = "idempotency_keys"
-    key: Mapped[str] = mapped_column(String(36), primary_key=True)
-    request_hash: Mapped[str] = mapped_column(String(64))
-    status_code: Mapped[int] = mapped_column(Integer)
-    response: Mapped[dict[str, Any]] = mapped_column(JSON)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class Tombstone(Base):

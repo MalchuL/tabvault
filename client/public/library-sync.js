@@ -1,24 +1,118 @@
+export const UNASSIGNED_ORDER_KEY = "unassigned";
+
+export function orderKey(groupId) {
+  return groupId ?? UNASSIGNED_ORDER_KEY;
+}
+
 export function defaultVault() {
   return {
+    schemaVersion: 2,
     tabs: [],
-    vaultGroups: [
-      { id: "inbox", name: "Inbox", description: "", accent: "#F05A28" },
-      { id: "research", name: "Research", description: "", accent: "#829b65" },
-      {
-        id: "llm-papers",
-        name: "LLM papers",
-        description: "",
-        parent: "research",
-        accent: "#7aa6a1",
-      },
-      { id: "build", name: "Build", description: "", accent: "#7c8bba" },
-      { id: "filed", name: "Filed", description: "", accent: "#bb9b68" },
-    ],
-    tagCatalog: { "quick save": "Captured from the fast-save popup" },
-    tabOrders: { inbox: [] },
+    vaultGroups: [],
+    tagCatalog: {},
+    tabOrders: { [UNASSIGNED_ORDER_KEY]: [] },
     savedSearches: [],
     tabView: "standard",
+    tombstones: { tabs: [], groups: [] },
   };
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function isVaultV2(value) {
+  if (!isRecord(value) || value.schemaVersion !== 2) return false;
+  if (
+    !Array.isArray(value.tabs) ||
+    !Array.isArray(value.vaultGroups) ||
+    !isRecord(value.tagCatalog) ||
+    !isRecord(value.tabOrders)
+  )
+    return false;
+  if (!Object.values(value.tagCatalog).every(item => typeof item === "string"))
+    return false;
+  if (
+    !Object.values(value.tabOrders).every(
+      item => Array.isArray(item) && item.every(id => typeof id === "string")
+    )
+  )
+    return false;
+  if (
+    value.savedSearches !== undefined &&
+    (!Array.isArray(value.savedSearches) ||
+      !value.savedSearches.every(
+        saved =>
+          isRecord(saved) &&
+          typeof saved.id === "string" &&
+          typeof saved.name === "string" &&
+          typeof saved.query === "string" &&
+          typeof saved.groupId === "string"
+      ))
+  )
+    return false;
+  if (
+    value.tombstones !== undefined &&
+    (!isRecord(value.tombstones) ||
+      !Array.isArray(value.tombstones.tabs) ||
+      !value.tombstones.tabs.every(id => typeof id === "string") ||
+      !Array.isArray(value.tombstones.groups) ||
+      !value.tombstones.groups.every(id => typeof id === "string"))
+  )
+    return false;
+  if (
+    value.tabView !== undefined &&
+    !["groups", "standard", "compact", "preview"].includes(
+      String(value.tabView)
+    )
+  )
+    return false;
+  if (
+    !value.vaultGroups.every(
+      group =>
+        isRecord(group) &&
+        typeof group.id === "string" &&
+        typeof group.name === "string" &&
+        typeof group.description === "string" &&
+        typeof group.category === "string" &&
+        group.category.length > 0 &&
+        typeof group.accent === "string" &&
+        typeof group.createdAt === "string" &&
+        typeof group.updatedAt === "string" &&
+        !("parent" in group) &&
+        !("parentId" in group)
+    )
+  )
+    return false;
+  return value.tabs.every(
+    tab =>
+      isRecord(tab) &&
+      typeof tab.id === "string" &&
+      (typeof tab.groupId === "string" || tab.groupId === null) &&
+      typeof tab.url === "string" &&
+      /^https?:\/\//i.test(tab.url) &&
+      typeof tab.title === "string" &&
+      typeof tab.domain === "string" &&
+      typeof tab.note === "string" &&
+      typeof tab.agentReview === "string" &&
+      typeof tab.viewed === "boolean" &&
+      Array.isArray(tab.tags) &&
+      tab.tags.every(tag => typeof tag === "string") &&
+      typeof tab.color === "string" &&
+      typeof tab.icon === "string" &&
+      typeof tab.createdAt === "string" &&
+      typeof tab.updatedAt === "string" &&
+      (tab.archived === undefined || typeof tab.archived === "boolean") &&
+      (tab.archivedAt === undefined ||
+        tab.archivedAt === null ||
+        typeof tab.archivedAt === "string") &&
+      (tab.hiddenUntil === undefined ||
+        tab.hiddenUntil === null ||
+        typeof tab.hiddenUntil === "string") &&
+      !("normalizedUrl" in tab) &&
+      !("canonicalUrl" in tab) &&
+      !("updated" in tab)
+  );
 }
 
 function domainFromUrl(value) {
@@ -32,61 +126,72 @@ function domainFromUrl(value) {
 }
 
 export function vaultToServerDocument(vault) {
-  const groups = vault.vaultGroups || [];
-  const tabs = vault.tabs || [];
-  const tabOrders = vault.tabOrders || {};
-  const tagCatalog = vault.tagCatalog || {};
   return {
-    schemaVersion: 1,
-    tags: Object.entries(tagCatalog).map(([name, description]) => ({
+    schemaVersion: 2,
+    tags: Object.entries(vault.tagCatalog).map(([name, description]) => ({
       name,
       description,
     })),
-    groups: groups.map((group, position) => ({
+    groups: vault.vaultGroups.map((group, position) => ({
       id: group.id,
       name: group.name,
-      description: group.description || "",
-      parentId: group.parent ?? null,
+      category: group.category,
+      description: group.description,
       color: group.accent,
       position,
+      createdAt: group.createdAt,
+      updatedAt: group.updatedAt,
     })),
-    tabs: tabs.map(tab => ({
+    tabs: vault.tabs.map(tab => ({
       id: tab.id,
       url: tab.url,
       title: tab.title,
       note: tab.note,
-      agentReview: tab.agentReview || "",
-      viewed: Boolean(tab.viewed),
-      tags: tab.tags || [],
-      groupId: tab.groupId,
+      agentReview: tab.agentReview,
+      viewed: tab.viewed,
+      tags: tab.tags,
+      groupId: tab.archived ? null : tab.groupId,
       archived: Boolean(tab.archived),
       archivedAt: tab.archivedAt ?? null,
-      position: tabOrders[tab.groupId]?.indexOf(tab.id) ?? 0,
-      createdAt: tab.updated,
-      updatedAt: tab.updated,
+      hiddenUntil: tab.hiddenUntil ?? null,
+      position: vault.tabOrders[orderKey(tab.groupId)]?.indexOf(tab.id) ?? 0,
+      createdAt: tab.createdAt,
+      updatedAt: tab.updatedAt,
     })),
   };
 }
 
-export function serverDocumentToVault(document, fallback) {
-  const remoteTabs = Array.isArray(document?.tabs) ? document.tabs : [];
-  const remoteGroups = Array.isArray(document?.groups) ? document.groups : [];
-  const remoteTags = Array.isArray(document?.tags) ? document.tags : [];
-  const vaultGroups = remoteGroups.map(group => ({
+export function serverDocumentToVault(document, preferences = defaultVault()) {
+  if (document?.schemaVersion !== 2)
+    throw new Error("Server library is not schema v2");
+  const now = new Date().toISOString();
+  const tombstones = preferences.tombstones ?? { tabs: [], groups: [] };
+  const deletedGroups = new Set(tombstones.groups);
+  const deletedTabs = new Set(tombstones.tabs);
+  const groups = Array.isArray(document.groups)
+    ? document.groups.filter(group => !deletedGroups.has(String(group.id)))
+    : [];
+  const tabs = Array.isArray(document.tabs)
+    ? document.tabs.filter(tab => !deletedTabs.has(String(tab.id)))
+    : [];
+  const tags = Array.isArray(document.tags) ? document.tags : [];
+  const vaultGroups = groups.map(group => ({
     id: String(group.id),
     name: String(group.name),
+    category: String(group.category),
     description: typeof group.description === "string" ? group.description : "",
-    parent: typeof group.parentId === "string" ? group.parentId : undefined,
     accent: typeof group.color === "string" ? group.color : "#829b65",
+    createdAt: typeof group.createdAt === "string" ? group.createdAt : now,
+    updatedAt: typeof group.updatedAt === "string" ? group.updatedAt : now,
   }));
-  const tabs = remoteTabs
+  const vaultTabs = tabs
     .slice()
     .sort(
       (left, right) => Number(left.position ?? 0) - Number(right.position ?? 0)
     )
     .map(tab => ({
       id: String(tab.id),
-      groupId: typeof tab.groupId === "string" ? tab.groupId : "inbox",
+      groupId: typeof tab.groupId === "string" ? tab.groupId : null,
       title: String(tab.title ?? "Untitled tab"),
       url: String(tab.url ?? ""),
       domain: domainFromUrl(String(tab.url ?? "")),
@@ -99,28 +204,29 @@ export function serverDocumentToVault(document, fallback) {
         String(tab.title ?? "T")
           .slice(0, 1)
           .toUpperCase() || "T",
-      updated:
-        typeof tab.updatedAt === "string"
-          ? tab.updatedAt
-          : new Date().toISOString(),
+      createdAt: typeof tab.createdAt === "string" ? tab.createdAt : now,
+      updatedAt: typeof tab.updatedAt === "string" ? tab.updatedAt : now,
       archived: Boolean(tab.archived),
       archivedAt: typeof tab.archivedAt === "string" ? tab.archivedAt : null,
+      hiddenUntil: typeof tab.hiddenUntil === "string" ? tab.hiddenUntil : null,
     }));
-  const tabOrders = tabs.reduce((orders, tab) => {
-    orders[tab.groupId] = [...(orders[tab.groupId] ?? []), tab.id];
+  const tabOrders = vaultTabs.reduce((orders, tab) => {
+    const key = orderKey(tab.groupId);
+    orders[key] = [...(orders[key] ?? []), tab.id];
     return orders;
   }, {});
   return {
-    ...fallback,
-    tabs,
-    vaultGroups: vaultGroups.length ? vaultGroups : fallback.vaultGroups,
-    tagCatalog: remoteTags.length
-      ? remoteTags.reduce((catalog, tag) => {
-          catalog[String(tag.name)] =
-            typeof tag.description === "string" ? tag.description : "";
-          return catalog;
-        }, {})
-      : fallback.tagCatalog,
+    schemaVersion: 2,
+    tabs: vaultTabs,
+    vaultGroups,
+    tagCatalog: tags.reduce((catalog, tag) => {
+      catalog[String(tag.name)] =
+        typeof tag.description === "string" ? tag.description : "";
+      return catalog;
+    }, {}),
     tabOrders,
+    savedSearches: preferences.savedSearches ?? [],
+    tabView: preferences.tabView ?? "standard",
+    tombstones,
   };
 }

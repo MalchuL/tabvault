@@ -1,4 +1,4 @@
-"""Persistence operations for tab use cases."""
+"""Persistence operations for Saved Tab use cases."""
 
 from __future__ import annotations
 
@@ -15,56 +15,30 @@ from lib.time import utc_now
 from models import Group, Job, Tab, Tag, Tombstone
 
 from .dto import SortDirection, TabSortBy
+from .visibility import TabVisibility, tabs_for_visibility
 
 
 class TabRepository(BaseRepository[Tab]):
-    """Persist tabs and directly related tab-use-case records."""
+    """Persist Saved Tabs and directly related records."""
 
     model_type = Tab
 
     def __init__(self, session: AsyncSession) -> None:
-        """Initialize the repository.
-
-        Args:
-            session: Request-scoped database session.
-        """
+        """Initialize with a request-scoped session."""
         super().__init__(session)
         self.session = session
 
     async def get(self, tab_id: str) -> Tab | None:  # type: ignore[override]
-        """Load one tab with its tags.
-
-        Args:
-            tab_id: Tab identifier.
-
-        Returns:
-            The tab row, or ``None``.
-        """
+        """Load one Saved Tab with tags."""
         return await self.session.scalar(  # type: ignore[no-any-return]
             select(Tab).where(Tab.id == tab_id).options(selectinload(Tab.tags))
-        )
-
-    async def find_url(self, normalized_url: str) -> Tab | None:
-        """Find the oldest tab matching a normalized URL.
-
-        Args:
-            normalized_url: Canonical URL.
-
-        Returns:
-            A matching tab, or ``None``.
-        """
-        return await self.session.scalar(  # type: ignore[no-any-return]
-            select(Tab)
-            .where(Tab.normalized_url == normalized_url)
-            .order_by(Tab.created_at, Tab.id)
-            .options(selectinload(Tab.tags))
         )
 
     async def list_tabs(
         self,
         *,
         group_id: str | None | object,
-        group_ids: set[str] | None,
+        category: str | None,
         tags_any: list[str],
         tags_all: list[str],
         search: str | None,
@@ -72,40 +46,25 @@ class TabRepository(BaseRepository[Tab]):
         sort_dir: SortDirection,
         limit: int,
         cursor: Cursor | None,
-        include_archived: bool,
+        visibility: TabVisibility,
+        now: datetime,
     ) -> tuple[list[Tab], int]:
-        """List filtered tabs using cursor pagination.
-
-        Args:
-            group_id: Group filter or an inbox/all sentinel.
-            group_ids: Optional explicit group set.
-            tags_any: Tags matched with OR semantics.
-            tags_all: Tags matched with AND semantics.
-            search: Optional text search.
-            sort_by: Stable sort key.
-            sort_dir: Sort direction.
-            limit: Page size before the extra lookahead row.
-            cursor: Decoded cursor position.
-            include_archived: Whether archived rows are visible.
-
-        Returns:
-            Loaded rows and total filtered count.
-        """
+        """List filtered Saved Tabs using stable cursor pagination."""
         sort_column = {
             "position": Tab.position,
             "createdAt": Tab.created_at,
             "updatedAt": Tab.updated_at,
             "title": func.lower(Tab.title),
         }[sort_by]
-        filters: list[Any] = []
-        if not include_archived:
-            filters.append(Tab.archived.is_(False))
-        if group_ids is not None:
-            filters.append(Tab.group_id.in_(group_ids))
-        elif group_id != "all":
+        filters: list[Any] = [tabs_for_visibility(visibility, now)]
+        if group_id != "all":
             filters.append(
-                Tab.group_id.is_(None) if group_id == "inbox" else Tab.group_id == group_id
+                Tab.group_id.is_(None)
+                if group_id in {None, "unassigned"}
+                else Tab.group_id == group_id
             )
+        if category is not None:
+            filters.append(Tab.group_id.in_(select(Group.id).where(Group.category == category)))
         if search:
             pattern = f"%{search.lower()}%"
             filters.append(
@@ -153,53 +112,14 @@ class TabRepository(BaseRepository[Tab]):
         )
         return rows, total
 
-    async def group_rows(self, group_id: str | None) -> list[Tab]:
-        """Load active tabs in one group in display order.
-
-        Args:
-            group_id: Nullable target group.
-
-        Returns:
-            Ordered active tab rows.
-        """
-        return list(
-            (
-                await self.session.scalars(
-                    select(Tab)
-                    .where(Tab.group_id.is_(None) if group_id is None else Tab.group_id == group_id)
-                    .where(Tab.archived.is_(False))
-                    .options(selectinload(Tab.tags))
-                    .order_by(Tab.position, Tab.id)
-                )
-            ).unique()
-        )
-
     async def active_group_exists(self, group_id: str | None) -> bool:
-        """Check whether a normalized group target is available.
-
-        Args:
-            group_id: Nullable group identifier.
-
-        Returns:
-            ``True`` for inbox or an active group.
-        """
-        if group_id in {None, "", "inbox"}:
+        """Return whether a nullable Group target is valid."""
+        if group_id is None:
             return True
-        return bool(
-            await self.session.scalar(
-                select(Group.id).where(Group.id == group_id, Group.archived.is_(False))
-            )
-        )
+        return bool(await self.session.scalar(select(Group.id).where(Group.id == group_id)))
 
     async def resolve_tags(self, names: list[str]) -> list[Tag]:
-        """Load or create case-insensitive tags.
-
-        Args:
-            names: Requested tag names.
-
-        Returns:
-            Deduplicated tag rows in request order.
-        """
+        """Load or create case-insensitive tags."""
         result: list[Tag] = []
         for raw in dict.fromkeys(name.strip() for name in names if name.strip()):
             tag, _created = await self.get_or_create_tag(raw)
@@ -207,14 +127,7 @@ class TabRepository(BaseRepository[Tab]):
         return result
 
     async def get_or_create_tag(self, name: str) -> tuple[Tag, bool]:
-        """Load a tag case-insensitively or create it.
-
-        Args:
-            name: Requested tag name.
-
-        Returns:
-            Tag row and whether it was newly created.
-        """
+        """Load a tag case-insensitively or create it."""
         tag = await self.session.scalar(select(Tag).where(func.lower(Tag.name) == name.lower()))
         if tag is not None:
             return tag, False
@@ -224,116 +137,50 @@ class TabRepository(BaseRepository[Tab]):
         return tag, True
 
     async def next_position(self, group_id: str | None) -> float:
-        """Find the next display position in a group.
-
-        Args:
-            group_id: Nullable group identifier.
-
-        Returns:
-            Position after the current maximum.
-        """
+        """Find the next display position in a Group or Unassigned."""
+        condition = Tab.group_id.is_(None) if group_id is None else Tab.group_id == group_id
         maximum = await self.session.scalar(
-            select(func.coalesce(func.max(Tab.position), -1)).where(Tab.group_id == group_id)
+            select(func.coalesce(func.max(Tab.position), -1)).where(
+                condition, Tab.archived.is_(False)
+            )
         )
         return float(maximum if maximum is not None else -1) + 1
 
     async def add_tab(self, tab: Tab) -> Tab:
-        """Persist a new tab and populate generated fields.
-
-        Args:
-            tab: Unpersisted tab model.
-
-        Returns:
-            Persisted tab model.
-        """
+        """Persist one Saved Tab occurrence."""
         self.session.add(tab)
         await self.session.flush()
         return tab
 
     async def add_preview_job(self, tab_id: str) -> Job:
-        """Create a preview-capture job for a tab.
-
-        Args:
-            tab_id: Target tab identifier.
-
-        Returns:
-            Persisted job row.
-        """
+        """Create a preview-capture job for a Saved Tab."""
         job = Job(kind="preview_capture", target_id=tab_id)
         self.session.add(job)
         await self.session.flush()
         return job
 
     async def apply_changes(self, tab: Tab, changes: dict[str, object]) -> None:
-        """Apply mapped field changes to a tab.
-
-        Args:
-            tab: Tab row to mutate.
-            changes: Snake-case ORM field values.
-        """
+        """Apply mapped field values to a Saved Tab."""
         for key, value in changes.items():
             setattr(tab, key, value)
 
-    async def renumber(self, tabs: list[Tab]) -> None:
-        """Assign dense positions to an ordered list of tabs.
-
-        Args:
-            tabs: Ordered tab rows to mutate.
-        """
-        for offset, tab in enumerate(tabs):
-            tab.position = float(offset)
-
     async def attach_tag(self, tab: Tab, tag: Tag) -> None:
-        """Attach a loaded tag to a tab.
-
-        Args:
-            tab: Target tab row.
-            tag: Tag row to attach.
-        """
+        """Attach a loaded tag to a Saved Tab."""
         tab.tags.append(tag)
 
     async def detach_tag(self, tab: Tab, tag: Tag) -> None:
-        """Detach a loaded tag from a tab.
-
-        Args:
-            tab: Target tab row.
-            tag: Tag row to detach.
-        """
+        """Detach a loaded tag from a Saved Tab."""
         tab.tags.remove(tag)
 
     async def hard_delete(self, tab_id: str) -> None:
-        """Permanently delete a tab and record its tombstone.
-
-        Args:
-            tab_id: Tab identifier.
-        """
+        """Permanently delete a Saved Tab and record its tombstone."""
         await self.session.execute(delete(Tab).where(Tab.id == tab_id))
         self.session.add(Tombstone(entity_type="tab", entity_id=tab_id))
 
     async def archive(self, tab: Tab) -> None:
-        """Archive a tab in place.
-
-        Args:
-            tab: Tab row to archive.
-        """
+        """Archive and Unassign a Saved Tab."""
         now = utc_now()
+        tab.group_id = None
         tab.archived = True
         tab.archived_at = now
         tab.updated_at = now
-
-    async def tombstone_exists(self, entity_id: str) -> bool:
-        """Check whether a tab tombstone exists.
-
-        Args:
-            entity_id: Tab identifier.
-
-        Returns:
-            Whether a matching tombstone exists.
-        """
-        return bool(
-            await self.session.scalar(
-                select(Tombstone.id).where(
-                    Tombstone.entity_type == "tab", Tombstone.entity_id == entity_id
-                )
-            )
-        )

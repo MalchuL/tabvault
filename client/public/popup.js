@@ -28,7 +28,7 @@ function setSelection(mode) {
   selectionCopy.textContent =
     mode === "chrome"
       ? "Using tabs highlighted in Chrome. If none are highlighted, the active tab is used."
-      : "Saving this tab set to Inbox and closing those tabs.";
+      : "Saving this tab set to a new Session group and closing those tabs.";
 }
 
 function updateSelectionCounts() {
@@ -101,7 +101,10 @@ async function saveAndClose() {
   const skipped = response.skippedCount
     ? ` ${response.skippedCount} internal tab(s) stayed open.`
     : "";
-  result.textContent = `${response.savedCount} saved and ${response.closedCount} closed.${skipped}`;
+  const failed = response.failedCount
+    ? ` ${response.failedCount} tab(s) failed locally and stayed open.`
+    : "";
+  result.textContent = `${response.savedCount} saved and ${response.closedCount} closed.${skipped}${failed}`;
   window.setTimeout(() => window.close(), 550);
 }
 

@@ -10,6 +10,7 @@ import {
   writeExtensionVault,
   type SyncStatus,
 } from "./extension";
+import type { PersistedVault } from "./library";
 
 export type PersistenceMode = "browser" | "server" | "hybrid";
 
@@ -19,10 +20,12 @@ export interface PersistenceAdapter<T> {
   save(value: T): Promise<void>;
 }
 
-export class BrowserStorageAdapter<T> implements PersistenceAdapter<T> {
+export class BrowserStorageAdapter<T extends PersistedVault>
+  implements PersistenceAdapter<T>
+{
   readonly mode = "browser" as const;
   async load() {
-    return readExtensionVault<T>();
+    return (await readExtensionVault()) as T | undefined;
   }
   async save(value: T) {
     await writeExtensionVault(value);
@@ -49,7 +52,7 @@ export class ServerStorageAdapter<T extends Record<string, unknown>>
 }
 
 export class HybridStorageAdapter<
-  T extends Record<string, unknown>,
+  T extends PersistedVault,
   S extends Record<string, unknown>,
 > implements PersistenceAdapter<T>
 {

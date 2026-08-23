@@ -1,10 +1,13 @@
 """Persistence operations for tag use cases."""
 
-from sqlalchemy import delete, func, select
+from datetime import datetime
+
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from domain.tabs.visibility import visible_tabs
 from lib.base_repository import BaseRepository
-from models import Tag, tab_tags
+from models import Tab, Tag, tab_tags
 
 
 class TagRepository(BaseRepository[Tag]):
@@ -23,15 +26,28 @@ class TagRepository(BaseRepository[Tag]):
             select(Tag).where(func.lower(Tag.name) == name.lower())
         )
 
-    async def list_with_counts(self) -> list[tuple[Tag, int]]:
-        """List tags with their attached-tab counts."""
+    async def list_with_counts(self, now: datetime) -> list[tuple[Tag, int]]:
+        """List tags with visible active-tab counts."""
         rows = await self.session.execute(
-            select(Tag, func.count(tab_tags.c.tab_id))
+            select(Tag, func.count(Tab.id))
             .outerjoin(tab_tags, tab_tags.c.tag_name == Tag.name)
+            .outerjoin(Tab, and_(Tab.id == tab_tags.c.tab_id, visible_tabs(now)))
             .group_by(Tag.name)
             .order_by(func.lower(Tag.name))
         )
         return [(tag, int(count)) for tag, count in rows.all()]
+
+    async def count_visible_tabs(self, name: str, now: datetime) -> int:
+        """Count visible active tabs attached to a tag."""
+        return int(
+            await self.session.scalar(
+                select(func.count(Tab.id))
+                .select_from(tab_tags)
+                .join(Tab, Tab.id == tab_tags.c.tab_id)
+                .where(tab_tags.c.tag_name == name, visible_tabs(now))
+            )
+            or 0
+        )
 
     async def save(self, tag: Tag, changes: dict[str, object] | None = None) -> Tag:
         """Add a new tag or apply changes to an existing tag."""

@@ -14,6 +14,7 @@ import {
   BookOpenText,
   ChevronDown,
   ChevronRight,
+  Eye,
   FolderOpen,
   GripVertical,
   LoaderCircle,
@@ -25,12 +26,14 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { parseReadableArticle, type ReadableArticle } from "@/lib/readability";
+import { categoryColor } from "@/domain/library/categoryColor";
+import { HideDurationMenu } from "@/domain/library/components/HideDurationMenu";
 
 export type TabViewMode = "standard" | "compact" | "preview";
 
 export type TabListItem = {
   id: string;
-  groupId: string;
+  groupId: string | null;
   title: string;
   url: string;
   domain: string;
@@ -40,7 +43,9 @@ export type TabListItem = {
   tags: string[];
   color: string;
   icon: string;
-  updated: string;
+  createdAt: string;
+  updatedAt: string;
+  hiddenUntil?: string | null;
 };
 
 type Props = {
@@ -57,16 +62,24 @@ type Props = {
   fallbackMode?: "text_fallback" | "semantic";
   onActiveIndex: (index: number) => void;
   onToggleSelection: (id: string) => void;
-  onMove: (id: string, groupId: string) => void;
+  onMove: (id: string, groupId: string | null) => void;
   onEdit: (tab: TabListItem) => void;
   onViewedChange: (id: string, viewed: boolean) => void;
   onDelete: (tab: TabListItem) => void;
+  lifecycleMode?: "visible" | "hidden" | "archived";
+  onRestore?: (tab: TabListItem) => void;
+  onHide?: (tab: TabListItem, durationMs: number) => void;
+  onUnhide?: (tab: TabListItem) => void;
+  onProlong?: (tab: TabListItem, durationMs: number) => void;
   onOpenTagManager: () => void;
   onOpenGroup?: (groupId: string) => void;
   onShareGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
   onEditGroup?: (groupId: string) => void;
-  groups: Array<{ id: string; name: string }>;
+  onHideGroup?: (groupId: string, durationMs: number) => void;
+  onUnhideGroup?: (groupId: string) => void;
+  onProlongGroup?: (groupId: string, durationMs: number) => void;
+  groups: Array<{ id: string; name: string; category?: string }>;
   visibleGroupIds?: Set<string>;
   previewBackend?: { url: string; apiKey: string };
   activeDragHeight?: number;
@@ -90,11 +103,19 @@ export function TabList({
   onEdit,
   onViewedChange,
   onDelete,
+  lifecycleMode = "visible",
+  onRestore,
+  onHide,
+  onUnhide,
+  onProlong,
   onOpenTagManager,
   onOpenGroup,
   onShareGroup,
   onDeleteGroup,
   onEditGroup,
+  onHideGroup,
+  onUnhideGroup,
+  onProlongGroup,
   groups,
   visibleGroupIds,
   previewBackend,
@@ -103,9 +124,10 @@ export function TabList({
   const tabGroups = useMemo(() => {
     const groupedTabs = tabs.reduce<Map<string, TabListItem[]>>(
       (groupsById, tab) => {
-        const groupTabs = groupsById.get(tab.groupId) ?? [];
+        const key = tab.groupId ?? "unassigned";
+        const groupTabs = groupsById.get(key) ?? [];
         groupTabs.push(tab);
-        groupsById.set(tab.groupId, groupTabs);
+        groupsById.set(key, groupTabs);
         return groupsById;
       },
       new Map()
@@ -113,12 +135,16 @@ export function TabList({
     if (!collapsibleGroups) return Array.from(groupedTabs);
 
     const knownGroupIds = new Set(groups.map(group => group.id));
+    const unassignedTabs = groupedTabs.get("unassigned");
     return [
+      ...(unassignedTabs?.length
+        ? ([["unassigned", unassignedTabs]] as const)
+        : []),
       ...groups
         .filter(group => !visibleGroupIds || visibleGroupIds.has(group.id))
         .map(group => [group.id, groupedTabs.get(group.id) ?? []] as const),
       ...Array.from(groupedTabs).filter(
-        ([groupId]) => !knownGroupIds.has(groupId)
+        ([groupId]) => groupId !== "unassigned" && !knownGroupIds.has(groupId)
       ),
     ];
   }, [collapsibleGroups, groups, tabs, visibleGroupIds]);
@@ -130,7 +156,10 @@ export function TabList({
     >
       {tabGroups.map(([groupId, groupTabs]) => {
         const groupName =
-          groups.find(group => group.id === groupId)?.name ?? "Collection";
+          groups.find(group => group.id === groupId)?.name ?? "[Unassigned]";
+        const groupCategory = groups.find(
+          group => group.id === groupId
+        )?.category;
         const showGroupLabel = collapsibleGroups || tabGroups.length > 1;
         const isCollapsed = collapsedGroupIds.has(groupId);
         const dropGapHeight = isCollapsed
@@ -147,6 +176,7 @@ export function TabList({
               <GroupSeparator
                 groupId={groupId}
                 groupName={groupName}
+                groupCategory={groupCategory}
                 tabCount={groupTabs.length}
                 collapsible={collapsibleGroups}
                 collapsed={isCollapsed}
@@ -155,6 +185,10 @@ export function TabList({
                 onShare={onShareGroup}
                 onDelete={onDeleteGroup}
                 onEdit={onEditGroup}
+                lifecycleMode={lifecycleMode}
+                onHide={onHideGroup}
+                onUnhide={onUnhideGroup}
+                onProlong={onProlongGroup}
               />
             )}
             {!isCollapsed && (
@@ -185,6 +219,11 @@ export function TabList({
                         onEdit={onEdit}
                         onViewedChange={onViewedChange}
                         onDelete={onDelete}
+                        lifecycleMode={lifecycleMode}
+                        onRestore={onRestore}
+                        onHide={onHide}
+                        onUnhide={onUnhide}
+                        onProlong={onProlong}
                         onOpenTagManager={onOpenTagManager}
                         groups={groups}
                         previewBackend={previewBackend}
@@ -234,6 +273,7 @@ function DroppableGroup({
 function GroupSeparator({
   groupId,
   groupName,
+  groupCategory,
   tabCount,
   collapsible,
   collapsed,
@@ -242,9 +282,14 @@ function GroupSeparator({
   onShare,
   onDelete,
   onEdit,
+  lifecycleMode,
+  onHide,
+  onUnhide,
+  onProlong,
 }: {
   groupId: string;
   groupName: string;
+  groupCategory?: string;
   tabCount: number;
   collapsible: boolean;
   collapsed: boolean;
@@ -253,6 +298,10 @@ function GroupSeparator({
   onShare?: (groupId: string) => void;
   onDelete?: (groupId: string) => void;
   onEdit?: (groupId: string) => void;
+  lifecycleMode: "visible" | "hidden" | "archived";
+  onHide?: (groupId: string, durationMs: number) => void;
+  onUnhide?: (groupId: string) => void;
+  onProlong?: (groupId: string, durationMs: number) => void;
 }) {
   return (
     <div
@@ -260,6 +309,13 @@ function GroupSeparator({
       className="flex min-h-10 items-center justify-between gap-3 border-y border-[#dfdbd0] bg-[#f9f7f1] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.1em] text-[#777d75]"
     >
       <div className="flex min-w-0 items-center gap-1.5">
+        {groupCategory && (
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: categoryColor(groupCategory) }}
+            title={`Category: ${groupCategory}`}
+          />
+        )}
         {collapsible ? (
           <button
             onClick={() => onToggle?.(groupId)}
@@ -281,6 +337,28 @@ function GroupSeparator({
             className="flex shrink-0 items-center gap-0.5 border-l border-[#d9d3c6] pl-1.5"
             aria-label={`${groupName} collection actions`}
           >
+            {lifecycleMode === "hidden" && (
+              <button
+                type="button"
+                onClick={() => onUnhide?.(groupId)}
+                className="rounded p-1 text-[#56815d] hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#56815d]"
+                aria-label={`Unhide ${groupName}`}
+                title={`Unhide ${groupName}`}
+              >
+                <Eye className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {lifecycleMode !== "archived" && (
+              <HideDurationMenu
+                mode={lifecycleMode === "hidden" ? "prolong" : "hide"}
+                target={groupName}
+                onSelect={duration =>
+                  lifecycleMode === "hidden"
+                    ? onProlong?.(groupId, duration)
+                    : onHide?.(groupId, duration)
+                }
+              />
+            )}
             <button
               type="button"
               onClick={() => onOpen?.(groupId)}
@@ -311,15 +389,17 @@ function GroupSeparator({
             <button
               type="button"
               onClick={() => onDelete?.(groupId)}
-              disabled={groupId === "inbox"}
+              disabled={groupId === "unassigned"}
               className="rounded p-1 text-[#7b8078] hover:bg-white hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] disabled:cursor-not-allowed disabled:opacity-35"
               aria-label={
-                groupId === "inbox"
-                  ? "Inbox cannot be deleted"
+                groupId === "unassigned"
+                  ? "Unassigned is virtual"
                   : `Delete ${groupName}`
               }
               title={
-                groupId === "inbox" ? "Inbox is protected" : "Delete collection"
+                groupId === "unassigned"
+                  ? "Unassigned is virtual"
+                  : "Delete collection"
               }
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -344,12 +424,17 @@ type TabRowProps = {
   fallbackMode?: "text_fallback" | "semantic";
   onActiveIndex: (index: number) => void;
   onToggleSelection: (id: string) => void;
-  onMove: (id: string, groupId: string) => void;
+  onMove: (id: string, groupId: string | null) => void;
   onEdit: (tab: TabListItem) => void;
   onViewedChange: (id: string, viewed: boolean) => void;
   onDelete: (tab: TabListItem) => void;
+  lifecycleMode: "visible" | "hidden" | "archived";
+  onRestore?: (tab: TabListItem) => void;
+  onHide?: (tab: TabListItem, durationMs: number) => void;
+  onUnhide?: (tab: TabListItem) => void;
+  onProlong?: (tab: TabListItem, durationMs: number) => void;
   onOpenTagManager: () => void;
-  groups: Array<{ id: string; name: string }>;
+  groups: Array<{ id: string; name: string; category?: string }>;
   previewBackend?: { url: string; apiKey: string };
 };
 
@@ -383,7 +468,7 @@ export function TabDragPreview({
   isSelected: boolean;
   score?: number;
   fallbackMode?: "text_fallback" | "semantic";
-  groups: Array<{ id: string; name: string }>;
+  groups: Array<{ id: string; name: string; category?: string }>;
   previewBackend?: { url: string; apiKey: string };
 }) {
   return (
@@ -403,6 +488,7 @@ export function TabDragPreview({
       onEdit={ignore}
       onViewedChange={ignore}
       onDelete={ignore}
+      lifecycleMode="visible"
       onOpenTagManager={ignore}
       groups={groups}
       previewBackend={previewBackend}
@@ -432,6 +518,11 @@ function TabRowPresentation({
   onEdit,
   onViewedChange,
   onDelete,
+  lifecycleMode,
+  onRestore,
+  onHide,
+  onUnhide,
+  onProlong,
   onOpenTagManager,
   groups,
   previewBackend,
@@ -459,6 +550,8 @@ function TabRowPresentation({
         : isKeyboardActive
           ? "bg-[#fff7f1] outline outline-1 outline-[#eab79d]"
           : "bg-[#f6f3ec]/55 hover:bg-[#fffdf8]";
+  const destructiveAction =
+    lifecycleMode === "archived" ? "Permanently delete" : "Archive";
 
   return (
     <article
@@ -516,18 +609,28 @@ function TabRowPresentation({
             rel="noreferrer"
             onClick={() => onViewedChange(tab.id, true)}
             onPointerDown={event => event.stopPropagation()}
-            className="min-w-0 flex-1 truncate text-[12px] font-bold tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
+            className="min-w-0 truncate text-[12px] font-bold tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
             title={tab.title}
           >
             {tab.title}
           </a>
-          <ViewedCheckbox tab={tab} onChange={onViewedChange} />
+          <ViewedCheckbox
+            tab={tab}
+            hidden={lifecycleMode === "hidden"}
+            onChange={onViewedChange}
+          />
           <span
             {...attributes}
             {...listeners}
             data-testid={`tab-drag-space-${tab.id}`}
             aria-label={`Reorder ${tab.title} from empty row space`}
             className="hidden h-6 min-w-5 flex-1 touch-none cursor-grab sm:block"
+          />
+          <ManualGroupMoveSelect
+            tab={tab}
+            groups={groups}
+            onMove={onMove}
+            className="max-w-24 py-1 text-right"
           />
           <button
             type="button"
@@ -542,6 +645,14 @@ function TabRowPresentation({
           >
             <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
+          <TabLifecycleActions
+            tab={tab}
+            mode={lifecycleMode}
+            onRestore={onRestore}
+            onHide={onHide}
+            onUnhide={onUnhide}
+            onProlong={onProlong}
+          />
           <button
             type="button"
             onClick={event => {
@@ -550,8 +661,8 @@ function TabRowPresentation({
             }}
             onPointerDown={event => event.stopPropagation()}
             className="shrink-0 rounded p-1 text-[#92958d] hover:bg-[#fff0ea] hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#e95224]"
-            aria-label={`Archive ${tab.title}`}
-            title={`Archive ${tab.title}`}
+            aria-label={`${destructiveAction} ${tab.title}`}
+            title={`${destructiveAction} ${tab.title}`}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -561,6 +672,7 @@ function TabRowPresentation({
           <ReadableArticlePreview
             tab={tab}
             backend={previewBackend}
+            hidden={lifecycleMode === "hidden"}
             onViewedChange={onViewedChange}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-1">
@@ -578,18 +690,12 @@ function TabRowPresentation({
                     : "local match"}
                 </span>
               )}
-              <select
-                aria-label={`Move ${tab.title}`}
-                value={tab.groupId}
-                onChange={event => onMove(tab.id, event.target.value)}
-                className="max-w-[120px] appearance-none bg-transparent py-1 pr-1 text-right font-mono text-[9px] uppercase tracking-[0.06em] text-[#8a8e85] outline-none hover:text-[#e95224]"
-              >
-                {groups.map(group => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
+              <ManualGroupMoveSelect
+                tab={tab}
+                groups={groups}
+                onMove={onMove}
+                className="max-w-[120px] py-1 pr-1 text-right"
+              />
               <button
                 onClick={() => onEdit(tab)}
                 className="rounded p-0.5 text-[#aaa9a1] hover:bg-[#efede6] hover:text-[#e95224]"
@@ -597,11 +703,19 @@ function TabRowPresentation({
               >
                 <MoreHorizontal className="h-4 w-4" />
               </button>
+              <TabLifecycleActions
+                tab={tab}
+                mode={lifecycleMode}
+                onRestore={onRestore}
+                onHide={onHide}
+                onUnhide={onUnhide}
+                onProlong={onProlong}
+              />
               <button
                 onClick={() => onDelete(tab)}
                 className="rounded p-0.5 text-[#aaa9a1] hover:bg-[#fff0ea] hover:text-[#c84b26]"
-                aria-label={`Archive ${tab.title}`}
-                title={`Archive ${tab.title}`}
+                aria-label={`${destructiveAction} ${tab.title}`}
+                title={`${destructiveAction} ${tab.title}`}
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -614,6 +728,7 @@ function TabRowPresentation({
           query={query}
           score={score}
           fallbackMode={fallbackMode}
+          hidden={lifecycleMode === "hidden"}
           onOpenTagManager={onOpenTagManager}
           onViewedChange={onViewedChange}
         />
@@ -621,18 +736,12 @@ function TabRowPresentation({
 
       {!compact && !instantPreview && (
         <div className="hidden items-start gap-2 pt-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:flex">
-          <select
-            aria-label={`Move ${tab.title}`}
-            value={tab.groupId}
-            onChange={event => onMove(tab.id, event.target.value)}
-            className="max-w-[120px] appearance-none bg-transparent py-1 pr-4 text-right font-mono text-[9px] uppercase tracking-[0.06em] text-[#8a8e85] outline-none hover:text-[#e95224]"
-          >
-            {groups.map(group => (
-              <option key={group.id} value={group.id}>
-                {group.name}
-              </option>
-            ))}
-          </select>
+          <ManualGroupMoveSelect
+            tab={tab}
+            groups={groups}
+            onMove={onMove}
+            className="max-w-[120px] py-1 pr-4 text-right"
+          />
           <button
             onClick={() => onEdit(tab)}
             className="mt-0.5 rounded p-0.5 text-[#aaa9a1] hover:bg-[#efede6] hover:text-[#e95224]"
@@ -640,11 +749,19 @@ function TabRowPresentation({
           >
             <MoreHorizontal className="h-4 w-4" />
           </button>
+          <TabLifecycleActions
+            tab={tab}
+            mode={lifecycleMode}
+            onRestore={onRestore}
+            onHide={onHide}
+            onUnhide={onUnhide}
+            onProlong={onProlong}
+          />
           <button
             onClick={() => onDelete(tab)}
             className="mt-0.5 rounded p-0.5 text-[#aaa9a1] hover:bg-[#fff0ea] hover:text-[#c84b26]"
-            aria-label={`Archive ${tab.title}`}
-            title={`Archive ${tab.title}`}
+            aria-label={`${destructiveAction} ${tab.title}`}
+            title={`${destructiveAction} ${tab.title}`}
           >
             <Trash2 className="h-4 w-4" />
           </button>
@@ -657,6 +774,90 @@ function TabRowPresentation({
         </span>
       )}
     </article>
+  );
+}
+
+function ManualGroupMoveSelect({
+  tab,
+  groups,
+  onMove,
+  className,
+}: {
+  tab: TabListItem;
+  groups: Array<{ id: string; name: string; category?: string }>;
+  onMove: (id: string, groupId: string | null) => void;
+  className: string;
+}) {
+  const manualGroups = groups.filter(group => group.category === "manual");
+  if (!manualGroups.length) return null;
+
+  return (
+    <select
+      aria-label={`Move ${tab.title}`}
+      value=""
+      onChange={event => onMove(tab.id, event.target.value)}
+      className={`appearance-none bg-transparent font-mono text-[9px] uppercase tracking-[0.06em] text-[#8a8e85] outline-none hover:text-[#e95224] ${className}`}
+    >
+      <option value="" disabled>
+        Move to…
+      </option>
+      {manualGroups.map(group => (
+        <option key={group.id} value={group.id}>
+          {group.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function TabLifecycleActions({
+  tab,
+  mode,
+  onRestore,
+  onHide,
+  onUnhide,
+  onProlong,
+}: {
+  tab: TabListItem;
+  mode: "visible" | "hidden" | "archived";
+  onRestore?: (tab: TabListItem) => void;
+  onHide?: (tab: TabListItem, durationMs: number) => void;
+  onUnhide?: (tab: TabListItem) => void;
+  onProlong?: (tab: TabListItem, durationMs: number) => void;
+}) {
+  if (mode === "archived")
+    return (
+      <button
+        type="button"
+        onClick={() => onRestore?.(tab)}
+        className="rounded px-1.5 py-1 font-mono text-[8px] uppercase text-[#56815d] hover:bg-[#edf2ea]"
+      >
+        Restore
+      </button>
+    );
+  return (
+    <div className="flex items-center gap-1">
+      {mode === "hidden" && (
+        <button
+          type="button"
+          onClick={() => onUnhide?.(tab)}
+          className="rounded p-1 text-[#56815d] hover:bg-[#edf2ea] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#56815d]"
+          aria-label={`Unhide ${tab.title}`}
+          title={`Unhide ${tab.title}`}
+        >
+          <Eye className="h-3.5 w-3.5" />
+        </button>
+      )}
+      <HideDurationMenu
+        mode={mode === "hidden" ? "prolong" : "hide"}
+        target={tab.title}
+        onSelect={duration =>
+          mode === "hidden"
+            ? onProlong?.(tab, duration)
+            : onHide?.(tab, duration)
+        }
+      />
+    </div>
   );
 }
 
@@ -695,6 +896,7 @@ function StandardTabContent({
   query,
   score,
   fallbackMode,
+  hidden,
   onOpenTagManager,
   onViewedChange,
 }: {
@@ -702,6 +904,7 @@ function StandardTabContent({
   query: string;
   score?: number;
   fallbackMode?: "text_fallback" | "semantic";
+  hidden: boolean;
   onOpenTagManager: () => void;
   onViewedChange: (id: string, viewed: boolean) => void;
 }) {
@@ -715,20 +918,20 @@ function StandardTabContent({
             target="_blank"
             rel="noreferrer"
             onClick={() => onViewedChange(tab.id, true)}
-            className="block min-w-0 flex-1 truncate text-[13px] font-bold leading-5 tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
+            className="block min-w-0 truncate text-[13px] font-bold leading-5 tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
             title={tab.title}
           >
             {tab.title}
           </a>
-          <ViewedCheckbox tab={tab} onChange={onViewedChange} />
+          <ViewedCheckbox tab={tab} hidden={hidden} onChange={onViewedChange} />
           <ArrowUpRight className="mt-1 hidden h-3.5 w-3.5 shrink-0 text-[#9a9c95] group-hover:block" />
         </div>
         <p
           className="mt-1 truncate text-[10px] font-medium text-[#84877f]"
-          title={`${tab.domain} · updated ${tab.updated}`}
+          title={`${tab.domain} · updated ${tab.updatedAt}`}
         >
           {tab.domain} <span className="mx-1.5 text-[#c4c1b9]">·</span> updated{" "}
-          {tab.updated}
+          {tab.updatedAt}
         </p>
         <p
           className="mt-1.5 max-w-2xl truncate text-[11px] leading-5 text-[#666d65]"
@@ -847,10 +1050,12 @@ async function loadServerArticle(
 function ReadableArticlePreview({
   tab,
   backend,
+  hidden,
   onViewedChange,
 }: {
   tab: TabListItem;
   backend?: { url: string; apiKey: string };
+  hidden: boolean;
   onViewedChange: (id: string, viewed: boolean) => void;
 }) {
   const [attempt, setAttempt] = useState(0);
@@ -902,6 +1107,12 @@ function ReadableArticlePreview({
     return (
       <section className="overflow-hidden border border-[#d7d1c4] bg-[#fffdf8]">
         <ReaderHeader tab={tab} label="Preparing reader preview" />
+        <PreviewTitle
+          tab={tab}
+          title={tab.title}
+          hidden={hidden}
+          onViewedChange={onViewedChange}
+        />
         <div className="flex min-h-[156px] items-center gap-3 px-4 py-6 text-[11px] text-[#727970]">
           <LoaderCircle className="h-4 w-4 animate-spin text-[#e95224]" />
           Mozilla Readability is extracting the article…
@@ -914,6 +1125,12 @@ function ReadableArticlePreview({
     return (
       <section className="overflow-hidden border border-[#d7d1c4] bg-[#fffdf8]">
         <ReaderHeader tab={tab} label="Saved link" />
+        <PreviewTitle
+          tab={tab}
+          title={tab.title}
+          hidden={hidden}
+          onViewedChange={onViewedChange}
+        />
         <div className="min-h-[156px] px-4 py-4">
           <div className="flex items-center gap-2 text-[#536057]">
             <BookOpenText className="h-4 w-4 text-[#e95224]" />
@@ -954,12 +1171,13 @@ function ReadableArticlePreview({
     <section className="overflow-hidden border border-[#d7d1c4] bg-[#fffdf8] shadow-[0_7px_18px_rgba(24,38,31,0.04)]">
       <ReaderHeader tab={tab} label="Reader preview" />
       <div className="px-4 pt-4 pb-2">
-        <div className="flex items-start gap-2">
-          <h3 className="max-w-3xl font-['DM_Sans'] text-[20px] font-bold leading-[1.08] tracking-[-0.045em] text-[#26342c]">
-            {article.title || tab.title}
-          </h3>
-          <ViewedCheckbox tab={tab} onChange={onViewedChange} />
-        </div>
+        <PreviewTitle
+          tab={tab}
+          title={article.title || tab.title}
+          hidden={hidden}
+          onViewedChange={onViewedChange}
+          flush
+        />
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[8px] uppercase tracking-[0.09em] text-[#7f867d]">
           {article.byline && <span>{article.byline}</span>}
           {article.siteName && <span>{article.siteName}</span>}
@@ -998,24 +1216,66 @@ function ReadableArticlePreview({
   );
 }
 
+function PreviewTitle({
+  tab,
+  title,
+  hidden,
+  onViewedChange,
+  flush = false,
+}: {
+  tab: TabListItem;
+  title: string;
+  hidden: boolean;
+  onViewedChange: (id: string, viewed: boolean) => void;
+  flush?: boolean;
+}) {
+  return (
+    <div
+      className={`flex min-w-0 items-start gap-2 ${flush ? "" : "px-4 pt-4"}`}
+    >
+      <h3 className="min-w-0 truncate font-['DM_Sans'] text-[20px] font-bold leading-[1.08] tracking-[-0.045em] text-[#26342c]">
+        {title}
+      </h3>
+      <ViewedCheckbox tab={tab} hidden={hidden} onChange={onViewedChange} />
+    </div>
+  );
+}
+
 function ViewedCheckbox({
   tab,
+  hidden = false,
   onChange,
 }: {
   tab: TabListItem;
+  hidden?: boolean;
   onChange: (id: string, viewed: boolean) => void;
 }) {
+  const hiddenUntil = tab.hiddenUntil ? new Date(tab.hiddenUntil) : null;
   return (
-    <input
-      type="checkbox"
-      checked={tab.viewed}
-      onChange={event => onChange(tab.id, event.target.checked)}
-      onClick={event => event.stopPropagation()}
-      onPointerDown={event => event.stopPropagation()}
-      className="mt-1 h-3.5 w-3.5 shrink-0 accent-[#e95224]"
-      aria-label={`Mark ${tab.title} as viewed`}
-      title="Viewed"
-    />
+    <>
+      <input
+        type="checkbox"
+        checked={tab.viewed}
+        onChange={event => onChange(tab.id, event.target.checked)}
+        onClick={event => event.stopPropagation()}
+        onPointerDown={event => event.stopPropagation()}
+        className="mt-1 h-3.5 w-3.5 shrink-0 accent-[#e95224]"
+        aria-label={`Mark ${tab.title} as viewed`}
+        title="Viewed"
+      />
+      {hidden && hiddenUntil && !Number.isNaN(hiddenUntil.getTime()) && (
+        <span
+          className="mt-0.5 max-w-48 shrink-0 truncate font-mono text-[8px] uppercase tracking-[0.06em] text-[#8a704f]"
+          title={`Resting until ${hiddenUntil.toLocaleString()}`}
+        >
+          Resting until{" "}
+          {hiddenUntil.toLocaleString([], {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })}
+        </span>
+      )}
+    </>
   );
 }
 

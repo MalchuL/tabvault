@@ -1,5 +1,7 @@
 import { FolderOpen, FolderPlus, Pencil, Share2, Trash2 } from "lucide-react";
 import type { GroupId, VaultGroup, VaultTab } from "../types";
+import { categoryColor } from "../categoryColor";
+import { HideDurationMenu } from "./HideDurationMenu";
 
 type CollectionBoardProps = {
   groups: VaultGroup[];
@@ -10,6 +12,7 @@ type CollectionBoardProps = {
   onEdit: (group: VaultGroup) => void;
   onBrowse: (groupId: GroupId) => void;
   onCreate: () => void;
+  onHide: (groupId: GroupId, durationMs: number) => void;
 };
 
 export function CollectionBoard({
@@ -21,32 +24,15 @@ export function CollectionBoard({
   onEdit,
   onBrowse,
   onCreate,
+  onHide,
 }: CollectionBoardProps) {
-  const collectionIds = (groupId: GroupId) => {
-    const ids = new Set<GroupId>([groupId]);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      groups.forEach(group => {
-        if (group.parent && ids.has(group.parent) && !ids.has(group.id)) {
-          ids.add(group.id);
-          changed = true;
-        }
-      });
-    }
-    return ids;
-  };
-  const collections = groups.filter(group => !group.parent);
-
   return (
     <div
       data-testid="group-board"
       className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
     >
-      {collections.map(group => {
-        const groupTabs = tabs.filter(tab =>
-          collectionIds(group.id).has(tab.groupId)
-        );
+      {groups.map(group => {
+        const groupTabs = tabs.filter(tab => tab.groupId === group.id);
         return (
           <article
             key={group.id}
@@ -61,7 +47,7 @@ export function CollectionBoard({
               >
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: group.accent }}
+                  style={{ backgroundColor: categoryColor(group.category) }}
                 />
                 <span className="truncate text-[15px] font-bold tracking-[-0.025em] text-[#26342c]">
                   {group.name}
@@ -97,18 +83,9 @@ export function CollectionBoard({
                 </button>
                 <button
                   onClick={() => onDelete(group)}
-                  disabled={group.id === "inbox"}
-                  className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] disabled:cursor-not-allowed disabled:opacity-35"
-                  aria-label={
-                    group.id === "inbox"
-                      ? "Inbox cannot be deleted"
-                      : `Delete ${group.name}`
-                  }
-                  title={
-                    group.id === "inbox"
-                      ? "Inbox is protected"
-                      : "Delete collection"
-                  }
+                  className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+                  aria-label={`Delete ${group.name}`}
+                  title="Delete collection"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -141,6 +118,14 @@ export function CollectionBoard({
             </button>
             <div className="mt-5 flex items-center justify-between border-t border-[#e8e3d8] pt-3 font-mono text-[9px] uppercase tracking-[0.08em] text-[#858980]">
               <span>{groupTabs.length} tabs</span>
+              <span style={{ color: categoryColor(group.category) }}>
+                {group.category}
+              </span>
+              <HideDurationMenu
+                mode="hide"
+                target={group.name}
+                onSelect={duration => onHide(group.id, duration)}
+              />
               <button
                 onClick={() => onBrowse(group.id)}
                 className="font-semibold text-[#667268] hover:text-[#e95224]"

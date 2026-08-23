@@ -6,6 +6,7 @@
 import {
   emptyBrowserVault,
   fromServerDocument,
+  isPersistedVault,
   toServerDocument,
   type PersistedVault,
 } from "./library";
@@ -18,8 +19,9 @@ export type ChromeTabSnapshot = {
 };
 
 type ChromeStorageArea = {
-  get: (key: string) => Promise<Record<string, unknown>>;
+  get: (key: string | string[]) => Promise<Record<string, unknown>>;
   set: (value: Record<string, unknown>) => Promise<void>;
+  remove: (key: string | string[]) => Promise<void>;
 };
 
 type ChromeRuntime = {
@@ -52,7 +54,8 @@ declare global {
   }
 }
 
-export const TABVAULT_STORAGE_KEY = "tabvault-v1";
+export const TABVAULT_STORAGE_KEY = "tabvault-v2";
+export const LEGACY_TABVAULT_STORAGE_KEY = "tabvault-v1";
 export const TABVAULT_SERVER_URL_KEY = "tabvault-local-server-url";
 export const TABVAULT_API_KEY_KEY = "tabvault-api-key";
 export const TABVAULT_SYNC_STATUS_KEY = "tabvault-sync-status";
@@ -209,19 +212,57 @@ export async function openTabUrls(urls: string[]): Promise<OpenTabsResponse> {
   return { openedCount, requestedCount: validUrls.length, openedUrls };
 }
 
-export async function readExtensionVault<T>() {
-  const stored = await window.chrome?.storage?.local?.get(TABVAULT_STORAGE_KEY);
-  if (stored?.[TABVAULT_STORAGE_KEY]) return stored[TABVAULT_STORAGE_KEY] as T;
+export type BrowserVaultInspection =
+  | { status: "empty" }
+  | { status: "compatible"; vault: PersistedVault }
+  | { status: "incompatible"; raw: unknown; storageKey: string };
+
+export async function inspectBrowserVault(): Promise<BrowserVaultInspection> {
+  if (window.chrome?.storage?.local) {
+    const stored = await window.chrome.storage.local.get([
+      TABVAULT_STORAGE_KEY,
+      LEGACY_TABVAULT_STORAGE_KEY,
+    ]);
+    const storageKey =
+      stored[TABVAULT_STORAGE_KEY] !== undefined
+        ? TABVAULT_STORAGE_KEY
+        : stored[LEGACY_TABVAULT_STORAGE_KEY] !== undefined
+          ? LEGACY_TABVAULT_STORAGE_KEY
+          : null;
+    if (!storageKey) return { status: "empty" };
+    const raw = stored[storageKey];
+    return isPersistedVault(raw)
+      ? { status: "compatible", vault: raw }
+      : { status: "incompatible", raw, storageKey };
+  }
+  const storageKey =
+    window.localStorage.getItem(TABVAULT_STORAGE_KEY) !== null
+      ? TABVAULT_STORAGE_KEY
+      : window.localStorage.getItem(LEGACY_TABVAULT_STORAGE_KEY) !== null
+        ? LEGACY_TABVAULT_STORAGE_KEY
+        : null;
+  if (!storageKey) return { status: "empty" };
+  const raw = window.localStorage.getItem(storageKey) ?? "";
   try {
-    return JSON.parse(
-      window.localStorage.getItem(TABVAULT_STORAGE_KEY) ?? "null"
-    ) as T | undefined;
+    const value: unknown = JSON.parse(raw);
+    return isPersistedVault(value)
+      ? { status: "compatible", vault: value }
+      : { status: "incompatible", raw, storageKey };
   } catch {
-    return undefined;
+    return { status: "incompatible", raw, storageKey };
   }
 }
 
-export async function writeExtensionVault<T>(vault: T) {
+export async function readExtensionVault() {
+  const inspection = await inspectBrowserVault();
+  if (inspection.status === "incompatible")
+    throw new Error("Browser library is not schema v2");
+  return inspection.status === "compatible" ? inspection.vault : undefined;
+}
+
+export async function writeExtensionVault(vault: PersistedVault) {
+  if (!isPersistedVault(vault))
+    throw new Error("Refusing to persist an invalid schema-v2 vault");
   if (window.chrome?.storage?.local)
     await window.chrome.storage.local.set({ [TABVAULT_STORAGE_KEY]: vault });
   else window.localStorage.setItem(TABVAULT_STORAGE_KEY, JSON.stringify(vault));
@@ -379,12 +420,9 @@ export async function readLibraryFromServer(
   url: string,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
-  const response = await fetch(
-    `${url.replace(/\/+$/, "")}/api/v1/export?format=json`,
-    {
-      headers: apiHeaders(apiKey),
-    }
-  );
+  const response = await fetch(`${url.replace(/\/+$/, "")}/api/v1/sync`, {
+    headers: apiHeaders(apiKey),
+  });
   if (!response.ok)
     throw new Error("TabVault API could not read the shared library");
   return response.json() as Promise<Record<string, unknown>>;
@@ -414,17 +452,62 @@ export async function refreshLibraryFromServer(
   apiKey: string,
   localVault: PersistedVault
 ) {
+  const synchronizedVault = await flushDeletionTombstones(
+    url,
+    apiKey,
+    localVault
+  );
   const result = await mergeLibraryToServer(
     url,
-    toServerDocument(localVault),
+    toServerDocument(synchronizedVault),
     apiKey
   );
   if (!result.success)
     throw new Error("TabVault API could not merge the shared library");
   const document = await readLibraryFromServer(url, apiKey);
   return {
-    vault: fromServerDocument(document, localVault),
+    vault: fromServerDocument(document, synchronizedVault),
     warnings: result.warnings ?? [],
+  };
+}
+
+async function flushDeletionTombstones(
+  url: string,
+  apiKey: string,
+  vault: PersistedVault
+) {
+  const tombstones = vault.tombstones ?? { tabs: [], groups: [] };
+  const root = url.replace(/\/+$/, "");
+  const remainingGroups: string[] = [];
+  for (const id of tombstones.groups) {
+    const response = await fetch(
+      `${root}/api/v1/groups/${encodeURIComponent(id)}`,
+      { method: "DELETE", headers: apiHeaders(apiKey) }
+    );
+    if (!response.ok && response.status !== 404) remainingGroups.push(id);
+  }
+  const remainingTabs: string[] = [];
+  for (const id of tombstones.tabs) {
+    let response = await fetch(
+      `${root}/api/v1/tabs/${encodeURIComponent(id)}?hard=true`,
+      { method: "DELETE", headers: apiHeaders(apiKey) }
+    );
+    if (response.status === 409) {
+      await fetch(`${root}/api/v1/tabs/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: apiHeaders(apiKey),
+        body: JSON.stringify({ archived: true, groupId: null }),
+      });
+      response = await fetch(
+        `${root}/api/v1/tabs/${encodeURIComponent(id)}?hard=true`,
+        { method: "DELETE", headers: apiHeaders(apiKey) }
+      );
+    }
+    if (!response.ok && response.status !== 404) remainingTabs.push(id);
+  }
+  return {
+    ...vault,
+    tombstones: { tabs: remainingTabs, groups: remainingGroups },
   };
 }
 
@@ -446,6 +529,15 @@ export async function clearLibraryOnServer(
 }
 
 export async function clearBrowserLibrary() {
+  if (window.chrome?.storage?.local) {
+    await window.chrome.storage.local.remove([
+      TABVAULT_STORAGE_KEY,
+      LEGACY_TABVAULT_STORAGE_KEY,
+    ]);
+  } else {
+    window.localStorage.removeItem(TABVAULT_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_TABVAULT_STORAGE_KEY);
+  }
   await writeExtensionVault(emptyBrowserVault());
   await writeSyncStatus({
     state: "local_only",
@@ -456,6 +548,7 @@ export async function clearBrowserLibrary() {
 export async function saveTabToLocalServer(
   url: string,
   tab: {
+    id?: string;
     url: string;
     title: string;
     note: string;
@@ -470,13 +563,35 @@ export async function saveTabToLocalServer(
   const response = await fetch(`${url.replace(/\/+$/, "")}/api/v1/tabs`, {
     method: "POST",
     headers: apiHeaders(apiKey),
-    body: JSON.stringify({ tabs: [tab] }),
+    body: JSON.stringify(tab),
   });
   if (!response.ok) throw new Error("TabVault local server rejected the tab");
   return response.json() as Promise<{
     success: boolean;
-    data: { created: Array<{ wasDuplicate?: boolean }> };
+    data: LocalServerTab;
   }>;
+}
+
+export async function createGroupOnLocalServer(
+  url: string,
+  group: {
+    id?: string;
+    name: string;
+    category: string;
+    description?: string;
+    color?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  },
+  apiKey = DEFAULT_TABVAULT_API_KEY
+) {
+  const response = await fetch(`${url.replace(/\/+$/, "")}/api/v1/groups`, {
+    method: "POST",
+    headers: apiHeaders(apiKey),
+    body: JSON.stringify(group),
+  });
+  if (!response.ok) throw new Error("TabVault local server rejected the group");
+  return response.json();
 }
 
 export async function searchLocalServer(
@@ -580,10 +695,12 @@ export async function updateGroupOnLocalServer(
 export async function deleteTabOnLocalServer(
   url: string,
   id: string,
-  apiKey = DEFAULT_TABVAULT_API_KEY
+  apiKey = DEFAULT_TABVAULT_API_KEY,
+  hard = false
 ) {
+  const query = hard ? "?hard=true" : "";
   const response = await fetch(
-    `${url.replace(/\/+$/, "")}/api/v1/tabs/${encodeURIComponent(id)}`,
+    `${url.replace(/\/+$/, "")}/api/v1/tabs/${encodeURIComponent(id)}${query}`,
     { method: "DELETE", headers: apiHeaders(apiKey) }
   );
   if (!response.ok)
@@ -591,24 +708,18 @@ export async function deleteTabOnLocalServer(
   return response.json();
 }
 
-export async function restoreTabsOnLocalServer(
+export async function deleteGroupOnLocalServer(
   url: string,
-  tabs: LocalServerTab[],
+  id: string,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
   const response = await fetch(
-    `${url.replace(/\/+$/, "")}/api/v1/tabs/restore`,
-    {
-      method: "POST",
-      headers: apiHeaders(apiKey),
-      body: JSON.stringify(tabs),
-    }
+    `${url.replace(/\/+$/, "")}/api/v1/groups/${encodeURIComponent(id)}`,
+    { method: "DELETE", headers: apiHeaders(apiKey) }
   );
   if (!response.ok)
-    throw new Error(
-      "TabVault local server could not restore the undo snapshot"
-    );
-  return response.json() as Promise<{ restored: number }>;
+    throw new Error("TabVault local server could not delete the collection");
+  return response.json();
 }
 
 export async function configureIndexHealthCheck(

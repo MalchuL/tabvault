@@ -1,6 +1,7 @@
-import { canonicalizeTabUrl } from "./url-canonical.js";
 import {
   defaultVault,
+  isVaultV2,
+  orderKey,
   serverDocumentToVault,
   vaultToServerDocument,
 } from "./library-sync.js";
@@ -14,7 +15,7 @@ const HEALTH_ALERT_KEY = "tabvault-health-alert";
 const HEALTH_ALARM_NAME = "tabvault-index-health";
 const LIBRARY_REFRESH_KEY = "tabvault-library-refresh";
 const LIBRARY_REFRESH_ALARM_NAME = "tabvault-library-refresh";
-const VAULT_STORAGE_KEY = "tabvault-v1";
+const VAULT_STORAGE_KEY = "tabvault-v2";
 const SERVER_URL_KEY = "tabvault-local-server-url";
 const API_KEY_STORAGE_KEY = "tabvault-api-key";
 const STORAGE_MODE_KEY = "tabvault-storage-mode";
@@ -30,24 +31,61 @@ function domainFor(url) {
 }
 
 function buildSavedTab(tab) {
-  const url = canonicalizeTabUrl(tab.url);
+  const now = new Date().toISOString();
+  const url = tab.url;
   return {
     id: crypto.randomUUID(),
-    groupId: "inbox",
+    groupId: null,
     title: tab.title?.trim() || domainFor(url) || "Saved tab",
     url,
     domain: domainFor(url),
     note: "",
     agentReview: "",
     viewed: false,
-    tags: ["quick save"],
+    tags: [],
     color: "#F05A28",
     icon: "●",
-    updated: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
+    archived: false,
+    archivedAt: null,
+    hiddenUntil: null,
   };
 }
 
-async function syncQuickTabs(tabs) {
+function sessionName(date = new Date()) {
+  const month = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ][date.getMonth()];
+  const pad = value => String(value).padStart(2, "0");
+  return `Session ${month} ${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function buildSessionGroup() {
+  const now = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    name: sessionName(),
+    description: "Captured from the browser",
+    category: "session",
+    accent: "#829b65",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function syncQuickCapture(group, tabs) {
   const stored = await chrome.storage.local.get([
     SERVER_URL_KEY,
     API_KEY_STORAGE_KEY,
@@ -56,25 +94,43 @@ async function syncQuickTabs(tabs) {
   if (stored[STORAGE_MODE_KEY] !== "backend") return false;
   const baseUrl = stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL;
   const apiKey = stored[API_KEY_STORAGE_KEY] || "admin";
+  const headers = {
+    "Content-Type": "application/json",
+    "X-API-Key": apiKey,
+  };
+  const groupResponse = await fetch(
+    `${baseUrl.replace(/\/+$/, "")}/api/v1/groups`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        id: group.id,
+        name: group.name,
+        category: group.category,
+        description: group.description,
+        color: group.accent,
+        createdAt: group.createdAt,
+        updatedAt: group.updatedAt,
+      }),
+    }
+  );
+  if (!groupResponse.ok) return false;
   const requests = tabs.map(tab =>
     fetch(`${baseUrl.replace(/\/+$/, "")}/api/v1/tabs`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": apiKey,
+        ...headers,
+        "Idempotency-Key": tab.id,
       },
       body: JSON.stringify({
-        tabs: [
-          {
-            url: tab.url,
-            title: tab.title,
-            note: tab.note,
-            agentReview: tab.agentReview,
-            viewed: tab.viewed,
-            tags: tab.tags,
-            groupId: null,
-          },
-        ],
+        id: tab.id,
+        url: tab.url,
+        title: tab.title,
+        note: tab.note,
+        agentReview: tab.agentReview,
+        viewed: tab.viewed,
+        tags: tab.tags,
+        groupId: group.id,
       }),
     })
   );
@@ -98,56 +154,56 @@ async function saveAndCloseTabs(sourceTabs) {
       tab.id && typeof tab.url === "string" && /^https?:\/\//i.test(tab.url)
   );
   const skippedCount = sourceTabs.length - validTabs.length;
-  if (!validTabs.length) {
-    return { savedCount: 0, closedCount: 0, skippedCount, serverSynced: false };
-  }
-
   const stored = await chrome.storage.local.get(VAULT_STORAGE_KEY);
-  const vault = stored[VAULT_STORAGE_KEY] || defaultVault();
-  vault.tabs ||= [];
-  vault.tabs = vault.tabs.map(tab => ({
-    ...tab,
-    note: typeof tab.note === "string" ? tab.note : "",
-    agentReview: typeof tab.agentReview === "string" ? tab.agentReview : "",
-    viewed: Boolean(tab.viewed),
-  }));
-  vault.tabOrders ||= {};
-  vault.tabOrders.inbox ||= [];
-  vault.tagCatalog ||= {};
-  vault.tagCatalog["quick save"] ||= "Captured from the fast-save popup";
+  let vault = stored[VAULT_STORAGE_KEY] || defaultVault();
+  if (!isVaultV2(vault))
+    throw new Error(
+      "Browser data is not schema v2; open TabVault to recover it."
+    );
+
+  const group = buildSessionGroup();
+  let persistedVault = {
+    ...vault,
+    vaultGroups: [group, ...vault.vaultGroups],
+    tabOrders: { ...vault.tabOrders, [orderKey(group.id)]: [] },
+  };
+  await chrome.storage.local.set({ [VAULT_STORAGE_KEY]: persistedVault });
 
   const savedTabs = [];
+  let closedCount = 0;
+  let failedCount = 0;
   for (const sourceTab of validTabs) {
-    const existing = vault.tabs.find(
-      tab => canonicalizeTabUrl(tab.url) === canonicalizeTabUrl(sourceTab.url)
-    );
-    if (existing) {
-      if (existing.archived) {
-        existing.archived = false;
-        existing.archivedAt = null;
-        vault.tabOrders[existing.groupId] ||= [];
-        vault.tabOrders[existing.groupId] = [
-          existing.id,
-          ...vault.tabOrders[existing.groupId].filter(id => id !== existing.id),
-        ];
-      }
-      existing.updated = new Date().toISOString();
-      savedTabs.push(existing);
+    const nextTab = { ...buildSavedTab(sourceTab), groupId: group.id };
+    const nextVault = {
+      ...persistedVault,
+      tabs: [nextTab, ...persistedVault.tabs],
+      tabOrders: {
+        ...persistedVault.tabOrders,
+        [orderKey(group.id)]: [
+          nextTab.id,
+          ...(persistedVault.tabOrders[orderKey(group.id)] || []),
+        ],
+      },
+    };
+    try {
+      await chrome.storage.local.set({ [VAULT_STORAGE_KEY]: nextVault });
+      persistedVault = nextVault;
+      savedTabs.push(nextTab);
+    } catch {
+      failedCount += 1;
       continue;
     }
-    const nextTab = buildSavedTab(sourceTab);
-    nextTab.archived = false;
-    nextTab.archivedAt = null;
-    vault.tabs.unshift(nextTab);
-    vault.tabOrders.inbox = [
-      nextTab.id,
-      ...vault.tabOrders.inbox.filter(id => id !== nextTab.id),
-    ];
-    savedTabs.push(nextTab);
+    try {
+      await chrome.tabs.remove(sourceTab.id);
+      closedCount += 1;
+    } catch {
+      // The Saved Tab is durable even if Chrome refuses to close its source tab.
+    }
   }
 
-  await chrome.storage.local.set({ [VAULT_STORAGE_KEY]: vault });
-  const serverSynced = await syncQuickTabs(savedTabs).catch(() => false);
+  const serverSynced = await syncQuickCapture(group, savedTabs).catch(
+    () => false
+  );
   if (!serverSynced) {
     const storageMode = await chrome.storage.local.get(STORAGE_MODE_KEY);
     await chrome.storage.local.set({
@@ -160,14 +216,6 @@ async function saveAndCloseTabs(sourceTabs) {
       },
     });
   }
-  const closeIds = validTabs.map(tab => tab.id).filter(Boolean);
-  let closedCount = 0;
-  try {
-    await chrome.tabs.remove(closeIds);
-    closedCount = closeIds.length;
-  } catch {
-    // The local library write still succeeded; Chrome may reject closing the final tab or a tab that changed state.
-  }
   chrome.runtime
     .sendMessage({
       type: "TABVAULT_LIBRARY_UPDATED",
@@ -179,6 +227,7 @@ async function saveAndCloseTabs(sourceTabs) {
     savedCount: savedTabs.length,
     closedCount,
     skippedCount,
+    failedCount,
     serverSynced,
   };
 }
@@ -265,18 +314,41 @@ async function refreshStoredLibrary() {
     STORAGE_MODE_KEY,
   ]);
   if (stored[STORAGE_MODE_KEY] !== "backend") return false;
-  const vault = stored[VAULT_STORAGE_KEY] || defaultVault();
+  let vault = stored[VAULT_STORAGE_KEY] || defaultVault();
+  if (!isVaultV2(vault)) throw new Error("Browser library is not schema v2");
   const baseUrl = (stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL).replace(
     /\/+$/,
     ""
   );
   const apiKey = stored[API_KEY_STORAGE_KEY] || "admin";
+  const headers = {
+    "Content-Type": "application/json",
+    "X-API-Key": apiKey,
+  };
+  const remainingGroups = [];
+  for (const id of vault.tombstones?.groups ?? []) {
+    const response = await fetch(
+      `${baseUrl}/api/v1/groups/${encodeURIComponent(id)}`,
+      { method: "DELETE", headers }
+    );
+    if (!response.ok && response.status !== 404) remainingGroups.push(id);
+  }
+  const remainingTabs = [];
+  for (const id of vault.tombstones?.tabs ?? []) {
+    const response = await fetch(
+      `${baseUrl}/api/v1/tabs/${encodeURIComponent(id)}?hard=true`,
+      { method: "DELETE", headers }
+    );
+    if (!response.ok && response.status !== 404) remainingTabs.push(id);
+  }
+  vault = {
+    ...vault,
+    tombstones: { tabs: remainingTabs, groups: remainingGroups },
+  };
+  await chrome.storage.local.set({ [VAULT_STORAGE_KEY]: vault });
   const response = await fetch(`${baseUrl}/api/v1/import`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-Key": apiKey,
-    },
+    headers,
     body: JSON.stringify({
       mode: "upload",
       format: "json",
@@ -287,7 +359,7 @@ async function refreshStoredLibrary() {
     throw new Error(`Library refresh returned ${response.status}`);
   const payload = await response.json();
   if (!payload?.success) throw new Error("Library refresh import failed");
-  const exportResponse = await fetch(`${baseUrl}/api/v1/export?format=json`, {
+  const exportResponse = await fetch(`${baseUrl}/api/v1/sync`, {
     headers: { "X-API-Key": apiKey },
   });
   if (!exportResponse.ok)

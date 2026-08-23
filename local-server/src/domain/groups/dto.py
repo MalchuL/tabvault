@@ -1,72 +1,65 @@
-"""Typed requests and results for group use cases."""
+"""Typed requests and results for flat Group use cases."""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, Field
 
 from lib.dto_config import model_config
 
-GroupDeleteStrategy: TypeAlias = Literal["cascade", "promote", "reject_if_nonempty"]
-
 
 class GroupCreateDTO(BaseModel):
-    """Describe a group to create."""
+    """Describe one Group to create."""
 
     name: str = Field(min_length=1, max_length=200)
+    category: str = Field(min_length=1, max_length=128)
     description: str | None = Field(default="", max_length=20_000)
-    parent_id: str | None = Field(default=None, max_length=128)
     color: str | None = Field(default=None, max_length=32)
     position: float | None = Field(default=None, ge=0)
     id: str | None = Field(default=None, max_length=128)
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    archived: bool = False
-    archived_at: datetime | None = None
     model_config = model_config()
 
 
 class GroupUpdateDTO(BaseModel):
-    """Describe fields that may be changed on a group."""
+    """Describe explicitly supplied Group fields."""
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
+    category: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=20_000)
-    parent_id: str | None = Field(default=None, max_length=128)
     color: str | None = Field(default=None, max_length=32)
     position: float | None = Field(default=None, ge=0)
     model_config = model_config()
 
 
 class GroupDTO(BaseModel):
-    """Represent a group, optionally with nested children."""
+    """Represent one flat Group."""
 
     id: str
     name: str
-    description: str = ""
-    parent_id: str | None
+    category: str
+    description: str
     color: str | None
     position: float
     created_at: datetime
     updated_at: datetime
     tab_count: int = 0
-    total_tab_count: int | None = None
-    children: list[GroupDTO] | None = None
     model_config = model_config()
 
 
 class GroupListDataDTO(BaseModel):
-    """Expose groups in an API data envelope."""
+    """Expose Groups in the common API envelope."""
 
     groups: list[GroupDTO]
     model_config = model_config()
 
 
 class GroupDeleteResultDTO(BaseModel):
-    """Describe the result of deleting a group."""
+    """Describe permanent Group deletion and archived members."""
 
     id: str
-    strategy: GroupDeleteStrategy
+    archived_tab_count: int
     deleted_at: datetime
     model_config = model_config()

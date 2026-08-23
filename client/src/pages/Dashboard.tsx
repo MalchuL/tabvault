@@ -72,7 +72,7 @@ export default function Dashboard() {
     setIsRefreshing(true);
     try {
       const [library, savedSync, url, key] = await Promise.all([
-        readExtensionVault<LibrarySnapshot>(),
+        readExtensionVault(),
         readSyncStatus(),
         readLocalServerUrl(),
         readApiKey(),

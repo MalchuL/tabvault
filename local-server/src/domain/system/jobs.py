@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from clients.web_capture.client import WebCaptureClient
 from config.settings import Settings
 from db.session import get_session_factory
+from lib.time import utc_now
 
 from .preview import PreviewService
 from .repository import SystemRepository
@@ -77,7 +78,7 @@ class JobWorker:
                         repository,
                     ).capture_tab(job.target_id)
                 elif job.kind == "search_reindex":
-                    tabs = await repository.active_tabs()
+                    tabs = await repository.active_tabs(utc_now())
                     result_value = {
                         "indexedCount": await self.vectors.rebuild(
                             [

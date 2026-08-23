@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from lib.time import utc_now
-from models import Asset, Backup, Group, HealthSchedule, IdempotencyRecord, Job, Preview, Tab, Tag
+from lib.time import stored_utc, utc_now
+from models import Asset, Backup, Group, HealthSchedule, Job, Preview, Tab, Tag
 
 from .dto import (
     AssetFileDTO,
@@ -110,12 +109,10 @@ class SystemMapper:
         return TransferGroupDTO(
             id=group.id,
             name=group.name,
+            category=group.category,
             description=group.description,
-            parent_id=group.parent_id,
             color=group.color,
             position=group.position,
-            archived=group.archived,
-            archived_at=group.archived_at,
             created_at=group.created_at,
             updated_at=group.updated_at,
         )
@@ -136,6 +133,7 @@ class SystemMapper:
             position=tab.position,
             archived=tab.archived,
             archived_at=tab.archived_at,
+            hidden_until=stored_utc(tab.hidden_until),
             created_at=tab.created_at,
             updated_at=tab.updated_at,
         )
@@ -156,12 +154,10 @@ class SystemMapper:
         return Group(
             id=dto.id,
             name=dto.name,
+            category=dto.category,
             description=dto.description or "",
-            parent_id=dto.parent_id,
             color=dto.color,
             position=dto.position,
-            archived=dto.archived,
-            archived_at=dto.archived_at,
             created_at=dto.created_at or utc_now(),
             updated_at=dto.updated_at or utc_now(),
         )
@@ -176,30 +172,28 @@ class SystemMapper:
         """Map newer portable group data to ORM fields."""
         return {
             "name": dto.name,
+            "category": dto.category,
             "description": dto.description or "",
-            "parent_id": dto.parent_id,
             "color": dto.color,
             "position": dto.position,
-            "archived": dto.archived,
-            "archived_at": dto.archived_at,
             "updated_at": dto.updated_at,
         }
 
     @staticmethod
-    def tab_from_transfer(dto: TransferTabDTO, normalized_url: str, tags: list[Tag]) -> Tab:
+    def tab_from_transfer(dto: TransferTabDTO, tags: list[Tag]) -> Tab:
         """Create a tab model from portable data."""
         return Tab(
             id=dto.id,
-            url=normalized_url,
-            normalized_url=normalized_url,
+            url=dto.url,
             title=dto.title,
             note=dto.note or "",
             agent_review=dto.agent_review or "",
             viewed=dto.viewed,
-            group_id=dto.group_id,
+            group_id=None if dto.archived else dto.group_id,
             position=dto.position,
             archived=dto.archived,
             archived_at=dto.archived_at,
+            hidden_until=dto.hidden_until,
             created_at=dto.created_at or utc_now(),
             updated_at=dto.updated_at or utc_now(),
             tags=tags,
@@ -209,36 +203,19 @@ class SystemMapper:
     def tab_transfer_changes(dto: TransferTabDTO, tags: list[Tag]) -> dict[str, object]:
         """Map newer portable tab data to ORM fields."""
         return {
+            "url": dto.url,
             "title": dto.title,
             "note": dto.note or "",
             "agent_review": dto.agent_review or "",
             "viewed": dto.viewed,
-            "group_id": dto.group_id,
+            "group_id": None if dto.archived else dto.group_id,
             "position": dto.position,
             "archived": dto.archived,
             "archived_at": dto.archived_at,
+            "hidden_until": dto.hidden_until,
             "tags": tags,
             "updated_at": dto.updated_at,
         }
-
-    @staticmethod
-    def tab_duplicate_changes(dto: TransferTabDTO, tags: list[Tag]) -> dict[str, object]:
-        """Map portable data merged into a normalized-URL duplicate."""
-        changes: dict[str, object] = {
-            "tags": tags,
-            "updated_at": utc_now(),
-            "archived": False,
-            "archived_at": None,
-        }
-        if dto.title:
-            changes["title"] = dto.title
-        if dto.note:
-            changes["note"] = dto.note
-        if dto.agent_review:
-            changes["agent_review"] = dto.agent_review
-        if dto.viewed:
-            changes["viewed"] = True
-        return changes
 
     @staticmethod
     def backup(backup_id: str, path: Path, reason: str, size_bytes: int) -> Backup:
@@ -274,21 +251,3 @@ class SystemMapper:
     def preview(tab_id: str) -> Preview:
         """Create pending preview state for a tab."""
         return Preview(tab_id=tab_id)
-
-    @staticmethod
-    def idempotency(
-        *,
-        key: str,
-        request_hash: str,
-        status_code: int,
-        response: dict[str, Any],
-        expires_at: datetime,
-    ) -> IdempotencyRecord:
-        """Create an idempotency model from captured response metadata."""
-        return IdempotencyRecord(
-            key=key,
-            request_hash=request_hash,
-            status_code=status_code,
-            response=response,
-            expires_at=expires_at,
-        )

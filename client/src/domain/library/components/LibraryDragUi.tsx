@@ -1,7 +1,11 @@
 import { useDroppable } from "@dnd-kit/core";
 import type { VaultGroup } from "../types";
+import { categoryColor } from "../categoryColor";
 
 export function CollectionDropShelf({ groups }: { groups: VaultGroup[] }) {
+  const manualGroups = groups.filter(group => group.category === "manual");
+  if (!manualGroups.length) return null;
+
   return (
     <div
       data-testid="collection-drop-shelf"
@@ -10,7 +14,7 @@ export function CollectionDropShelf({ groups }: { groups: VaultGroup[] }) {
       <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#9a9c95]">
         Quick move
       </span>
-      {groups.map(group => (
+      {manualGroups.map(group => (
         <CollectionDropChip key={group.id} group={group} />
       ))}
     </div>
@@ -33,7 +37,7 @@ function CollectionDropChip({ group }: { group: VaultGroup }) {
     >
       <span
         className="h-1.5 w-1.5 rounded-full"
-        style={{ backgroundColor: group.accent }}
+        style={{ backgroundColor: categoryColor(group.category) }}
       />
       {group.name}
     </div>

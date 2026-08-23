@@ -59,6 +59,7 @@ export function CreateCollectionDialog({
 
 type EditCollectionDialogProps = {
   collection: VaultGroup;
+  categories: string[];
   onChange: (collection: VaultGroup) => void;
   onClose: () => void;
   onSave: () => void;
@@ -66,6 +67,7 @@ type EditCollectionDialogProps = {
 
 export function EditCollectionDialog({
   collection,
+  categories,
   onChange,
   onClose,
   onSave,
@@ -90,7 +92,11 @@ export function EditCollectionDialog({
           <input
             value={collection.name}
             onChange={event =>
-              onChange({ ...collection, name: event.target.value })
+              onChange({
+                ...collection,
+                name: event.target.value,
+                category: "manual",
+              })
             }
             onKeyDown={event => event.key === "Enter" && onSave()}
             className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[13px] font-semibold outline-none focus:border-[#e95224]"
@@ -103,12 +109,34 @@ export function EditCollectionDialog({
           <textarea
             value={collection.description}
             onChange={event =>
-              onChange({ ...collection, description: event.target.value })
+              onChange({
+                ...collection,
+                description: event.target.value,
+                category: "manual",
+              })
             }
             rows={4}
             placeholder="Context that helps agents file tabs correctly"
             className="mt-2 w-full resize-none border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 text-[12px] leading-5 outline-none focus:border-[#e95224]"
           />
+        </label>
+        <label className="mt-4 block">
+          <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
+            Category
+          </span>
+          <select
+            value={collection.category}
+            onChange={event =>
+              onChange({ ...collection, category: event.target.value })
+            }
+            className="mt-2 w-full border border-[#ded9cd] bg-[#f9f7f1] px-3 py-2.5 text-[12px] outline-none focus:border-[#e95224]"
+          >
+            {categories.map(category => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
+          </select>
         </label>
         <DialogActions
           onCancel={onClose}
@@ -135,7 +163,7 @@ export function DeleteCollectionDialog({
       ariaLabel={`Delete ${collection.name} collection`}
       eyebrow="Remove collection"
       title={`Delete “${collection.name}”?`}
-      description="The collection structure will be removed. Its saved tabs will be returned to Inbox rather than deleted."
+      description="The collection will be removed. Its saved tabs will be archived and moved to [Unassigned]."
       confirmLabel="Delete collection"
       onClose={onClose}
       onConfirm={onDelete}
@@ -162,7 +190,7 @@ export function DeleteTabDialog({
       description={
         permanent
           ? `“${tab.title}” will be removed from local storage and the configured backend. This cannot be undone.`
-          : `“${tab.title}” will leave your active library but remain recoverable in Archive. Saving the same URL restores its existing notes and tags.`
+          : `“${tab.title}” will leave your active library but remain recoverable in Archive.`
       }
       confirmLabel={permanent ? "Permanently delete" : "Archive tab"}
       onClose={onClose}
@@ -372,12 +400,16 @@ export function EditTabDialog({
           </div>
           <Field label="Collection">
             <select
-              value={tab.groupId}
+              value={tab.groupId ?? ""}
               onChange={event =>
-                onChange({ ...tab, groupId: event.target.value })
+                onChange({
+                  ...tab,
+                  groupId: event.target.value || null,
+                })
               }
               className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[12px] font-semibold outline-none focus:border-[#e95224]"
             >
+              <option value="">[Unassigned]</option>
               {groups.map(group => (
                 <option key={group.id} value={group.id}>
                   {group.name}

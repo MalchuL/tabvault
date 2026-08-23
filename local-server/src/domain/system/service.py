@@ -70,11 +70,11 @@ class SystemService:
 
     async def health(self) -> HealthDTO:
         """Return server and storage health."""
-        tabs, groups, tags = await self.repository.health_counts()
+        tabs, groups, tags = await self.repository.health_counts(utc_now())
         return HealthDTO(
             status="ok",
             version="0.2.0",
-            schema_version=1,
+            schema_version=2,
             storage=StorageCountsDTO(tabs=tabs, groups=groups, tags=tags),
             vector_index=self.vectors.status(),
         )
@@ -90,7 +90,7 @@ class SystemService:
     ) -> SearchResultDTO:
         """Search active tabs using keyword and optional semantic scores."""
         started = time.perf_counter()
-        rows = await self.repository.search_tabs(group_id, tags)
+        rows = await self.repository.search_tabs(group_id, tags, utc_now())
         by_id = {row.id: row for row in rows}
         terms = [term.lower() for term in q.split() if term]
         keyword: dict[str, tuple[float, SearchMatchedOn]] = {}
@@ -297,7 +297,7 @@ class SystemService:
     @staticmethod
     def schema() -> dict[str, Any]:
         """Load the canonical portable-document JSON schema."""
-        path = Path(__file__).parents[3] / "schema" / "v1.tabvault.schema.json"
+        path = Path(__file__).parents[3] / "schema" / "v2.tabvault.schema.json"
         return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
 
     @staticmethod

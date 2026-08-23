@@ -6,15 +6,17 @@ export type VaultGroup = {
   id: GroupId;
   name: string;
   description: string;
-  parent?: GroupId;
+  category: string;
   accent: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type LibraryViewMode = TabViewMode | "groups";
 
 export type VaultTab = {
   id: string;
-  groupId: GroupId;
+  groupId: GroupId | null;
   title: string;
   url: string;
   domain: string;
@@ -24,9 +26,11 @@ export type VaultTab = {
   tags: string[];
   color: string;
   icon: string;
-  updated: string;
+  createdAt: string;
+  updatedAt: string;
   archived?: boolean;
   archivedAt?: string | null;
+  hiddenUntil?: string | null;
 };
 
 export type SavedSearch = {
@@ -37,18 +41,23 @@ export type SavedSearch = {
 };
 
 export type PersistedVault = {
+  schemaVersion: 2;
   tabs: VaultTab[];
   vaultGroups: VaultGroup[];
   tagCatalog: Record<string, string>;
-  tabOrders: Record<GroupId, string[]>;
+  tabOrders: Record<string, string[]>;
   savedSearches?: SavedSearch[];
   tabView?: LibraryViewMode;
+  tombstones?: {
+    tabs: string[];
+    groups: string[];
+  };
 };
 
 export type UndoSnapshot = {
   id: string;
   label: string;
   tabs: VaultTab[];
-  tabOrders: Record<GroupId, string[]>;
+  tabOrders: Record<string, string[]>;
   tagCatalog: Record<string, string>;
 };

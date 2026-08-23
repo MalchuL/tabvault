@@ -4,14 +4,21 @@
  */
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Route, Router, Switch, type BaseLocationHook } from "wouter";
 import { useBrowserLocation } from "wouter/use-browser-location";
 import { useHashLocation } from "wouter/use-hash-location";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import {
+  clearBrowserLibrary,
+  inspectBrowserVault,
+  type BrowserVaultInspection,
+} from "./lib/extension";
+import { StorageRecovery } from "./pages/StorageRecovery";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Deduplicator = lazy(() => import("./pages/Deduplicator"));
 const Home = lazy(() => import("./pages/Home"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Settings = lazy(() => import("./pages/Settings"));
@@ -33,9 +40,11 @@ function AppRoutes() {
       <Route path="/" component={Home} />
       <Route path="/all-tabs" component={Home} />
       <Route path="/archive" component={Home} />
+      <Route path="/hidden" component={Home} />
       <Route path="/collections" component={Home} />
       <Route path="/collections/:id" component={Home} />
       <Route path="/dashboard" component={Dashboard} />
+      <Route path="/deduplicate" component={Deduplicator} />
       <Route path="/settings" component={Settings} />
       <Route path="/transfer" component={Transfer} />
       <Route path="/404" component={NotFound} />
@@ -44,29 +53,56 @@ function AppRoutes() {
   );
 }
 
+function BrowserSchemaGate({ children }: { children: ReactNode }) {
+  const [inspection, setInspection] = useState<BrowserVaultInspection>();
+  useEffect(() => {
+    void inspectBrowserVault().then(setInspection);
+  }, []);
+  if (!inspection)
+    return (
+      <main className="min-h-screen bg-[#f6f3ec] p-8">
+        Checking browser library…
+      </main>
+    );
+  if (inspection.status === "incompatible")
+    return (
+      <StorageRecovery
+        raw={inspection.raw}
+        storageKey={inspection.storageKey}
+        onClear={async () => {
+          await clearBrowserLibrary();
+          setInspection(await inspectBrowserVault());
+        }}
+      />
+    );
+  return children;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <Toaster position="bottom-right" richColors />
-          <Suspense
-            fallback={
-              <main className="min-h-screen bg-[#f6f3ec] p-8 font-mono text-[10px] uppercase tracking-[0.12em] text-[#687067]">
-                Opening library…
-              </main>
-            }
-          >
-            <Router
-              hook={
-                isExtensionPage()
-                  ? useHashLocation
-                  : useNormalizedBrowserLocation
+          <BrowserSchemaGate>
+            <Suspense
+              fallback={
+                <main className="min-h-screen bg-[#f6f3ec] p-8 font-mono text-[10px] uppercase tracking-[0.12em] text-[#687067]">
+                  Opening library…
+                </main>
               }
             >
-              <AppRoutes />
-            </Router>
-          </Suspense>
+              <Router
+                hook={
+                  isExtensionPage()
+                    ? useHashLocation
+                    : useNormalizedBrowserLocation
+                }
+              >
+                <AppRoutes />
+              </Router>
+            </Suspense>
+          </BrowserSchemaGate>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

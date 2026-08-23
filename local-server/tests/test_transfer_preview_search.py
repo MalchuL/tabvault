@@ -20,9 +20,9 @@ def test_import_validate_export_replace_backup_and_clear(
     client: TestClient, headers: dict[str, str]
 ) -> None:
     document = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "tags": [{"name": "docs", "description": "Documentation"}],
-        "groups": [{"id": "group-1", "name": "Docs", "parentId": None, "position": 0}],
+        "groups": [{"id": "group-1", "name": "Docs", "category": "manual", "position": 0}],
         "tabs": [
             {
                 "id": "tab-1",
@@ -40,6 +40,8 @@ def test_import_validate_export_replace_backup_and_clear(
     imported = client.post("/api/v1/import?mode=upload", headers=headers, json=document)
     assert imported.status_code == 200
     exported = client.get("/api/v1/export?format=json", headers=headers)
+    assert exported.json()["schemaVersion"] == 2
+    assert exported.json()["groups"][0]["category"] == "manual"
     assert exported.json()["tabs"][0]["groupId"] == "group-1"
     markdown = client.get("/api/v1/export?format=markdown", headers=headers)
     assert "[Docs](https://example.com/docs)" in markdown.text
@@ -54,8 +56,8 @@ def test_import_validate_export_replace_backup_and_clear(
 def test_document_validation_and_markdown_parser_collect_errors() -> None:
     errors, _ = validate_document(
         {
-            "schemaVersion": 1,
-            "groups": [{"id": "g", "name": "G", "parentId": "missing"}],
+            "schemaVersion": 2,
+            "groups": [{"id": "g", "name": "G", "category": "session"}],
             "tags": [],
             "tabs": [{"id": "t", "url": "bad", "title": "", "groupId": "missing"}],
         }
@@ -72,19 +74,16 @@ def test_document_validation_and_markdown_parser_collect_errors() -> None:
     assert document and document["tabs"][0]["tags"] == ["docs"]
 
 
-def test_document_validation_exercises_duplicate_cycle_and_shape_errors() -> None:
+def test_document_validation_exercises_duplicate_and_shape_errors() -> None:
     assert validate_document(["not", "an", "object"])[0][0].code == "E_INVALID_DOCUMENT"
     document = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "tags": [{"name": "known"}, "bad-tag"],
         "groups": [
             "bad-group",
-            {"id": "a", "name": "A", "parentId": "b"},
-            {"id": "b", "name": "B", "parentId": "a"},
-            {"id": "a", "name": "Duplicate"},
-            {"id": "c", "name": "C", "parentId": "d"},
-            {"id": "d", "name": "D", "parentId": "c"},
-            {"id": "", "name": ""},
+            {"id": "a", "name": "A", "category": "manual"},
+            {"id": "a", "name": "Duplicate", "category": "custom"},
+            {"id": "", "name": "", "category": ""},
         ],
         "tabs": [
             "bad-tab",
@@ -102,12 +101,11 @@ def test_document_validation_exercises_duplicate_cycle_and_shape_errors() -> Non
     assert {
         "E_INVALID_OBJECT",
         "E_DUPLICATE_ID",
-        "E_CYCLIC_GROUP_REFERENCE",
         "E_INVALID_TAGS",
     } <= codes
     assert warnings[0].code == "W_ORPHAN_TAG"
     parsed, markdown_errors = markdown_import(
-        "## Inbox\n- [One](https://example.com)\n  id: fixed\n  note: hello\ninvalid"
+        "## [Unassigned]\n- [One](https://example.com)\n  id: fixed\n  note: hello\ninvalid"
     )
     assert parsed is None
     assert markdown_errors[0].code == "E_MARKDOWN_PARSE_ERROR"
@@ -166,9 +164,8 @@ async def test_preview_sanitizes_rewrites_and_stores_assets(tmp_path: Path) -> N
     async with factory() as db:
         tab = Tab(
             url="https://example.com/article",
-            normalized_url="https://example.com/article",
             title="https://example.com/article",
-            note=None,
+            note="",
             group_id=None,
             position=0,
             archived=False,

@@ -10,12 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
+from domain.tabs.visibility import exportable_tabs, visible_tabs
 from models import (
     Asset,
     Backup,
     Group,
     HealthSchedule,
-    IdempotencyRecord,
     Job,
     Preview,
     Tab,
@@ -31,22 +31,18 @@ class SystemRepository:
         """Initialize the repository with a request-scoped session."""
         self.session = session
 
-    async def health_counts(self) -> tuple[int, int, int]:
-        """Count active tabs, active groups, and tags."""
+    async def health_counts(self, now: datetime) -> tuple[int, int, int]:
+        """Count visible active tabs, Groups, and tags."""
         tabs = int(
-            await self.session.scalar(select(func.count(Tab.id)).where(Tab.archived.is_(False)))
-            or 0
+            await self.session.scalar(select(func.count(Tab.id)).where(visible_tabs(now))) or 0
         )
-        groups = int(
-            await self.session.scalar(select(func.count(Group.id)).where(Group.archived.is_(False)))
-            or 0
-        )
+        groups = int(await self.session.scalar(select(func.count(Group.id))) or 0)
         tags = int(await self.session.scalar(select(func.count(Tag.name))) or 0)
         return tabs, groups, tags
 
-    async def search_tabs(self, group_id: str | None, tags: list[str]) -> list[Tab]:
-        """Load active tabs matching search filters."""
-        filters: list[ColumnElement[bool]] = [Tab.archived.is_(False)]
+    async def search_tabs(self, group_id: str | None, tags: list[str], now: datetime) -> list[Tab]:
+        """Load visible active tabs matching search filters."""
+        filters: list[ColumnElement[bool]] = [visible_tabs(now)]
         if group_id:
             filters.append(Tab.group_id == group_id)
         for tag in tags:
@@ -117,9 +113,9 @@ class SystemRepository:
         """Load a tab by ID."""
         return await self.session.get(Tab, tab_id)
 
-    async def active_tabs(self) -> list[Tab]:
-        """List active tabs for vector indexing."""
-        return list((await self.session.scalars(select(Tab).where(Tab.archived.is_(False)))).all())
+    async def active_tabs(self, now: datetime) -> list[Tab]:
+        """List visible active tabs for vector indexing."""
+        return list((await self.session.scalars(select(Tab).where(visible_tabs(now)))).all())
 
     async def get_preview(self, tab_id: str) -> Preview | None:
         """Load preview state for a tab."""
@@ -173,19 +169,20 @@ class SystemRepository:
         await self.session.flush()
         return backup
 
-    async def transfer_rows(self) -> tuple[list[Tag], list[Group], list[Tab]]:
-        """Load the complete library in deterministic export order."""
+    async def transfer_rows(
+        self, *, include_hidden: bool = True, now: datetime | None = None
+    ) -> tuple[list[Tag], list[Group], list[Tab]]:
+        """Load deterministic transfer rows, optionally omitting active hidden tabs."""
         tags = list((await self.session.scalars(select(Tag).order_by(func.lower(Tag.name)))).all())
         groups = list(
             (await self.session.scalars(select(Group).order_by(Group.position, Group.id))).all()
         )
-        tabs = list(
-            (
-                await self.session.scalars(
-                    select(Tab).options(selectinload(Tab.tags)).order_by(Tab.position, Tab.id)
-                )
-            ).unique()
-        )
+        tab_query = select(Tab).options(selectinload(Tab.tags)).order_by(Tab.position, Tab.id)
+        if not include_hidden:
+            if now is None:
+                raise ValueError("now is required when hidden tabs are excluded")
+            tab_query = tab_query.where(exportable_tabs(now))
+        tabs = list((await self.session.scalars(tab_query)).unique())
         return tags, groups, tabs
 
     async def current_ids(self) -> tuple[set[str], set[str], set[str]]:
@@ -228,18 +225,6 @@ class SystemRepository:
             ),
         )
 
-    async def find_tab_url(self, normalized_url: str) -> Tab | None:
-        """Find the oldest tab matching a normalized URL."""
-        return cast(
-            Tab | None,
-            await self.session.scalar(
-                select(Tab)
-                .where(Tab.normalized_url == normalized_url)
-                .order_by(Tab.created_at, Tab.id)
-                .options(selectinload(Tab.tags))
-            ),
-        )
-
     async def resolve_tags(self, names: list[str]) -> list[Tag]:
         """Load or create case-insensitive tags for an imported tab."""
         result: list[Tag] = []
@@ -272,17 +257,3 @@ class SystemRepository:
                 )
             )
         )
-
-    async def purge_idempotency(self, now: datetime) -> None:
-        """Delete expired idempotency records."""
-        await self.session.execute(
-            delete(IdempotencyRecord).where(IdempotencyRecord.expires_at < now)
-        )
-
-    async def get_idempotency(self, key: str) -> IdempotencyRecord | None:
-        """Load an idempotency record by key."""
-        return await self.session.get(IdempotencyRecord, key)
-
-    async def save_idempotency(self, record: IdempotencyRecord) -> None:
-        """Persist an idempotency record."""
-        self.session.add(record)

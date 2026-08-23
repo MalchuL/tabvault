@@ -155,11 +155,10 @@ async def export_data(
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
     format: TransferFormat,
     scope: str = "all",
-    include_subgroups: bool = Query(True, alias="includeSubgroups"),
     fields: ExportFields = "full",
 ) -> Response:
     """Export the library as portable JSON or Markdown."""
-    result = await transfer.export(format, scope, include_subgroups, fields)
+    result = await transfer.export(format, scope, fields)
     filename = f"tabvault-export-{datetime.now(UTC).date()}.{format if format == 'json' else 'md'}"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return (
@@ -170,6 +169,14 @@ async def export_data(
         if format == "json"
         else PlainTextResponse(str(result.content), media_type=result.media_type, headers=headers)
     )
+
+
+@router.get("/sync")
+async def sync_document(
+    transfer: Annotated[TransferService, Depends(get_transfer_service)],
+) -> JSONResponse:
+    """Return the complete schema-v2 document for trusted browser synchronization."""
+    return JSONResponse(json_data(await transfer.document()))
 
 
 async def _import_body(request: Request) -> tuple[object, TransferFormat]:

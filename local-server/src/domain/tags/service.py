@@ -2,6 +2,8 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.time import utc_now
+
 from .dto import TagDeleteResultDTO, TagDTO, TagUpsertDTO
 from .error import TagInUseError, TagNotFoundError
 from .mapper import TagMapper
@@ -21,7 +23,7 @@ class TagService:
         """List tags with usage counts."""
         return [
             self.mapper.to_dto(tag, count)
-            for tag, count in await self.repository.list_with_counts()
+            for tag, count in await self.repository.list_with_counts(utc_now())
         ]
 
     async def upsert(self, name: str, dto: TagUpsertDTO) -> TagDTO:
@@ -33,7 +35,9 @@ class TagService:
         else:
             await self.repository.save(tag, self.mapper.to_update_dict(dto))
         await self.db.commit()
-        return self.mapper.to_dto(tag, await self.repository.count_tabs(tag.name))
+        return self.mapper.to_dto(
+            tag, await self.repository.count_visible_tabs(tag.name, utc_now())
+        )
 
     async def delete(self, name: str, detach: bool) -> TagDeleteResultDTO:
         """Delete a tag, optionally detaching it from tabs."""
@@ -49,7 +53,7 @@ class TagService:
 
     async def markdown(self) -> str:
         """Render the tag catalog as Markdown."""
-        rows = await self.repository.list_with_counts()
+        rows = await self.repository.list_with_counts(utc_now())
         lines = ["# Tags", ""]
         lines.extend(
             f"- **{tag.name}** — {tag.description or '_(без описания)_'}" for tag, _ in rows

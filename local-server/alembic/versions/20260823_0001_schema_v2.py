@@ -1,19 +1,19 @@
-"""Initial relational TabVault schema."""
+"""Create the fresh schema-v2 database."""
 
 from alembic import op
 from models import Base
 
-revision = "20260821_0001"
+revision = "20260823_0001"
 down_revision = None
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    """Create the initial relational TabVault schema."""
+    """Create every schema-v2 table."""
     Base.metadata.create_all(bind=op.get_bind())
 
 
 def downgrade() -> None:
-    """Drop the initial relational TabVault schema."""
+    """Drop every schema-v2 table."""
     Base.metadata.drop_all(bind=op.get_bind())

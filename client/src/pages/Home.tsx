@@ -24,8 +24,10 @@ import {
   checkLocalServer,
   configureExtensionHealthAlerts,
   configureIndexHealthCheck,
+  createGroupOnLocalServer,
   DEFAULT_TABVAULT_API_KEY,
   DEFAULT_TABVAULT_SERVER_URL,
+  deleteGroupOnLocalServer,
   deleteTabOnLocalServer,
   getActiveChromeTab,
   getSemanticIndexStatus,
@@ -38,7 +40,6 @@ import {
   readSyncStatus,
   rebuildSemanticIndex,
   refreshLibraryFromServer,
-  restoreTabsOnLocalServer,
   runIndexHealthCheck,
   saveTabToLocalServer,
   searchLocalServer,
@@ -52,7 +53,7 @@ import {
   type StorageMode,
   type SyncStatus,
 } from "@/lib/extension";
-import { fromServerDocument, toServerDocument } from "@/lib/library";
+import { orderKey } from "@/lib/library";
 import { TabDragPreview, TabList } from "@/components/TabList";
 import { ContextHelp } from "@/components/ContextHelp";
 import { CollectionBoard } from "@/domain/library/components/CollectionBoard";
@@ -79,12 +80,12 @@ import type {
   VaultGroup,
   VaultTab,
 } from "@/domain/library/types";
-import { canonicalizeTabUrl } from "@/lib/url";
+import { buildQuickCleanPlan } from "@/domain/deduplication/model";
 import {
-  BrowserStorageAdapter,
-  HybridStorageAdapter,
-  ServerStorageAdapter,
-} from "@/lib/persistence";
+  executeDedupePlan,
+  type DedupeMutation,
+} from "@/domain/deduplication/execution";
+import { BrowserStorageAdapter } from "@/lib/persistence";
 import {
   Archive,
   ArrowDownToLine,
@@ -108,6 +109,14 @@ import {
 import { toast } from "sonner";
 
 const logoUrl = "/icon-128.png";
+
+function isCurrentlyHidden(tab: VaultTab, now = Date.now()) {
+  return (
+    !tab.archived &&
+    Boolean(tab.hiddenUntil) &&
+    Date.parse(tab.hiddenUntil ?? "") > now
+  );
+}
 
 function BrandMark({ className = "h-8 w-8" }: { className?: string }) {
   return (
@@ -161,11 +170,14 @@ export default function Home() {
   const [tabs, setTabs] = useState(startingTabs);
   const [activeDragId, setActiveDragId] = useState<string>();
   const [activeDragHeight, setActiveDragHeight] = useState<number>();
-  const [tabOrders, setTabOrders] = useState<Record<GroupId, string[]>>(() =>
-    startingTabs.reduce<Record<GroupId, string[]>>(
+  const [tabOrders, setTabOrders] = useState<Record<string, string[]>>(() =>
+    startingTabs.reduce<Record<string, string[]>>(
       (orders, tab) => ({
         ...orders,
-        [tab.groupId]: [...(orders[tab.groupId] ?? []), tab.id],
+        [orderKey(tab.groupId)]: [
+          ...(orders[orderKey(tab.groupId)] ?? []),
+          tab.id,
+        ],
       }),
       {}
     )
@@ -231,13 +243,19 @@ export default function Home() {
   );
   const [storageReady, setStorageReady] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(0);
+  const [visibilityNow, setVisibilityNow] = useState(() => Date.now());
   const [isRefreshingLibrary, setIsRefreshingLibrary] = useState(false);
+  const [isQuickCleaning, setIsQuickCleaning] = useState(false);
   const libraryRefreshInFlight = useRef(false);
   const vaultRef = useRef<PersistedVault | null>(null);
+  const tombstonesRef = useRef({
+    tabs: [] as string[],
+    groups: [] as string[],
+  });
   const dragSnapshotRef = useRef<
     | {
         tabs: VaultTab[];
-        tabOrders: Record<GroupId, string[]>;
+        tabOrders: Record<string, string[]>;
       }
     | undefined
   >(undefined);
@@ -248,31 +266,21 @@ export default function Home() {
     (options?: { silent?: boolean }) => Promise<void>
   >(async () => undefined);
 
-  const descendantCollectionIds = (id: GroupId) => {
-    const ids = new Set<GroupId>([id]);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      vaultGroups.forEach(group => {
-        if (group.parent && ids.has(group.parent) && !ids.has(group.id)) {
-          ids.add(group.id);
-          changed = true;
-        }
-      });
-    }
-    return ids;
-  };
+  const descendantCollectionIds = (id: GroupId) => new Set<GroupId>([id]);
 
   const currentVault = (): PersistedVault => ({
+    schemaVersion: 2,
     tabs,
     vaultGroups,
     tagCatalog,
     tabOrders,
     savedSearches,
     tabView,
+    tombstones: tombstonesRef.current,
   });
 
   const applyVault = (vault: PersistedVault) => {
+    tombstonesRef.current = vault.tombstones ?? { tabs: [], groups: [] };
     setTabs(vault.tabs);
     setVaultGroups(vault.vaultGroups);
     setTagCatalog(vault.tagCatalog);
@@ -291,31 +299,61 @@ export default function Home() {
             vaultGroups.findIndex(group => group.id === b.groupId)
           );
         return (
-          (tabOrders[a.groupId] ?? []).indexOf(a.id) -
-          (tabOrders[b.groupId] ?? []).indexOf(b.id)
+          (tabOrders[orderKey(a.groupId)] ?? []).indexOf(a.id) -
+          (tabOrders[orderKey(b.groupId)] ?? []).indexOf(b.id)
         );
       }),
     [tabOrders, vaultGroups]
   );
 
-  const isAllTabsPage = !location.startsWith("/archive");
   const isArchivePage = location === "/archive";
-  const workspaceLabel = isArchivePage ? "Archive" : "All Tabs";
-  const isGroupBoard = tabView === "groups" && !isArchivePage && !query;
-  const activeTabs = useMemo(() => tabs.filter(tab => !tab.archived), [tabs]);
+  const isHiddenPage = location === "/hidden";
+  const isAllTabsPage = !isArchivePage && !isHiddenPage;
+  const workspaceLabel = isArchivePage
+    ? "Archive"
+    : isHiddenPage
+      ? "Hidden"
+      : "All Tabs";
+  const isGroupBoard =
+    tabView === "groups" && !isArchivePage && !isHiddenPage && !query;
+  const activeTabs = useMemo(
+    () =>
+      tabs.filter(
+        tab => !tab.archived && !isCurrentlyHidden(tab, visibilityNow)
+      ),
+    [tabs, visibilityNow]
+  );
+  const hiddenTabs = useMemo(
+    () => tabs.filter(tab => isCurrentlyHidden(tab, visibilityNow)),
+    [tabs, visibilityNow]
+  );
   const archivedTabs = useMemo(() => tabs.filter(tab => tab.archived), [tabs]);
   const selectedGroupTabs = sortByStoredOrder(
     isArchivePage
       ? archivedTabs
-      : activeTabs.filter(
+      : (isHiddenPage ? hiddenTabs : activeTabs).filter(
           tab =>
             searchGroupFilter === "all" ||
-            descendantCollectionIds(searchGroupFilter).has(tab.groupId)
+            (tab.groupId !== null &&
+              descendantCollectionIds(searchGroupFilter).has(tab.groupId))
         )
   );
+  const pageTabs = isArchivePage
+    ? archivedTabs
+    : isHiddenPage
+      ? hiddenTabs
+      : activeTabs;
   const visibleGroupIds =
     searchGroupFilter === "all"
-      ? new Set(vaultGroups.map(group => group.id))
+      ? new Set(
+          vaultGroups
+            .filter(group => {
+              const members = tabs.filter(tab => tab.groupId === group.id);
+              if (!members.length) return !isHiddenPage && !isArchivePage;
+              return pageTabs.some(tab => tab.groupId === group.id);
+            })
+            .map(group => group.id)
+        )
       : descendantCollectionIds(searchGroupFilter);
   const semanticScores = useMemo(
     () =>
@@ -334,7 +372,7 @@ export default function Home() {
         const groupId =
           tab.groupId && vaultGroups.some(group => group.id === tab.groupId)
             ? tab.groupId
-            : "inbox";
+            : null;
         return {
           id: tab.id,
           groupId,
@@ -347,12 +385,13 @@ export default function Home() {
           tags: tab.tags ?? [],
           color: "#6b8c7e",
           icon: tab.title.slice(0, 1).toUpperCase() || "T",
-          updated: tab.updatedAt ?? new Date().toISOString(),
+          createdAt: tab.updatedAt ?? new Date().toISOString(),
+          updatedAt: tab.updatedAt ?? new Date().toISOString(),
         };
       });
     }
     return sortByStoredOrder(
-      (isArchivePage ? archivedTabs : activeTabs).filter(
+      pageTabs.filter(
         tab =>
           (searchGroupFilter === "all" || tab.groupId === searchGroupFilter) &&
           [tab.title, tab.note, tab.agentReview, tab.domain, ...tab.tags]
@@ -363,10 +402,9 @@ export default function Home() {
     );
   }, [
     activeTabs,
-    archivedTabs,
-    isArchivePage,
     selectedGroupTabs,
     query,
+    pageTabs,
     vaultGroups,
     remoteSearch,
     searchGroupFilter,
@@ -380,6 +418,20 @@ export default function Home() {
     setShowMobileRail(false);
     setLocation("/");
   };
+
+  useEffect(() => {
+    const nextDeadline = tabs
+      .filter(tab => !tab.archived && isCurrentlyHidden(tab, visibilityNow))
+      .map(tab => Date.parse(tab.hiddenUntil ?? ""))
+      .filter(deadline => Number.isFinite(deadline))
+      .sort((left, right) => left - right)[0];
+    if (!nextDeadline) return;
+    const timer = window.setTimeout(
+      () => setVisibilityNow(Date.now()),
+      Math.min(60_000, Math.max(0, nextDeadline - Date.now()) + 25)
+    );
+    return () => window.clearTimeout(timer);
+  }, [tabs, visibilityNow]);
 
   useEffect(() => {
     if (location.startsWith("/collections") || location === "/all-tabs") {
@@ -424,6 +476,10 @@ export default function Home() {
           setTabOrders(saved.tabOrders);
           setSavedSearches(saved.savedSearches ?? []);
           setTabView(saved.tabView ?? "standard");
+          tombstonesRef.current = saved.tombstones ?? {
+            tabs: [],
+            groups: [],
+          };
         }
         setSyncStatus(savedSyncStatus);
         setStorageMode(savedStorageMode);
@@ -441,34 +497,19 @@ export default function Home() {
   useEffect(() => {
     if (!storageReady || activeDragId) return;
     const browser = new BrowserStorageAdapter<PersistedVault>();
-    const server =
-      storageMode === "backend" && serverOnline
-        ? new ServerStorageAdapter<Record<string, unknown>>(
-            localServerUrl,
-            serverApiKey
-          )
-        : null;
     const fallback: PersistedVault = {
+      schemaVersion: 2,
       tabs,
       vaultGroups,
       tagCatalog,
       tabOrders,
       savedSearches,
       tabView,
+      tombstones: tombstonesRef.current,
     };
-    const adapter = new HybridStorageAdapter(
-      browser,
-      server,
-      toServerDocument,
-      document => fromServerDocument(document, fallback),
-      storageMode === "backend"
-    );
-    void adapter
-      .saveWithStatus(fallback)
-      .then(status => setSyncStatus(status))
-      .catch(() => {
-        toast.error("Could not write the local library");
-      });
+    void browser.save(fallback).catch(() => {
+      toast.error("Could not write the local library");
+    });
   }, [
     storageReady,
     tabs,
@@ -477,10 +518,6 @@ export default function Home() {
     tabOrders,
     savedSearches,
     tabView,
-    serverOnline,
-    storageMode,
-    localServerUrl,
-    serverApiKey,
     activeDragId,
   ]);
 
@@ -569,7 +606,12 @@ export default function Home() {
       setIsRemoteSearching(false);
       return;
     }
-    if (storageMode !== "backend" || !serverOnline) {
+    if (
+      isArchivePage ||
+      isHiddenPage ||
+      storageMode !== "backend" ||
+      !serverOnline
+    ) {
       setRemoteSearch(null);
       setRemoteSearchError(
         extensionContext
@@ -617,6 +659,8 @@ export default function Home() {
     localServerUrl,
     searchGroupFilter,
     serverApiKey,
+    isArchivePage,
+    isHiddenPage,
   ]);
 
   useEffect(() => {
@@ -694,12 +738,14 @@ export default function Home() {
       setServerOnline(health.status === "ok");
       setSemanticIndexStatus(health.semanticIndex ?? null);
       const fallback: PersistedVault = {
+        schemaVersion: 2,
         tabs,
         vaultGroups,
         tagCatalog,
         tabOrders,
         savedSearches,
         tabView,
+        tombstones: tombstonesRef.current,
       };
       const { vault: hydrated } = await refreshLibraryFromServer(
         normalizedUrl,
@@ -839,22 +885,28 @@ export default function Home() {
     setTabOrders(undoSnapshot.tabOrders);
     setTagCatalog(undoSnapshot.tagCatalog);
     setSelectedResultIds(new Set());
-    if (extensionContext && serverOnline) {
-      await restoreTabsOnLocalServer(
-        localServerUrl,
-        undoSnapshot.tabs.map(tab => ({
-          id: tab.id,
-          url: tab.url,
-          title: tab.title,
-          note: tab.note,
-          agentReview: tab.agentReview,
-          viewed: tab.viewed,
-          tags: tab.tags,
-          groupId: tab.groupId,
-          updatedAt: tab.updated,
-        })) as never,
-        serverApiKey
-      ).catch(() => toast.error("The server could not restore every tab"));
+    if (storageMode === "backend" && serverOnline) {
+      const results = await Promise.allSettled(
+        undoSnapshot.tabs.map(tab =>
+          updateTabOnLocalServer(
+            localServerUrl,
+            tab.id,
+            {
+              url: tab.url,
+              title: tab.title,
+              note: tab.note,
+              agentReview: tab.agentReview,
+              viewed: tab.viewed,
+              tags: tab.tags,
+              groupId: tab.groupId,
+              archived: Boolean(tab.archived),
+            },
+            serverApiKey
+          )
+        )
+      );
+      if (results.some(result => result.status === "rejected"))
+        toast.error("The server could not restore every tab");
     }
     setUndoSnapshot(null);
     toast.success(`Undid ${undoSnapshot.label}`);
@@ -897,7 +949,7 @@ export default function Home() {
     setTabs(current =>
       current.map(tab =>
         selectedIds.has(tab.id)
-          ? { ...tab, groupId, updated: new Date().toISOString() }
+          ? { ...tab, groupId, updatedAt: new Date().toISOString() }
           : tab
       )
     );
@@ -916,7 +968,7 @@ export default function Home() {
         ],
       };
     });
-    if (extensionContext && serverOnline)
+    if (storageMode === "backend" && serverOnline)
       await Promise.allSettled(
         selectedTabs.map(tab =>
           updateTabOnLocalServer(
@@ -945,7 +997,7 @@ export default function Home() {
           ? {
               ...tab,
               tags: Array.from(new Set([...tab.tags, tag])),
-              updated: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
             }
           : tab
       )
@@ -954,7 +1006,7 @@ export default function Home() {
       ...current,
       [tag]: current[tag] ?? "Applied from ranked search",
     }));
-    if (extensionContext && serverOnline)
+    if (storageMode === "backend" && serverOnline)
       await Promise.allSettled(
         selectedTabs.map(tab =>
           updateTabOnLocalServer(
@@ -983,9 +1035,10 @@ export default function Home() {
         removedIds.has(tab.id)
           ? {
               ...tab,
+              groupId: null,
               archived: true,
               archivedAt,
-              updated: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
             }
           : tab
       )
@@ -1005,7 +1058,7 @@ export default function Home() {
           updateTabOnLocalServer(
             localServerUrl,
             tab.id,
-            { archived: true, archivedAt },
+            { archived: true, groupId: null },
             serverApiKey
           )
         )
@@ -1018,6 +1071,10 @@ export default function Home() {
 
   const deleteTab = async (tab: VaultTab) => {
     if (isArchivePage) {
+      tombstonesRef.current = {
+        ...tombstonesRef.current,
+        tabs: Array.from(new Set([...tombstonesRef.current.tabs, tab.id])),
+      };
       setTabs(current => current.filter(item => item.id !== tab.id));
       setTabOrders(
         current =>
@@ -1029,7 +1086,12 @@ export default function Home() {
           ) as Record<GroupId, string[]>
       );
       if (storageMode === "backend" && serverOnline) {
-        await deleteTabOnLocalServer(localServerUrl, tab.id, serverApiKey);
+        await deleteTabOnLocalServer(
+          localServerUrl,
+          tab.id,
+          serverApiKey,
+          true
+        );
       }
       setTabPendingDelete(null);
       toast.success(`Permanently deleted “${tab.title}”`);
@@ -1042,9 +1104,10 @@ export default function Home() {
         item.id === tab.id
           ? {
               ...item,
+              groupId: null,
               archived: true,
               archivedAt,
-              updated: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
             }
           : item
       )
@@ -1067,12 +1130,231 @@ export default function Home() {
       await updateTabOnLocalServer(
         localServerUrl,
         tab.id,
-        { archived: true, archivedAt },
+        { archived: true, groupId: null },
         serverApiKey
       );
     }
     setTabPendingDelete(null);
     toast.success(`Archived “${tab.title}”`);
+  };
+
+  const patchTabVisibility = (
+    tab: VaultTab,
+    changes: Pick<VaultTab, "hiddenUntil" | "archived" | "archivedAt"> &
+      Partial<Pick<VaultTab, "groupId">>,
+    message: string
+  ) => {
+    setTabs(current =>
+      current.map(item =>
+        item.id === tab.id
+          ? { ...item, ...changes, updatedAt: new Date().toISOString() }
+          : item
+      )
+    );
+    if (storageMode === "backend" && serverOnline) {
+      const updates: Record<string, unknown> = {};
+      if ("hiddenUntil" in changes) updates.hiddenUntil = changes.hiddenUntil;
+      if ("archived" in changes) updates.archived = changes.archived;
+      if ("groupId" in changes) updates.groupId = changes.groupId;
+      void updateTabOnLocalServer(
+        localServerUrl,
+        tab.id,
+        updates,
+        serverApiKey
+      ).catch(() => setServerOnline(false));
+    }
+    toast.success(message);
+  };
+
+  const hideTabFor = (tab: VaultTab, durationMs: number) =>
+    patchTabVisibility(
+      tab,
+      {
+        hiddenUntil: new Date(Date.now() + durationMs).toISOString(),
+        archived: Boolean(tab.archived),
+        archivedAt: tab.archivedAt,
+      },
+      `Hidden “${tab.title}”`
+    );
+
+  const prolongTabFor = (tab: VaultTab, durationMs: number) => {
+    const currentDeadline = Date.parse(tab.hiddenUntil ?? "");
+    const base = Number.isFinite(currentDeadline)
+      ? Math.max(Date.now(), currentDeadline)
+      : Date.now();
+    patchTabVisibility(
+      tab,
+      {
+        hiddenUntil: new Date(base + durationMs).toISOString(),
+        archived: Boolean(tab.archived),
+        archivedAt: tab.archivedAt,
+      },
+      `Prolonged “${tab.title}”`
+    );
+  };
+
+  const unhideTab = (tab: VaultTab) =>
+    patchTabVisibility(
+      tab,
+      {
+        hiddenUntil: null,
+        archived: Boolean(tab.archived),
+        archivedAt: tab.archivedAt,
+      },
+      `Unhidden “${tab.title}”`
+    );
+
+  const restoreTab = (tab: VaultTab) => {
+    patchTabVisibility(
+      tab,
+      {
+        groupId: null,
+        archived: false,
+        archivedAt: null,
+        hiddenUntil: tab.hiddenUntil,
+      },
+      `Restored “${tab.title}”`
+    );
+    setTabOrders(current => ({
+      ...current,
+      unassigned: [
+        tab.id,
+        ...(current.unassigned ?? []).filter(id => id !== tab.id),
+      ],
+    }));
+  };
+
+  const changeGroupVisibility = async (
+    groupId: string,
+    action: "hide" | "unhide" | "prolong",
+    durationMs = 0
+  ) => {
+    const members = tabs.filter(
+      tab =>
+        !tab.archived &&
+        (groupId === "unassigned"
+          ? tab.groupId === null
+          : tab.groupId === groupId)
+    );
+    const updates = members.map(tab => {
+      if (action === "unhide") return { tab, hiddenUntil: null };
+      const currentDeadline = Date.parse(tab.hiddenUntil ?? "");
+      const base =
+        action === "prolong" && Number.isFinite(currentDeadline)
+          ? Math.max(Date.now(), currentDeadline)
+          : Date.now();
+      return {
+        tab,
+        hiddenUntil: new Date(base + durationMs).toISOString(),
+      };
+    });
+    setTabs(current =>
+      current.map(tab => {
+        const update = updates.find(item => item.tab.id === tab.id);
+        return update
+          ? {
+              ...tab,
+              hiddenUntil: update.hiddenUntil,
+              updatedAt: new Date().toISOString(),
+            }
+          : tab;
+      })
+    );
+    let failures = 0;
+    if (storageMode === "backend" && serverOnline) {
+      const results = await Promise.allSettled(
+        updates.map(({ tab, hiddenUntil }) =>
+          updateTabOnLocalServer(
+            localServerUrl,
+            tab.id,
+            { hiddenUntil },
+            serverApiKey
+          )
+        )
+      );
+      failures = results.filter(result => result.status === "rejected").length;
+      if (failures) setServerOnline(false);
+    }
+    const completed = updates.length - failures;
+    if (failures)
+      toast.error(`${completed} updated, ${failures} failed`, {
+        description: "The group action used one request per Saved Tab.",
+      });
+    else
+      toast.success(
+        `${updates.length} tab${updates.length === 1 ? "" : "s"} updated`
+      );
+  };
+
+  const applyDedupeMutation = (mutation: DedupeMutation) => {
+    const now = new Date().toISOString();
+    setTabs(
+      current =>
+        current.map(tab =>
+          tab.id === mutation.id
+            ? mutation.role === "duplicate"
+              ? {
+                  ...tab,
+                  groupId: null,
+                  archived: true,
+                  archivedAt: now,
+                  updatedAt: now,
+                }
+              : { ...tab, ...mutation.updates, updatedAt: now }
+            : tab
+        ) as VaultTab[]
+    );
+    if (mutation.role === "duplicate")
+      setTabOrders(
+        current =>
+          Object.fromEntries(
+            Object.entries(current).map(([groupId, ids]) => [
+              groupId,
+              ids.filter(id => id !== mutation.id),
+            ])
+          ) as Record<string, string[]>
+      );
+  };
+
+  const quickClean = async () => {
+    setIsQuickCleaning(true);
+    try {
+      const plan = await buildQuickCleanPlan(activeTabs);
+      if (!plan.clusters.length) {
+        toast("No exact duplicate records found");
+        return;
+      }
+      const duplicateCount = plan.clusters.reduce(
+        (count, cluster) => count + cluster.duplicateIds.length,
+        0
+      );
+      if (
+        !window.confirm(
+          `Quick Clean will archive ${duplicateCount} duplicate Saved Tab${duplicateCount === 1 ? "" : "s"}. Continue?`
+        )
+      )
+        return;
+      const result = await executeDedupePlan(
+        plan,
+        async mutation => {
+          if (storageMode === "backend" && serverOnline)
+            await updateTabOnLocalServer(
+              localServerUrl,
+              mutation.id,
+              mutation.updates,
+              serverApiKey
+            );
+        },
+        applyDedupeMutation
+      );
+      if (result.failed)
+        toast.error(
+          `${result.succeeded} changes saved, ${result.failed} failed`
+        );
+      else toast.success(`Archived ${duplicateCount} duplicate occurrence(s)`);
+    } finally {
+      setIsQuickCleaning(false);
+    }
   };
 
   const handleSearchKeyDown = (
@@ -1107,14 +1389,14 @@ export default function Home() {
     }
   };
 
-  const moveTab = (tabId: string, groupId: GroupId) => {
+  const moveTab = (tabId: string, groupId: GroupId | null) => {
     const sourceGroup = tabs.find(tab => tab.id === tabId)?.groupId;
     const destination =
-      vaultGroups.find(group => group.id === groupId)?.name ?? "collection";
+      vaultGroups.find(group => group.id === groupId)?.name ?? "Unassigned";
     setTabs(current =>
       current.map(tab =>
         tab.id === tabId
-          ? { ...tab, groupId, updated: new Date().toISOString() }
+          ? { ...tab, groupId, updatedAt: new Date().toISOString() }
           : tab
       )
     );
@@ -1130,12 +1412,19 @@ export default function Home() {
         ...(sourceGroup
           ? { [sourceGroup]: withoutTab[sourceGroup] ?? [] }
           : {}),
-        [groupId]: [...(withoutTab[groupId] ?? []), tabId],
+        [orderKey(groupId)]: [...(withoutTab[orderKey(groupId)] ?? []), tabId],
       };
     });
     toast.success(`Moved to ${destination}`, {
       description: "The local index is updated.",
     });
+    if (storageMode === "backend" && serverOnline)
+      void updateTabOnLocalServer(
+        localServerUrl,
+        tabId,
+        { groupId },
+        serverApiKey
+      ).catch(() => setServerOnline(false));
   };
 
   const captureCurrentTab = async (providedTab?: ChromeTabSnapshot) => {
@@ -1156,116 +1445,95 @@ export default function Home() {
     }
     const url = activeTab.url;
     const title = activeTab.title?.trim() || "Browser capture — current tab";
-    const existingTab = tabs.find(tab => {
-      try {
-        return canonicalizeTabUrl(tab.url) === canonicalizeTabUrl(url);
-      } catch {
-        return tab.url === url;
-      }
-    });
-    if (existingTab) {
-      if (existingTab.archived) {
-        const restoredTab: VaultTab = {
-          ...existingTab,
-          groupId: "inbox",
-          archived: false,
-          archivedAt: null,
-          updated: new Date().toISOString(),
-        };
-        setTabs(current =>
-          current.map(tab => (tab.id === restoredTab.id ? restoredTab : tab))
-        );
-        setTabOrders(current => ({
-          ...current,
-          inbox: [
-            restoredTab.id,
-            ...(current.inbox ?? []).filter(id => id !== restoredTab.id),
-          ],
-        }));
-        if (storageMode === "backend" && serverOnline) {
-          await saveTabToLocalServer(
-            localServerUrl,
-            {
-              url,
-              title,
-              note: restoredTab.note,
-              agentReview: restoredTab.agentReview,
-              viewed: restoredTab.viewed,
-              tags: restoredTab.tags,
-              groupId: null,
-              favicon: activeTab.favIconUrl,
-            },
-            serverApiKey
-          ).catch(() => setServerOnline(false));
-        }
-        selectCollection("inbox");
-        toast.success("Restored the archived link", {
-          description: "Its previous title, note, and tags were kept.",
-        });
-      } else {
-        toast("This URL is already in your library", {
-          description: "TabVault kept the existing link and its metadata.",
-        });
-      }
-      return;
-    }
+    const capturedAt = new Date();
+    const now = capturedAt.toISOString();
+    const month = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ][capturedAt.getMonth()];
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const sessionGroup: VaultGroup = {
+      id: crypto.randomUUID(),
+      name: `Session ${month} ${pad(capturedAt.getDate())} ${pad(capturedAt.getHours())}:${pad(capturedAt.getMinutes())}`,
+      description: "Captured from the browser",
+      category: "session",
+      accent: "#829b65",
+      createdAt: now,
+      updatedAt: now,
+    };
     const newTab: VaultTab = {
       id: crypto.randomUUID(),
-      groupId: "inbox",
+      groupId: sessionGroup.id,
       title,
       url,
       domain: normaliseUrl(url),
       note: "",
       agentReview: "",
       viewed: false,
-      tags: ["quick save"],
+      tags: [],
       color: "#F05A28",
       icon: "●",
-      updated: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
       archived: false,
       archivedAt: null,
     };
+    setVaultGroups(current => [sessionGroup, ...current]);
     setTabs(current => [newTab, ...current]);
     setTabOrders(current => ({
       ...current,
-      inbox: [newTab.id, ...(current.inbox ?? [])],
+      [sessionGroup.id]: [newTab.id],
     }));
-    setTagCatalog(current => ({
-      ...current,
-      "quick save": current["quick save"] ?? "Quickly captured work",
-    }));
-    selectCollection("inbox");
+    setSearchGroupFilter("all");
     if (storageMode === "backend" && serverOnline) {
       try {
-        const result = await saveTabToLocalServer(
+        await createGroupOnLocalServer(
           localServerUrl,
           {
+            id: sessionGroup.id,
+            name: sessionGroup.name,
+            description: sessionGroup.description,
+            category: sessionGroup.category,
+            color: sessionGroup.accent,
+            createdAt: sessionGroup.createdAt,
+            updatedAt: sessionGroup.updatedAt,
+          },
+          serverApiKey
+        );
+        await saveTabToLocalServer(
+          localServerUrl,
+          {
+            id: newTab.id,
             url,
             title,
             note: newTab.note,
             agentReview: newTab.agentReview,
             viewed: newTab.viewed,
             tags: newTab.tags,
-            groupId: null,
-            favicon: activeTab?.favIconUrl,
+            groupId: sessionGroup.id,
           },
           serverApiKey
         );
-        toast.success(
-          result.data.created[0]?.wasDuplicate
-            ? "Merged with an existing tab"
-            : "Saved to Inbox",
-          {
-            description:
-              "The active tab is stored in both the local index and offline extension cache.",
-          }
-        );
+        toast.success("Saved as a new occurrence", {
+          description:
+            "The active tab is stored in both the local index and offline extension cache.",
+        });
         return;
       } catch {
         setServerOnline(false);
       }
     }
-    toast.success("Saved to Inbox", {
+    toast.success("Saved as a new occurrence", {
       description:
         "Stored in the extension cache. The local server is unavailable.",
     });
@@ -1296,7 +1564,7 @@ export default function Home() {
           ) {
             applyVault(saved);
             if (captureMessage.type === "TABVAULT_LIBRARY_UPDATED")
-              toast.success("Fast-saved tabs added to Inbox");
+              toast.success("Fast-saved tabs added to a new Session");
           }
         });
       }
@@ -1310,15 +1578,31 @@ export default function Home() {
       return;
     }
     const id = `collection-${Date.now()}`;
-    setVaultGroups(current => [
-      ...current,
-      {
-        id,
-        name,
-        description: newGroupDescription.trim(),
-        accent: "#8a9c92",
-      },
-    ]);
+    const now = new Date().toISOString();
+    const group: VaultGroup = {
+      id,
+      name,
+      description: newGroupDescription.trim(),
+      category: "manual",
+      accent: "#8a9c92",
+      createdAt: now,
+      updatedAt: now,
+    };
+    setVaultGroups(current => [group, ...current]);
+    if (storageMode === "backend" && serverOnline)
+      void createGroupOnLocalServer(
+        localServerUrl,
+        {
+          id: group.id,
+          name: group.name,
+          description: group.description,
+          category: "manual",
+          color: group.accent,
+          createdAt: group.createdAt,
+          updatedAt: group.updatedAt,
+        },
+        serverApiKey
+      ).catch(() => setServerOnline(false));
     setNewGroupName("");
     setNewGroupDescription("");
     setShowGroupDialog(false);
@@ -1335,6 +1619,7 @@ export default function Home() {
       toast.error("A collection needs a name");
       return;
     }
+    const category = editingCollection.category.trim() || "manual";
     setVaultGroups(current =>
       current.map(group =>
         group.id === editingCollection.id
@@ -1342,6 +1627,8 @@ export default function Home() {
               ...editingCollection,
               name,
               description: editingCollection.description.trim(),
+              category,
+              updatedAt: new Date().toISOString(),
             }
           : group
       )
@@ -1353,6 +1640,7 @@ export default function Home() {
         {
           name,
           description: editingCollection.description.trim(),
+          category,
         },
         serverApiKey
       ).catch(() => setServerOnline(false));
@@ -1365,42 +1653,54 @@ export default function Home() {
 
   const tabsForCollection = (groupId: GroupId) =>
     sortByStoredOrder(
-      tabs.filter(tab => descendantCollectionIds(groupId).has(tab.groupId))
+      tabs.filter(
+        tab =>
+          tab.groupId !== null &&
+          descendantCollectionIds(groupId).has(tab.groupId)
+      )
     );
 
   const setTabViewed = (tabId: string, viewed: boolean) => {
     setTabs(current =>
       current.map(tab =>
         tab.id === tabId
-          ? { ...tab, viewed, updated: new Date().toISOString() }
+          ? { ...tab, viewed, updatedAt: new Date().toISOString() }
           : tab
       )
     );
+    if (storageMode === "backend" && serverOnline)
+      void updateTabOnLocalServer(
+        localServerUrl,
+        tabId,
+        { viewed },
+        serverApiKey
+      ).catch(() => setServerOnline(false));
   };
 
   const markOpenedUrlsViewed = (openedUrls: string[]) => {
-    const opened = new Set(
-      openedUrls.map(url => {
-        try {
-          return canonicalizeTabUrl(url);
-        } catch {
-          return url;
-        }
-      })
-    );
+    const opened = new Set(openedUrls);
+    const affected = tabs.filter(tab => !tab.archived && opened.has(tab.url));
     setTabs(current =>
-      current.map(tab => {
-        let url = tab.url;
-        try {
-          url = canonicalizeTabUrl(tab.url);
-        } catch {
-          // Keep the original URL for older local records.
-        }
-        return opened.has(url)
-          ? { ...tab, viewed: true, updated: new Date().toISOString() }
-          : tab;
-      })
+      current.map(tab =>
+        opened.has(tab.url)
+          ? { ...tab, viewed: true, updatedAt: new Date().toISOString() }
+          : tab
+      )
     );
+    if (storageMode === "backend" && serverOnline)
+      void Promise.allSettled(
+        affected.map(tab =>
+          updateTabOnLocalServer(
+            localServerUrl,
+            tab.id,
+            { viewed: true },
+            serverApiKey
+          )
+        )
+      ).then(results => {
+        if (results.some(result => result.status === "rejected"))
+          setServerOnline(false);
+      });
   };
 
   const openCollectionTabs = async (group: VaultGroup) => {
@@ -1444,31 +1744,36 @@ export default function Home() {
   };
 
   const deleteCollection = (group: VaultGroup) => {
-    if (group.id === "inbox") {
-      toast.error("Inbox cannot be deleted");
-      return;
-    }
+    tombstonesRef.current = {
+      ...tombstonesRef.current,
+      groups: Array.from(new Set([...tombstonesRef.current.groups, group.id])),
+    };
     const deletedIds = descendantCollectionIds(group.id);
-    const movedTabs = tabs.filter(tab => deletedIds.has(tab.groupId));
+    const movedTabs = tabs.filter(
+      tab => tab.groupId !== null && deletedIds.has(tab.groupId)
+    );
     setTabs(current =>
       current.map(tab =>
-        deletedIds.has(tab.groupId)
-          ? { ...tab, groupId: "inbox", updated: new Date().toISOString() }
+        tab.groupId !== null && deletedIds.has(tab.groupId)
+          ? {
+              ...tab,
+              groupId: null,
+              archived: true,
+              archivedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
           : tab
       )
     );
     setTabOrders(current => {
       const remaining = Object.fromEntries(
         Object.entries(current).filter(([id]) => !deletedIds.has(id))
-      ) as Record<GroupId, string[]>;
+      ) as Record<string, string[]>;
       return {
         ...remaining,
-        inbox: [
-          ...(remaining.inbox ?? []).filter(
-            id => !movedTabs.some(tab => tab.id === id)
-          ),
-          ...movedTabs.map(tab => tab.id),
-        ],
+        unassigned: (remaining.unassigned ?? []).filter(
+          id => !movedTabs.some(tab => tab.id === id)
+        ),
       };
     });
     setVaultGroups(current => current.filter(item => !deletedIds.has(item.id)));
@@ -1481,9 +1786,15 @@ export default function Home() {
         )
     );
     setCollectionPendingDelete(null);
-    selectCollection("inbox");
+    setSearchGroupFilter("all");
+    if (storageMode === "backend" && serverOnline)
+      void deleteGroupOnLocalServer(
+        localServerUrl,
+        group.id,
+        serverApiKey
+      ).catch(() => setServerOnline(false));
     toast.success(`Deleted ${group.name}`, {
-      description: `${movedTabs.length} tab${movedTabs.length === 1 ? "" : "s"} moved to Inbox.`,
+      description: `${movedTabs.length} tab${movedTabs.length === 1 ? "" : "s"} archived and Unassigned.`,
     });
   };
 
@@ -1510,7 +1821,7 @@ export default function Home() {
       agentReview: editingTab.agentReview.trim(),
       domain: normaliseUrl(url),
       tags: editingTab.tags.map(tag => tag.trim()).filter(Boolean),
-      updated: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     setTabs(current =>
       current.map(tab => (tab.id === updatedTab.id ? updatedTab : tab))
@@ -1521,6 +1832,22 @@ export default function Home() {
         current
       )
     );
+    if (storageMode === "backend" && serverOnline)
+      void updateTabOnLocalServer(
+        localServerUrl,
+        updatedTab.id,
+        {
+          url: updatedTab.url,
+          title: updatedTab.title,
+          note: updatedTab.note,
+          agentReview: updatedTab.agentReview,
+          viewed: updatedTab.viewed,
+          tags: updatedTab.tags,
+          groupId: updatedTab.groupId,
+          hiddenUntil: updatedTab.hiddenUntil ?? null,
+        },
+        serverApiKey
+      ).catch(() => setServerOnline(false));
     toast.success("Tab updated", {
       description: "Your local index and tags reflect the new details.",
     });
@@ -1678,7 +2005,8 @@ export default function Home() {
       !stayedOnInitialCrossTarget
     ) {
       setTabOrders(current => {
-        const currentOrder = current[source.groupId] ?? [];
+        const sourceKey = orderKey(source.groupId);
+        const currentOrder = current[sourceKey] ?? [];
         const sourceIndex = currentOrder.indexOf(source.id);
         const originalTargetIndex = currentOrder.indexOf(target.id);
         const order = currentOrder.filter(id => id !== source.id);
@@ -1690,7 +2018,7 @@ export default function Home() {
           0,
           source.id
         );
-        return { ...current, [source.groupId]: order };
+        return { ...current, [sourceKey]: order };
       });
     }
 
@@ -1715,18 +2043,41 @@ export default function Home() {
       const { [oldName]: description = "", ...rest } = current;
       return { ...rest, [cleanName]: description };
     });
+    const affected = tabs.filter(tab => tab.tags.includes(oldName));
     setTabs(current =>
       current.map(tab => ({
         ...tab,
         tags: tab.tags.map(tag => (tag === oldName ? cleanName : tag)),
+        updatedAt: tab.tags.includes(oldName)
+          ? new Date().toISOString()
+          : tab.updatedAt,
       }))
     );
+    if (storageMode === "backend" && serverOnline)
+      void Promise.allSettled(
+        affected.map(tab =>
+          updateTabOnLocalServer(
+            localServerUrl,
+            tab.id,
+            {
+              tags: tab.tags.map(tag => (tag === oldName ? cleanName : tag)),
+            },
+            serverApiKey
+          )
+        )
+      ).then(results => {
+        const failed = results.filter(
+          result => result.status === "rejected"
+        ).length;
+        if (failed) toast.error(`${failed} tab tag update(s) failed`);
+      });
     toast.success("Tag renamed", {
       description: `“${oldName}” is now “${cleanName}”.`,
     });
   };
 
   const removeTag = (name: string) => {
+    const affected = tabs.filter(tab => tab.tags.includes(name));
     setTagCatalog(current => {
       const next = { ...current };
       delete next[name];
@@ -1736,8 +2087,27 @@ export default function Home() {
       current.map(tab => ({
         ...tab,
         tags: tab.tags.filter(tag => tag !== name),
+        updatedAt: tab.tags.includes(name)
+          ? new Date().toISOString()
+          : tab.updatedAt,
       }))
     );
+    if (storageMode === "backend" && serverOnline)
+      void Promise.allSettled(
+        affected.map(tab =>
+          updateTabOnLocalServer(
+            localServerUrl,
+            tab.id,
+            { tags: tab.tags.filter(tag => tag !== name) },
+            serverApiKey
+          )
+        )
+      ).then(results => {
+        const failed = results.filter(
+          result => result.status === "rejected"
+        ).length;
+        if (failed) toast.error(`${failed} tab tag update(s) failed`);
+      });
     toast("Tag removed", {
       description: `“${name}” was removed from the library and linked tabs.`,
     });
@@ -1869,6 +2239,17 @@ export default function Home() {
                   <Archive className="h-3.5 w-3.5" /> Archive{" "}
                   <span className="ml-auto font-mono text-[10px] text-[#a2a49c]">
                     {archivedTabs.length}
+                  </span>
+                </button>
+              )}
+              {hiddenTabs.length > 0 && (
+                <button
+                  onClick={() => setLocation("/hidden")}
+                  className={`flex w-full items-center gap-2.5 rounded-lg border-l-2 px-3 py-2 text-left text-[13px] font-semibold ${isHiddenPage ? "border-[#e95224] bg-[#eeece4] text-[#18261f]" : "border-transparent text-[#666c65] hover:bg-[#efede6]"}`}
+                >
+                  <Eye className="h-3.5 w-3.5" /> Hidden{" "}
+                  <span className="ml-auto font-mono text-[10px] text-[#a2a49c]">
+                    {hiddenTabs.length}
                   </span>
                 </button>
               )}
@@ -2285,15 +2666,25 @@ export default function Home() {
               <div className="max-w-2xl">
                 <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-[#8a8e85]">
                   <BrandMark className="h-4 w-4" />
-                  {isArchivePage ? "Recovery" : "Library"}
+                  {isArchivePage
+                    ? "Recovery"
+                    : isHiddenPage
+                      ? "Snoozed"
+                      : "Library"}
                 </p>
                 <h1 className="mt-3 font-['DM_Sans'] text-[34px] font-bold leading-[0.98] tracking-[-0.065em] text-[#18261f] sm:text-[44px]">
-                  {isArchivePage ? "Archive" : "All tabs"}
+                  {isArchivePage
+                    ? "Archive"
+                    : isHiddenPage
+                      ? "Hidden"
+                      : "All tabs"}
                 </h1>
                 <p className="mt-3 max-w-xl text-[13px] leading-6 text-[#697068]">
                   {isArchivePage
-                    ? "Archived links stay recoverable here. Restore a link by saving the same URL again, or permanently remove it from this view."
-                    : "Browse every saved link. Change the view to scan rows, read previews, or review collection groups."}
+                    ? "Archived links stay recoverable here. Restore them with PATCH or permanently remove them from this view."
+                    : isHiddenPage
+                      ? "Hidden tabs return automatically at their UTC deadline. Unhide or prolong them here."
+                      : "Browse every active visible saved link. Change the view to scan rows, read previews, or review collection groups."}
                 </p>
               </div>
               <button
@@ -2316,7 +2707,9 @@ export default function Home() {
                         ? "Search results"
                         : isArchivePage
                           ? "Archived items"
-                          : "Library items"}
+                          : isHiddenPage
+                            ? "Hidden items"
+                            : "Library items"}
                       <ContextHelp
                         title="Search your library"
                         side="bottom"
@@ -2344,17 +2737,37 @@ export default function Home() {
                         {searchStatusCopy}
                       </p>
                     )}
-                    {!query && !isArchivePage && tabView !== "groups" && (
-                      <button
-                        onClick={() => {
-                          setSelectionMode(current => !current);
-                          setSelectedResultIds(new Set());
-                        }}
-                        className={`rounded border px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.08em] transition ${selectionMode ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#d9d3c6] bg-[#fffdf8] text-[#687067] hover:border-[#e95224] hover:text-[#e95224]"}`}
-                      >
-                        {selectionMode ? "Done selecting" : "Select tabs"}
-                      </button>
+                    {!query && isAllTabsPage && (
+                      <>
+                        <button
+                          onClick={() => void quickClean()}
+                          disabled={isQuickCleaning}
+                          className="rounded border border-[#d9d3c6] bg-[#fffdf8] px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#e95224] hover:text-[#e95224] disabled:opacity-50"
+                        >
+                          {isQuickCleaning ? "Cleaning…" : "Quick clean"}
+                        </button>
+                        <button
+                          onClick={() => setLocation("/deduplicate")}
+                          className="rounded border border-[#d9d3c6] bg-[#fffdf8] px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#e95224] hover:text-[#e95224]"
+                        >
+                          Advanced
+                        </button>
+                      </>
                     )}
+                    {!query &&
+                      !isArchivePage &&
+                      !isHiddenPage &&
+                      tabView !== "groups" && (
+                        <button
+                          onClick={() => {
+                            setSelectionMode(current => !current);
+                            setSelectedResultIds(new Set());
+                          }}
+                          className={`rounded border px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.08em] transition ${selectionMode ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#d9d3c6] bg-[#fffdf8] text-[#687067] hover:border-[#e95224] hover:text-[#e95224]"}`}
+                        >
+                          {selectionMode ? "Done selecting" : "Select tabs"}
+                        </button>
+                      )}
                   </div>
                 </div>
                 <label className="mt-5 flex h-12 items-center gap-3 border-b border-[#bcb6a8] bg-[#fffdf8] px-4 transition focus-within:border-[#e95224] focus-within:shadow-[0_8px_24px_rgba(24,38,31,0.04)]">
@@ -2443,11 +2856,13 @@ export default function Home() {
                           <option value="" disabled>
                             Move to…
                           </option>
-                          {vaultGroups.map(group => (
-                            <option key={group.id} value={group.id}>
-                              {group.name}
-                            </option>
-                          ))}
+                          {vaultGroups
+                            .filter(group => group.category === "manual")
+                            .map(group => (
+                              <option key={group.id} value={group.id}>
+                                {group.name}
+                              </option>
+                            ))}
                         </select>
                         <div className="flex overflow-hidden rounded border border-[#d9d3c6] bg-[#fffdf8]">
                           <input
@@ -2631,10 +3046,7 @@ export default function Home() {
                     tabs={activeTabs}
                     onOpen={group => void openCollectionTabs(group)}
                     onShare={group => void shareCollectionAsMarkdown(group)}
-                    onDelete={group => {
-                      if (group.id !== "inbox")
-                        setCollectionPendingDelete(group);
-                    }}
+                    onDelete={setCollectionPendingDelete}
                     onEdit={group => setEditingCollection({ ...group })}
                     onBrowse={groupId => {
                       setSearchGroupFilter(groupId);
@@ -2642,10 +3054,14 @@ export default function Home() {
                       setTabView("standard");
                     }}
                     onCreate={() => setShowGroupDialog(true)}
+                    onHide={(groupId, duration) =>
+                      void changeGroupVisibility(groupId, "hide", duration)
+                    }
                   />
-                ) : visibleTabs.length || (!isArchivePage && !query) ? (
+                ) : visibleTabs.length ||
+                  (!isArchivePage && !isHiddenPage && !query) ? (
                   <>
-                    {!isArchivePage && (
+                    {!isArchivePage && !isHiddenPage && (
                       <CollectionDropShelf groups={vaultGroups} />
                     )}
                     <TabList
@@ -2673,6 +3089,21 @@ export default function Home() {
                       onEdit={openTabEditor}
                       onViewedChange={setTabViewed}
                       onDelete={tab => setTabPendingDelete(tab)}
+                      lifecycleMode={
+                        isArchivePage
+                          ? "archived"
+                          : isHiddenPage
+                            ? "hidden"
+                            : "visible"
+                      }
+                      onRestore={tab => restoreTab(tab as VaultTab)}
+                      onHide={(tab, duration) =>
+                        hideTabFor(tab as VaultTab, duration)
+                      }
+                      onUnhide={tab => unhideTab(tab as VaultTab)}
+                      onProlong={(tab, duration) =>
+                        prolongTabFor(tab as VaultTab, duration)
+                      }
                       onOpenTagManager={() => setShowTagManager(true)}
                       onOpenGroup={groupId => {
                         const group = vaultGroups.find(
@@ -2690,7 +3121,7 @@ export default function Home() {
                         const group = vaultGroups.find(
                           item => item.id === groupId
                         );
-                        if (group && group.id !== "inbox") {
+                        if (group) {
                           setCollectionPendingDelete(group);
                         }
                       }}
@@ -2700,6 +3131,15 @@ export default function Home() {
                         );
                         if (group) setEditingCollection({ ...group });
                       }}
+                      onHideGroup={(groupId, duration) =>
+                        void changeGroupVisibility(groupId, "hide", duration)
+                      }
+                      onUnhideGroup={groupId =>
+                        void changeGroupVisibility(groupId, "unhide")
+                      }
+                      onProlongGroup={(groupId, duration) =>
+                        void changeGroupVisibility(groupId, "prolong", duration)
+                      }
                       groups={vaultGroups}
                       visibleGroupIds={visibleGroupIds}
                       previewBackend={
@@ -2714,14 +3154,16 @@ export default function Home() {
                   <div className="border-t border-[#dcd7cc] bg-[#fffdf8] px-5 py-12 text-center">
                     <Search className="mx-auto h-5 w-5 text-[#e95224]" />
                     <p className="mt-3 text-[13px] font-bold">
-                      {isArchivePage && !query
-                        ? "Archive is empty."
+                      {(isArchivePage || isHiddenPage) && !query
+                        ? `${workspaceLabel} is empty.`
                         : "No links matched that query."}
                     </p>
                     <p className="mt-1 text-[11px] text-[#7b8078]">
                       {isArchivePage && !query
                         ? "Archived links remain recoverable here until you permanently delete them."
-                        : "Try a topic, note, or tag. Semantic search understands related language."}
+                        : isHiddenPage && !query
+                          ? "Tabs with future hide deadlines appear here."
+                          : "Try a topic, note, or tag. Semantic search understands related language."}
                     </p>
                   </div>
                 )}
@@ -2744,6 +3186,13 @@ export default function Home() {
         {editingCollection && (
           <EditCollectionDialog
             collection={editingCollection}
+            categories={Array.from(
+              new Set([
+                "manual",
+                "session",
+                ...vaultGroups.map(group => group.category),
+              ])
+            )}
             onChange={setEditingCollection}
             onClose={() => setEditingCollection(null)}
             onSave={saveCollection}

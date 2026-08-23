@@ -9,13 +9,13 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import Settings
 from lib.responses import IssueDTO, WarningDTO, issue
 from lib.time import iso, utc_now
-from lib.url import normalize_url
 
 from .dto import (
     BackupDTO,
@@ -38,7 +38,7 @@ from .repository import SystemRepository
 
 def empty_document() -> dict[str, Any]:
     """Create an empty raw portable document for the Markdown parser."""
-    return {"schemaVersion": 1, "exportedAt": iso(utc_now()), "tags": [], "groups": [], "tabs": []}
+    return {"schemaVersion": 2, "exportedAt": iso(utc_now()), "tags": [], "groups": [], "tabs": []}
 
 
 def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
@@ -56,12 +56,12 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
                 422,
             )
         ], warnings
-    if document.get("schemaVersion") != 1:
+    if document.get("schemaVersion") != 2:
         errors.append(
             issue(
                 "E_UNKNOWN_SCHEMA_VERSION",
                 "$.schemaVersion",
-                "1",
+                "2",
                 document.get("schemaVersion"),
                 "Unsupported schema version.",
                 422,
@@ -82,7 +82,6 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
     if errors:
         return errors, warnings
     group_ids: set[str] = set()
-    parents: dict[str, str | None] = {}
     for index, group in enumerate(document["groups"]):
         if not isinstance(group, dict):
             errors.append(
@@ -96,7 +95,7 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
                 )
             )
             continue
-        for field in ("id", "name"):
+        for field in ("id", "name", "category"):
             if not isinstance(group.get(field), str) or not group[field].strip():
                 errors.append(
                     issue(
@@ -122,40 +121,7 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
                     )
                 )
             group_ids.add(group_id)
-            parents[group_id] = (
-                group.get("parentId") if isinstance(group.get("parentId"), str) else None
-            )
-    for group_id, parent_id in parents.items():
-        if parent_id and parent_id not in group_ids:
-            errors.append(
-                issue(
-                    "E_UNKNOWN_GROUP_REFERENCE",
-                    f"groups[{group_id}].parentId",
-                    "existing group id",
-                    parent_id,
-                    "Parent group does not exist.",
-                    422,
-                )
-            )
-        seen: set[str] = set()
-        current: str | None = group_id
-        while current:
-            if current in seen:
-                errors.append(
-                    issue(
-                        "E_CYCLIC_GROUP_REFERENCE",
-                        f"groups[{group_id}].parentId",
-                        "acyclic tree",
-                        parent_id,
-                        "Group parents form a cycle.",
-                        422,
-                    )
-                )
-                break
-            seen.add(current)
-            current = parents.get(current)
     tab_ids: set[str] = set()
-    urls: set[str] = set()
     tag_names = {
         str(item.get("name"))
         for item in document["tags"]
@@ -199,21 +165,8 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
                     )
                 )
             tab_ids.add(tab["id"])
-        try:
-            normalized = normalize_url(str(tab.get("url", "")))
-            if normalized in urls:
-                errors.append(
-                    issue(
-                        "E_DUPLICATE_URL",
-                        f"tabs[{index}].url",
-                        "unique normalized URL",
-                        tab.get("url"),
-                        "URL is duplicated after normalization.",
-                        422,
-                    )
-                )
-            urls.add(normalized)
-        except ValueError:
+        parsed = urlsplit(str(tab.get("url", "")))
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
             errors.append(
                 issue(
                     "E_INVALID_URL",
@@ -225,7 +178,7 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
                 )
             )
         group_id = tab.get("groupId")
-        if group_id not in {None, "", "inbox"} and group_id not in group_ids:
+        if group_id is not None and group_id not in group_ids:
             errors.append(
                 issue(
                     "E_UNKNOWN_GROUP_REFERENCE",
@@ -264,7 +217,6 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
 def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]]:
     """Parse the documented Markdown interchange format."""
     document = empty_document()
-    groups_by_level: dict[int, str | None] = {}
     active_group: str | None = None
     active_group_record: dict[str, Any] | None = None
     active_tab: dict[str, Any] | None = None
@@ -276,9 +228,9 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
         link = re.match(r"^-\s+\[(.+?)\]\((.+?)\)\s*$", line)
         metadata = re.match(r"^\s{2,}([a-zA-Z]+):\s*(.*?)\s*$", line)
         if header:
-            level, name = len(header.group(1)), header.group(2).strip()
+            name = header.group(2).strip()
             active_tab = None
-            if name.lower() == "inbox":
+            if name == "[Unassigned]":
                 active_group = None
                 active_group_record = None
                 continue
@@ -286,12 +238,11 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
             active_group_record = {
                 "id": active_group,
                 "name": name,
+                "category": "manual",
                 "description": "",
-                "parentId": groups_by_level.get(level - 1),
                 "position": len(document["groups"]),
             }
             document["groups"].append(active_group_record)
-            groups_by_level[level] = active_group
         elif link:
             active_tab = {
                 "id": str(uuid.uuid4()),
@@ -345,9 +296,12 @@ class TransferService:
         self.repository = repository
         self.mapper = SystemMapper()
 
-    async def document(self) -> TransferDocumentDTO:
+    async def document(self, *, include_hidden: bool = True) -> TransferDocumentDTO:
         """Build the complete portable library document."""
-        tags, groups, tabs = await self.repository.transfer_rows()
+        tags, groups, tabs = await self.repository.transfer_rows(
+            include_hidden=include_hidden,
+            now=utc_now() if not include_hidden else None,
+        )
         return TransferDocumentDTO(
             exported_at=utc_now(),
             tags=[self.mapper.tag_to_transfer(tag) for tag in tags],
@@ -376,20 +330,13 @@ class TransferService:
         self,
         format: TransferFormat,
         scope: str,
-        include_subgroups: bool,
         fields: ExportFields,
     ) -> TransferExportDTO:
         """Export a filtered library as JSON or Markdown."""
-        document = await self.document()
+        document = await self.document(include_hidden=False)
         if scope.startswith("group:"):
             group_id = scope.split(":", 1)[1]
             ids = {group_id}
-            if include_subgroups:
-                changed = True
-                while changed:
-                    before = len(ids)
-                    ids.update(group.id for group in document.groups if group.parent_id in ids)
-                    changed = before != len(ids)
             document.groups = [group for group in document.groups if group.id in ids]
             document.tabs = [tab for tab in document.tabs if tab.group_id in ids]
         elif scope.startswith("tag:"):
@@ -415,10 +362,6 @@ class TransferService:
             )
         if format == "json":
             return TransferExportDTO(content=content, media_type="application/json")
-        children: dict[str | None, list[TransferGroupDTO]] = {}
-        for group in document.groups:
-            if not group.archived:
-                children.setdefault(group.parent_id, []).append(group)
         lines: list[str] = []
 
         def write_tabs(group_id: str | None) -> None:
@@ -434,19 +377,17 @@ class TransferService:
                         lines.append(f"  viewed: {str(tab.viewed).lower()}")
                     lines.append("")
 
-        def write_group(group: TransferGroupDTO, level: int) -> None:
-            """Append Markdown for a group and its descendants."""
-            lines.append(f"{'#' * level} {group.name}")
+        def write_group(group: TransferGroupDTO) -> None:
+            """Append Markdown for one flat Group."""
+            lines.append(f"## {group.name}")
             if fields != "minimal":
                 lines.append(f"  description: {group.description or ''}")
             lines.append("")
             write_tabs(group.id)
-            for child in children.get(group.id, []):
-                write_group(child, level + 1)
 
-        for root in children.get(None, []):
-            write_group(root, 2)
-        lines.extend(["## Inbox", ""])
+        for group in document.groups:
+            write_group(group)
+        lines.extend(["## [Unassigned]", ""])
         write_tabs(None)
         return TransferExportDTO(
             content="\n".join(lines).strip() + "\n",
@@ -551,20 +492,7 @@ class TransferService:
             elif incoming_updated and incoming_updated > _aware(tag.updated_at):
                 await self.repository.apply_changes(tag, self.mapper.tag_transfer_changes(tag_dto))
                 updated.tags += 1
-        pending_groups = {group_dto.id: group_dto for group_dto in dto.groups}
-        ordered_groups: list[TransferGroupDTO] = []
-        while pending_groups:
-            ready = [
-                group_dto
-                for group_dto in pending_groups.values()
-                if not group_dto.parent_id or group_dto.parent_id not in pending_groups
-            ]
-            if not ready:
-                ready = list(pending_groups.values())
-            for group_dto in ready:
-                ordered_groups.append(group_dto)
-                pending_groups.pop(group_dto.id)
-        for group_dto in ordered_groups:
+        for group_dto in dto.groups:
             if await self.repository.tombstone_exists("group", group_dto.id):
                 continue
             group = await self.repository.get_group(group_dto.id)
@@ -585,22 +513,8 @@ class TransferService:
             tab = await self.repository.get_transfer_tab(tab_dto.id)
             incoming_updated = tab_dto.updated_at
             if tab is None:
-                normalized = normalize_url(tab_dto.url)
-                duplicate = await self.repository.find_tab_url(normalized)
-                if duplicate is not None:
-                    tags = await self.repository.resolve_tags(
-                        [*[tag.name for tag in duplicate.tags], *tab_dto.tags]
-                    )
-                    await self.repository.apply_changes(
-                        duplicate,
-                        self.mapper.tab_duplicate_changes(tab_dto, tags),
-                    )
-                    skipped += 1
-                    continue
                 tags = await self.repository.resolve_tags(tab_dto.tags)
-                await self.repository.save_model(
-                    self.mapper.tab_from_transfer(tab_dto, normalized, tags)
-                )
+                await self.repository.save_model(self.mapper.tab_from_transfer(tab_dto, tags))
                 created.tabs += 1
             elif incoming_updated and incoming_updated > _aware(tab.updated_at):
                 await self.repository.apply_changes(

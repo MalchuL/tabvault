@@ -197,7 +197,7 @@ class PreviewService:
                     "fetched_at": utc_now(),
                 },
             )
-            if tab.title == tab.url or tab.title == tab.normalized_url:
+            if tab.title == tab.url:
                 await self.repository.apply_changes(tab, {"title": title})
             await self.db.commit()
             return PreviewCaptureResultDTO(tab_id=tab_id, status="ready")

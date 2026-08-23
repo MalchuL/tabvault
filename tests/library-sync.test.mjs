@@ -2,42 +2,50 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   defaultVault,
+  isVaultV2,
   serverDocumentToVault,
   vaultToServerDocument,
 } from "../client/public/library-sync.js";
 
-test("library conversion round-trips tabs and collections for merge refresh", () => {
+test("schema-v2 conversion preserves occurrence identity, exact URL, and Unassigned", () => {
   const vault = defaultVault();
+  const now = "2026-08-23T12:00:00.000Z";
   vault.tabs = [
     {
       id: "tab-1",
-      groupId: "inbox",
+      groupId: null,
       title: "Example",
-      url: "https://example.com/a",
+      url: "HTTPS://Example.com/a?b=2&a=1#fragment",
       domain: "example.com",
       note: "note",
       agentReview: "Useful agent summary",
       viewed: true,
-      tags: ["quick save"],
+      tags: ["reference"],
       color: "#F05A28",
       icon: "E",
-      updated: "now",
+      createdAt: now,
+      updatedAt: now,
     },
   ];
-  vault.tabOrders.inbox = ["tab-1"];
+  vault.tabOrders.unassigned = ["tab-1"];
   vault.vaultGroups.push({
     id: "custom",
     name: "Custom",
     description: "Agent filing context",
+    category: "manual",
     accent: "#123456",
+    createdAt: now,
+    updatedAt: now,
   });
 
+  assert.equal(isVaultV2(vault), true);
   const document = vaultToServerDocument(vault);
+  assert.equal(document.schemaVersion, 2);
   assert.equal(document.tabs[0].id, "tab-1");
-  assert.equal(document.tabs[0].agentReview, "Useful agent summary");
-  assert.equal(document.tabs[0].viewed, true);
-  assert.equal(document.groups.at(-1).id, "custom");
-  assert.equal(document.groups.at(-1).description, "Agent filing context");
+  assert.equal(document.tabs[0].groupId, null);
+  assert.equal(document.tabs[0].url, vault.tabs[0].url);
+  assert.equal(document.groups[0].category, "manual");
+  assert.equal("parentId" in document.groups[0], false);
 
   const hydrated = serverDocumentToVault(
     {
@@ -51,19 +59,90 @@ test("library conversion round-trips tabs and collections for merge refresh", ()
           tags: [],
           groupId: "custom",
           position: 0,
+          createdAt: now,
+          updatedAt: now,
         },
       ],
     },
     vault
   );
   assert.equal(hydrated.tabs.length, 2);
-  assert.ok(hydrated.vaultGroups.some(group => group.id === "custom"));
   assert.equal(
     hydrated.tabs.find(tab => tab.id === "tab-2")?.groupId,
     "custom"
   );
-  const oldTab = hydrated.tabs.find(tab => tab.id === "tab-2");
-  assert.equal(oldTab.note, "");
-  assert.equal(oldTab.agentReview, "");
-  assert.equal(oldTab.viewed, false);
+  assert.equal(hydrated.tabs.find(tab => tab.id === "tab-1")?.groupId, null);
+  assert.equal(hydrated.tabs.find(tab => tab.id === "tab-2")?.agentReview, "");
+});
+
+test("schema guard rejects v1, hierarchy, Inbox-shaped, and normalized data", () => {
+  assert.equal(
+    isVaultV2({ schemaVersion: 1, tabs: [], vaultGroups: [] }),
+    false
+  );
+  const vault = defaultVault();
+  vault.vaultGroups.push({
+    id: "bad",
+    name: "Bad",
+    description: "",
+    category: "manual",
+    accent: "#000",
+    createdAt: "now",
+    updatedAt: "now",
+    parent: "other",
+  });
+  assert.equal(isVaultV2(vault), false);
+  vault.vaultGroups = [];
+  vault.tabs.push({
+    id: "bad",
+    groupId: null,
+    title: "Bad",
+    url: "https://example.com",
+    domain: "example.com",
+    note: "",
+    agentReview: "",
+    viewed: false,
+    tags: [],
+    color: "#000",
+    icon: "B",
+    createdAt: "now",
+    updatedAt: "now",
+    normalizedUrl: "https://example.com",
+  });
+  assert.equal(isVaultV2(vault), false);
+});
+
+test("browser tombstones suppress server resurrection until deletion syncs", () => {
+  const vault = defaultVault();
+  vault.tombstones = { tabs: ["deleted-tab"], groups: ["deleted-group"] };
+  const hydrated = serverDocumentToVault(
+    {
+      schemaVersion: 2,
+      tags: [],
+      groups: [
+        {
+          id: "deleted-group",
+          name: "Returned group",
+          category: "manual",
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-01T00:00:00Z",
+        },
+      ],
+      tabs: [
+        {
+          id: "deleted-tab",
+          url: "https://example.com/deleted",
+          title: "Returned tab",
+          tags: [],
+          groupId: null,
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-01T00:00:00Z",
+        },
+      ],
+    },
+    vault
+  );
+  assert.deepEqual(hydrated.tabs, []);
+  assert.deepEqual(hydrated.vaultGroups, []);
+  assert.deepEqual(hydrated.tombstones, vault.tombstones);
 });

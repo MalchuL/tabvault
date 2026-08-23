@@ -13,7 +13,6 @@ MANDATORY = {
     "search_tabs",
     "get_tab",
     "save_tab",
-    "save_tabs_batch",
     "update_tab",
     "delete_tab",
     "move_tab",
@@ -24,13 +23,10 @@ MANDATORY = {
     "list_tags",
     "tag_tab",
     "untag_tab",
-    "export_data",
-    "import_data",
-    "validate_import",
 }
 
 
-def test_every_mandatory_mcp_tool_has_schema_and_all_annotations() -> None:
+def test_every_mcp_tool_has_schema_and_all_annotations() -> None:
     tools = asyncio.run(bridge.mcp.list_tools())
     by_name = {tool.name: tool for tool in tools}
     assert set(by_name) == MANDATORY
@@ -44,7 +40,7 @@ def test_every_mandatory_mcp_tool_has_schema_and_all_annotations() -> None:
         assert tool.annotations.open_world_hint is not None
 
 
-def test_mcp_api_client_uses_new_prefix_and_api_key(monkeypatch) -> None:
+def test_mcp_api_client_uses_api_prefix_and_key(monkeypatch) -> None:
     captured = {}
 
     class Response:
@@ -74,16 +70,27 @@ def test_mcp_api_client_uses_new_prefix_and_api_key(monkeypatch) -> None:
     }
 
 
-def test_all_mcp_functions_forward_rest_shapes(monkeypatch) -> None:
-    calls = []
+def test_mcp_functions_forward_v2_single_resource_shapes(monkeypatch) -> None:
+    calls: list[tuple[tuple, dict]] = []
 
     class FakeApi:
         def request(self, *args, **kwargs):
             calls.append((args, kwargs))
-            return {"success": True}
+            if args[0:2] == ("GET", "/groups"):
+                return {"success": True, "data": {"groups": [{"id": "group"}]}}
+            if args[0] == "GET" and args[1].endswith("/tabs"):
+                return {"success": True, "data": {"tabs": []}}
+            if args[0] == "GET" and args[1].startswith("/tabs/"):
+                return {
+                    "success": True,
+                    "data": {"id": "tab", "archived": False, "hiddenUntil": None},
+                }
+            return {"success": True, "data": {}}
 
-    monkeypatch.setattr(bridge, "api", lambda: FakeApi())
-    assert bridge.list_tabs()["success"]
+    fake = FakeApi()
+    monkeypatch.setattr(bridge, "api", lambda: fake)
+    bridge.list_tabs(groupId="unassigned")
+    bridge.list_tabs(category="session")
     bridge.search_tabs("query")
     bridge.get_tab("tab")
     bridge.save_tab(
@@ -92,25 +99,99 @@ def test_all_mcp_functions_forward_rest_shapes(monkeypatch) -> None:
         viewed=True,
         groupId="group",
     )
-    bridge.save_tabs_batch([{"url": "https://example.com"}], atomic=True)
-    bridge.update_tab("tab", title="Changed", agentReview="Revised", viewed=False)
-    bridge.delete_tab("tab", hard=True)
+    bridge.update_tab("tab", title="Changed", hiddenUntil="2030-01-01T00:00:00Z")
+    bridge.delete_tab("tab")
     bridge.move_tab("tab", targetGroupId="group", position=1)
-    bridge.list_groups()
+    bridge.move_tab("tab", targetGroupId=None)
+    bridge.list_groups(category="manual")
     bridge.create_group("Group", description="Filing context")
     bridge.update_group("group", description="Updated context", color="#fff")
-    bridge.delete_group("group", "promote")
+    bridge.delete_group("group")
     bridge.list_tags()
     bridge.tag_tab("tab", "docs")
     bridge.untag_tab("tab", "docs")
-    bridge.export_data("json")
-    bridge.import_data("upload", "json", {"schemaVersion": 1})
-    bridge.validate_import("markdown", "## Inbox")
-    assert len(calls) == len(MANDATORY)
-    assert all(str(args[1]).startswith("/") for args, _kwargs in calls)
-    assert calls[3][0][2]["tabs"][0]["agentReview"] == "Agent summary"
-    assert calls[3][0][2]["tabs"][0]["viewed"] is True
-    assert calls[9][0][2]["description"] == "Filing context"
+
+    tab_lists = [call for call in calls if call[0][0:2] == ("GET", "/tabs")]
+    assert tab_lists[0][1]["query"]["groupId"] == "unassigned"
+    assert tab_lists[0][1]["query"]["visibility"] == "visible"
+    assert tab_lists[1][1]["query"]["category"] == "session"
+    create = next(call for call in calls if call[0][0:2] == ("POST", "/tabs"))
+    assert create[0][2]["url"] == "https://example.com"
+    assert "tabs" not in create[0][2]
+    move = next(
+        call for call in calls if call[0][0:2] == ("PATCH", "/tabs/tab") and "groupId" in call[0][2]
+    )
+    assert move[0][2] == {"groupId": "group", "position": 1}
+    created_group = next(call for call in calls if call[0][0:2] == ("POST", "/groups"))
+    assert created_group[0][2]["category"] == "manual"
+    changed_group = next(call for call in calls if call[0][0:2] == ("PATCH", "/groups/group"))
+    assert changed_group[0][2]["category"] == "manual"
+    assert next(call for call in calls if call[0][0:2] == ("DELETE", "/groups/group"))[1] == {}
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"id": "tab", "archived": True, "hiddenUntil": None},
+        {"id": "tab", "archived": False, "hiddenUntil": "2999-01-01T00:00:00Z"},
+    ],
+)
+def test_mcp_known_hidden_or_archived_tab_cannot_be_read_or_mutated(monkeypatch, record) -> None:
+    calls: list[tuple] = []
+
+    class FakeApi:
+        def request(self, *args, **_kwargs):
+            calls.append(args)
+            return {"success": True, "data": record}
+
+    monkeypatch.setattr(bridge, "api", lambda: FakeApi())
+    for operation in (
+        lambda: bridge.get_tab("tab"),
+        lambda: bridge.update_tab("tab", title="No"),
+        lambda: bridge.delete_tab("tab"),
+        lambda: bridge.move_tab("tab"),
+        lambda: bridge.tag_tab("tab", "tag"),
+        lambda: bridge.untag_tab("tab", "tag"),
+    ):
+        with pytest.raises(bridge.TabVaultApiError, match="not accessible"):
+            operation()
+    assert all(call[0:2] == ("GET", "/tabs/tab") for call in calls)
+
+
+def test_mcp_cannot_target_hidden_group_or_delete_group_with_hidden_members(monkeypatch) -> None:
+    class HiddenGroupApi:
+        def request(self, method, path, *_args, **_kwargs):
+            if (method, path) == ("GET", "/tabs/tab"):
+                return {
+                    "success": True,
+                    "data": {"id": "tab", "archived": False, "hiddenUntil": None},
+                }
+            assert (method, path) == ("GET", "/groups")
+            return {"success": True, "data": {"groups": []}}
+
+    monkeypatch.setattr(bridge, "api", lambda: HiddenGroupApi())
+    for operation in (
+        lambda: bridge.save_tab("https://example.com", groupId="hidden"),
+        lambda: bridge.move_tab("tab", targetGroupId="hidden"),
+        lambda: bridge.update_group("hidden", name="No"),
+        lambda: bridge.delete_group("hidden"),
+    ):
+        with pytest.raises(bridge.TabVaultApiError, match="not accessible"):
+            operation()
+
+    calls: list[tuple[str, str]] = []
+
+    class MixedGroupApi:
+        def request(self, method, path, *_args, **_kwargs):
+            calls.append((method, path))
+            if path == "/groups":
+                return {"success": True, "data": {"groups": [{"id": "mixed"}]}}
+            return {"success": True, "data": {"tabs": [{"id": "hidden"}]}}
+
+    monkeypatch.setattr(bridge, "api", lambda: MixedGroupApi())
+    with pytest.raises(bridge.TabVaultApiError, match="not accessible"):
+        bridge.delete_group("mixed")
+    assert not any(method == "DELETE" for method, _path in calls)
 
 
 def test_mcp_api_error_and_environment_paths(monkeypatch) -> None:

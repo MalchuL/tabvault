@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -89,6 +90,40 @@ def api() -> TabVaultApi:
     return TabVaultApi.from_environment()
 
 
+def _data(response: dict[str, Any]) -> dict[str, Any]:
+    """Read one object from the standard API envelope."""
+    value = response.get("data")
+    return value if isinstance(value, dict) else {}
+
+
+def _is_hidden(tab: dict[str, Any]) -> bool:
+    """Return whether an active tab is under a future visibility embargo."""
+    raw = tab.get("hiddenUntil")
+    if not isinstance(raw, str) or not raw:
+        return False
+    deadline = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=UTC)
+    return deadline > datetime.now(UTC)
+
+
+def _visible_tab(client: TabVaultApi, tab_id: str) -> dict[str, Any]:
+    """Load one tab only when MCP is allowed to access it."""
+    response = client.request("GET", f"/tabs/{tab_id}")
+    tab = _data(response)
+    if tab.get("archived") is True or _is_hidden(tab):
+        raise TabVaultApiError("Saved Tab is not accessible through MCP")
+    return response
+
+
+def _visible_group(client: TabVaultApi, group_id: str) -> None:
+    """Require a Group to appear in the ordinary visible collection."""
+    response = client.request("GET", "/groups", query={"visibility": "visible"})
+    groups = _data(response).get("groups", [])
+    if not any(isinstance(group, dict) and group.get("id") == group_id for group in groups):
+        raise TabVaultApiError("Group is not accessible through MCP")
+
+
 READ = ToolAnnotations(
     read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
 )
@@ -107,23 +142,26 @@ mcp = MCPServer("TabVault")
 @mcp.tool(annotations=READ, structured_output=True)
 def list_tabs(
     groupId: str = "all",
+    category: str | None = None,
     tags: str = "",
     search: str | None = None,
     limit: int = 50,
     cursor: str | None = None,
     fields: str = "full",
 ) -> dict[str, Any]:
-    """List saved tabs with cursor pagination."""
+    """List active visible tabs, including Unassigned or one Group category."""
     return api().request(
         "GET",
         "/tabs",
         query={
             "groupId": groupId,
+            "category": category,
             "tags": tags,
             "search": search,
             "limit": limit,
             "cursor": cursor,
             "fields": fields,
+            "visibility": "visible",
         },
     )
 
@@ -143,8 +181,9 @@ def search_tabs(
 
 @mcp.tool(annotations=READ, structured_output=True)
 def get_tab(id: str) -> dict[str, Any]:
-    """Read one saved tab."""
-    return api().request("GET", f"/tabs/{id}")
+    """Read one active visible saved tab."""
+    client = api()
+    return _visible_tab(client, id)
 
 
 @mcp.tool(annotations=WRITE, structured_output=True)
@@ -157,99 +196,95 @@ def save_tab(
     tags: list[str] | None = None,
     groupId: str | None = None,
 ) -> dict[str, Any]:
-    """Save one URL with optional metadata."""
-    return api().request(
+    """Save exactly one active occurrence with optional metadata."""
+    client = api()
+    if groupId is not None:
+        _visible_group(client, groupId)
+    return client.request(
         "POST",
         "/tabs",
         {
-            "tabs": [
-                {
-                    "url": url,
-                    "title": title,
-                    "note": note,
-                    "agentReview": agentReview,
-                    "viewed": viewed,
-                    "tags": tags or [],
-                    "groupId": groupId,
-                }
-            ]
+            "url": url,
+            "title": title,
+            "note": note,
+            "agentReview": agentReview,
+            "viewed": viewed,
+            "tags": tags or [],
+            "groupId": groupId,
         },
-    )
-
-
-@mcp.tool(annotations=WRITE, structured_output=True)
-def save_tabs_batch(
-    tabs: list[dict[str, Any]],
-    dedupeStrategy: Literal["skip", "merge", "createAnyway"] = "skip",
-    atomic: bool = False,
-) -> dict[str, Any]:
-    """Save a batch of URLs and return every validation result."""
-    return api().request(
-        "POST",
-        "/tabs",
-        {"tabs": tabs, "dedupeStrategy": dedupeStrategy},
-        query={"atomic": str(atomic).lower()},
     )
 
 
 @mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)
 def update_tab(
     id: str,
+    url: str | None = None,
     title: str | None = None,
     note: str | None = None,
     agentReview: str | None = None,
     viewed: bool | None = None,
     tags: list[str] | None = None,
-    groupId: str | None = None,
+    position: float | None = None,
+    hiddenUntil: str | None = None,
 ) -> dict[str, Any]:
-    """Update supplied fields on one tab."""
+    """Update supplied fields on one active visible tab."""
+    client = api()
+    _visible_tab(client, id)
     values = {
+        "url": url,
         "title": title,
         "note": note,
         "agentReview": agentReview,
         "viewed": viewed,
         "tags": tags,
-        "groupId": groupId,
+        "position": position,
+        "hiddenUntil": hiddenUntil,
     }
-    return api().request(
+    return client.request(
         "PATCH", f"/tabs/{id}", {key: value for key, value in values.items() if value is not None}
     )
 
 
 @mcp.tool(annotations=DESTRUCTIVE, structured_output=True)
-def delete_tab(id: str, hard: bool = False) -> dict[str, Any]:
-    """Archive a tab, or permanently delete an already archived tab."""
-    return api().request("DELETE", f"/tabs/{id}", query={"hard": str(hard).lower()})
+def delete_tab(id: str) -> dict[str, Any]:
+    """Archive and Unassign one active visible tab."""
+    client = api()
+    _visible_tab(client, id)
+    return client.request("DELETE", f"/tabs/{id}")
 
 
 @mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)
 def move_tab(
     id: str, targetGroupId: str | None = None, position: int | None = None
 ) -> dict[str, Any]:
-    """Move one tab to a group or Inbox."""
-    return api().request(
-        "POST", f"/tabs/{id}/move", {"targetGroupId": targetGroupId, "position": position}
-    )
+    """PATCH one active visible tab into a Group or Unassigned."""
+    client = api()
+    _visible_tab(client, id)
+    if targetGroupId is not None:
+        _visible_group(client, targetGroupId)
+    body: dict[str, Any] = {"groupId": targetGroupId}
+    if position is not None:
+        body["position"] = position
+    return client.request("PATCH", f"/tabs/{id}", body)
 
 
 @mcp.tool(annotations=READ, structured_output=True)
-def list_groups(flat: bool = True) -> dict[str, Any]:
-    """List the complete group structure, including empty groups."""
-    return api().request("GET", "/groups", query={"flat": str(flat).lower()})
+def list_groups(category: str | None = None) -> dict[str, Any]:
+    """List visible flat Groups, optionally restricted by category."""
+    return api().request("GET", "/groups", query={"visibility": "visible", "category": category})
 
 
 @mcp.tool(annotations=WRITE, structured_output=True)
 def create_group(
     name: str,
     description: str = "",
-    parentId: str | None = None,
     color: str | None = None,
 ) -> dict[str, Any]:
-    """Create a group."""
+    """Create a Manual Group."""
     return api().request(
         "POST",
         "/groups",
-        {"name": name, "description": description, "parentId": parentId, "color": color},
+        {"name": name, "description": description, "category": "manual", "color": color},
     )
 
 
@@ -258,29 +293,37 @@ def update_group(
     id: str,
     name: str | None = None,
     description: str | None = None,
-    parentId: str | None = None,
     color: str | None = None,
     position: float | None = None,
 ) -> dict[str, Any]:
-    """Update supplied fields on a group."""
+    """Update a visible Group and explicitly reclassify it as manual."""
+    client = api()
+    _visible_group(client, id)
     values = {
         "name": name,
         "description": description,
-        "parentId": parentId,
         "color": color,
         "position": position,
+        "category": "manual",
     }
-    return api().request(
+    return client.request(
         "PATCH", f"/groups/{id}", {key: value for key, value in values.items() if value is not None}
     )
 
 
 @mcp.tool(annotations=DESTRUCTIVE, structured_output=True)
-def delete_group(
-    id: str, strategy: Literal["cascade", "promote", "reject_if_nonempty"]
-) -> dict[str, Any]:
-    """Delete a group using an explicit child/tab strategy."""
-    return api().request("DELETE", f"/groups/{id}", query={"strategy": strategy})
+def delete_group(id: str) -> dict[str, Any]:
+    """Delete a visible Group when it contains no hidden members."""
+    client = api()
+    _visible_group(client, id)
+    hidden = client.request(
+        "GET",
+        f"/groups/{id}/tabs",
+        query={"visibility": "hidden", "fields": "minimal", "limit": 1},
+    )
+    if _data(hidden).get("tabs"):
+        raise TabVaultApiError("Group is not accessible through MCP")
+    return client.request("DELETE", f"/groups/{id}")
 
 
 @mcp.tool(annotations=READ, structured_output=True)
@@ -292,50 +335,17 @@ def list_tags() -> dict[str, Any]:
 @mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)
 def tag_tab(tabId: str, tagName: str) -> dict[str, Any]:
     """Attach one tag to one tab."""
-    return api().request("POST", f"/tabs/{tabId}/tags", {"tagName": tagName})
+    client = api()
+    _visible_tab(client, tabId)
+    return client.request("POST", f"/tabs/{tabId}/tags", {"tagName": tagName})
 
 
 @mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)
 def untag_tab(tabId: str, tagName: str) -> dict[str, Any]:
     """Detach one tag from one tab."""
-    return api().request("DELETE", f"/tabs/{tabId}/tags/{tagName}")
-
-
-@mcp.tool(annotations=READ, structured_output=True)
-def export_data(
-    format: Literal["json", "markdown"],
-    scope: str = "all",
-    fields: Literal["full", "minimal"] = "full",
-) -> dict[str, Any]:
-    """Export the library in a machine or human-readable format."""
-    return api().request(
-        "GET", "/export", query={"format": format, "scope": scope, "fields": fields}
-    )
-
-
-@mcp.tool(annotations=DESTRUCTIVE, structured_output=True)
-def import_data(
-    mode: Literal["upload", "replace"], format: Literal["json", "markdown"], content: Any
-) -> dict[str, Any]:
-    """Upload or replace library data after validation."""
-    return api().request(
-        "POST",
-        "/import",
-        content,
-        query={"mode": mode},
-        content_type="application/json" if format == "json" else "text/markdown",
-    )
-
-
-@mcp.tool(annotations=READ, structured_output=True)
-def validate_import(format: Literal["json", "markdown"], content: Any) -> dict[str, Any]:
-    """Validate an import without changing the library."""
-    return api().request(
-        "POST",
-        "/import/validate",
-        content,
-        content_type="application/json" if format == "json" else "text/markdown",
-    )
+    client = api()
+    _visible_tab(client, tabId)
+    return client.request("DELETE", f"/tabs/{tabId}/tags/{tagName}")
 
 
 def main() -> None:
