@@ -45,7 +45,6 @@ test("archiving clears membership and hard deletion is offered only in Archive",
   const row = page.getByTestId("tab-row-t-research");
   await row.hover();
   await row.getByLabel("Archive Model Context Protocol specification").click();
-  await page.getByRole("button", { name: "Archive tab" }).click();
   await expect(row).toHaveCount(0);
 
   await page.getByRole("button", { name: /^Archive \d/ }).click();
@@ -53,9 +52,6 @@ test("archiving clears membership and hard deletion is offered only in Archive",
   await archived.hover();
   await archived
     .getByLabel("Permanently delete Model Context Protocol specification")
-    .click();
-  await page
-    .getByRole("button", { name: "Permanently delete", exact: true })
     .click();
   await expect(archived).toHaveCount(0);
   const saved = await page.evaluate(() =>
@@ -188,6 +184,51 @@ test("group board keeps every tab visible and emphasizes search matches", async 
   );
 });
 
+test("saved links use extension tabs instead of capturable anchor navigation", async ({
+  page,
+}) => {
+  await openSchemaV2Library(page);
+  await page.evaluate(() => {
+    const target = window as unknown as {
+      chrome: unknown;
+      openedTabUrls: string[];
+    };
+    target.openedTabUrls = [];
+    Object.defineProperty(target, "chrome", {
+      configurable: true,
+      value: {
+        runtime: { id: "test-extension" },
+        storage: {
+          local: {
+            get: async () => ({}),
+            set: async () => undefined,
+            remove: async () => undefined,
+          },
+        },
+        tabs: {
+          create: async ({ url }: { url: string }) => {
+            target.openedTabUrls.push(url);
+          },
+        },
+      },
+    });
+  });
+
+  await page
+    .getByRole("link", {
+      name: "Agents can organize the web better than we can",
+    })
+    .first()
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as unknown as { openedTabUrls: string[] }).openedTabUrls
+      )
+    )
+    .toEqual(["https://notes.example.com/agents?b=2&a=1#part"]);
+});
+
 test("workspace sidebar remains available on secondary pages", async ({
   page,
 }) => {
@@ -226,6 +267,23 @@ test("empty Session groups remain until explicitly deleted", async ({
       })
     )
     .toBe(true);
+});
+
+test("empty groups delete immediately while populated groups require approval", async ({
+  page,
+}) => {
+  await openSchemaV2Library(page);
+
+  await page.getByLabel("Delete Empty shelf").click();
+  await expect(page.getByTestId("group-separator-empty")).toHaveCount(0);
+  await expect(
+    page.getByRole("dialog", { name: "Delete Empty shelf collection" })
+  ).toHaveCount(0);
+
+  await page.getByLabel("Delete Research").click();
+  await expect(
+    page.getByRole("dialog", { name: "Delete Research collection" })
+  ).toBeVisible();
 });
 
 test("Quick Clean merges tags/viewed and archives later exact occurrences", async ({

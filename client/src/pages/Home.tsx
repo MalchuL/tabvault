@@ -61,7 +61,6 @@ import { CollectionBoard } from "@/domain/library/components/CollectionBoard";
 import {
   CreateCollectionDialog,
   DeleteCollectionDialog,
-  DeleteTabDialog,
   EditCollectionDialog,
   EditTabDialog,
   TagManagerDialog,
@@ -239,9 +238,6 @@ export default function Home() {
   );
   const [collectionPendingDelete, setCollectionPendingDelete] =
     useState<VaultGroup | null>(null);
-  const [tabPendingDelete, setTabPendingDelete] = useState<VaultTab | null>(
-    null
-  );
   const [storageReady, setStorageReady] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(0);
   const [visibilityNow, setVisibilityNow] = useState(() => Date.now());
@@ -1093,7 +1089,6 @@ export default function Home() {
           true
         );
       }
-      setTabPendingDelete(null);
       toast.success(`Permanently deleted “${tab.title}”`);
       return;
     }
@@ -1134,7 +1129,6 @@ export default function Home() {
         serverApiKey
       );
     }
-    setTabPendingDelete(null);
     toast.success(`Archived “${tab.title}”`);
   };
 
@@ -1381,7 +1375,7 @@ export default function Home() {
       event.preventDefault();
       const tab =
         visibleTabs[Math.min(activeResultIndex, visibleTabs.length - 1)];
-      if (tab) window.open(tab.url, "_blank", "noopener,noreferrer");
+      if (tab) void openSavedTab(tab);
     }
     if (event.key === "Escape") {
       setQuery("");
@@ -1703,6 +1697,15 @@ export default function Home() {
       });
   };
 
+  const openSavedTab = async (tab: VaultTab, url = tab.url) => {
+    const result = await openTabUrls([url]);
+    if (result.openedCount) {
+      markOpenedUrlsViewed([tab.url]);
+      return;
+    }
+    toast.error("The browser blocked this tab");
+  };
+
   const openCollectionTabs = async (group: VaultGroup) => {
     const collectionTabs = tabsForCollection(group.id);
     if (!collectionTabs.length) {
@@ -1796,6 +1799,14 @@ export default function Home() {
     toast.success(`Deleted ${group.name}`, {
       description: `${movedTabs.length} tab${movedTabs.length === 1 ? "" : "s"} archived and Unassigned.`,
     });
+  };
+
+  const requestCollectionDelete = (group: VaultGroup) => {
+    if (tabs.some(tab => tab.groupId === group.id)) {
+      setCollectionPendingDelete(group);
+      return;
+    }
+    deleteCollection(group);
   };
 
   const openTabEditor = (tab: VaultTab) =>
@@ -3095,7 +3106,7 @@ export default function Home() {
                     matchedTabIds={new Set(visibleTabs.map(tab => tab.id))}
                     onOpen={group => void openCollectionTabs(group)}
                     onShare={group => void shareCollectionAsMarkdown(group)}
-                    onDelete={setCollectionPendingDelete}
+                    onDelete={requestCollectionDelete}
                     onEdit={group => setEditingCollection({ ...group })}
                     onBrowse={groupId => {
                       setSearchGroupFilter(groupId);
@@ -3136,8 +3147,11 @@ export default function Home() {
                       onToggleSelection={toggleResultSelection}
                       onMove={moveTab}
                       onEdit={openTabEditor}
+                      onOpen={(tab, url) =>
+                        void openSavedTab(tab as VaultTab, url)
+                      }
                       onViewedChange={setTabViewed}
-                      onDelete={tab => setTabPendingDelete(tab)}
+                      onDelete={tab => void deleteTab(tab as VaultTab)}
                       lifecycleMode={
                         isArchivePage
                           ? "archived"
@@ -3170,9 +3184,7 @@ export default function Home() {
                         const group = vaultGroups.find(
                           item => item.id === groupId
                         );
-                        if (group) {
-                          setCollectionPendingDelete(group);
-                        }
+                        if (group) requestCollectionDelete(group);
                       }}
                       onEditGroup={groupId => {
                         const group = vaultGroups.find(
@@ -3253,15 +3265,6 @@ export default function Home() {
             collection={collectionPendingDelete}
             onClose={() => setCollectionPendingDelete(null)}
             onDelete={() => deleteCollection(collectionPendingDelete)}
-          />
-        )}
-
-        {tabPendingDelete && (
-          <DeleteTabDialog
-            tab={tabPendingDelete}
-            permanent={isArchivePage}
-            onClose={() => setTabPendingDelete(null)}
-            onDelete={() => void deleteTab(tabPendingDelete)}
           />
         )}
 

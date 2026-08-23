@@ -171,34 +171,6 @@ export function DeleteCollectionDialog({
   );
 }
 
-export function DeleteTabDialog({
-  tab,
-  permanent,
-  onClose,
-  onDelete,
-}: {
-  tab: VaultTab;
-  permanent: boolean;
-  onClose: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <ConfirmDeleteDialog
-      ariaLabel={`${permanent ? "Permanently delete" : "Archive"} ${tab.title}`}
-      eyebrow={permanent ? "Permanent deletion" : "Archive saved tab"}
-      title={permanent ? "Permanently delete this tab?" : "Archive this tab?"}
-      description={
-        permanent
-          ? `“${tab.title}” will be removed from local storage and the configured backend. This cannot be undone.`
-          : `“${tab.title}” will leave your active library but remain recoverable in Archive.`
-      }
-      confirmLabel={permanent ? "Permanently delete" : "Archive tab"}
-      onClose={onClose}
-      onConfirm={onDelete}
-    />
-  );
-}
-
 type TagManagerDialogProps = {
   tags: Record<string, string>;
   newTagName: string;

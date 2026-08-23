@@ -64,6 +64,7 @@ type Props = {
   onToggleSelection: (id: string) => void;
   onMove: (id: string, groupId: string | null) => void;
   onEdit: (tab: TabListItem) => void;
+  onOpen: (tab: TabListItem, url?: string) => void;
   onViewedChange: (id: string, viewed: boolean) => void;
   onDelete: (tab: TabListItem) => void;
   lifecycleMode?: "visible" | "hidden" | "archived";
@@ -101,6 +102,7 @@ export function TabList({
   onToggleSelection,
   onMove,
   onEdit,
+  onOpen,
   onViewedChange,
   onDelete,
   lifecycleMode = "visible",
@@ -217,6 +219,7 @@ export function TabList({
                         onToggleSelection={onToggleSelection}
                         onMove={onMove}
                         onEdit={onEdit}
+                        onOpen={onOpen}
                         onViewedChange={onViewedChange}
                         onDelete={onDelete}
                         lifecycleMode={lifecycleMode}
@@ -426,6 +429,7 @@ type TabRowProps = {
   onToggleSelection: (id: string) => void;
   onMove: (id: string, groupId: string | null) => void;
   onEdit: (tab: TabListItem) => void;
+  onOpen: (tab: TabListItem, url?: string) => void;
   onViewedChange: (id: string, viewed: boolean) => void;
   onDelete: (tab: TabListItem) => void;
   lifecycleMode: "visible" | "hidden" | "archived";
@@ -486,6 +490,7 @@ export function TabDragPreview({
       onToggleSelection={ignore}
       onMove={ignore}
       onEdit={ignore}
+      onOpen={ignore}
       onViewedChange={ignore}
       onDelete={ignore}
       lifecycleMode="visible"
@@ -516,6 +521,7 @@ function TabRowPresentation({
   onToggleSelection,
   onMove,
   onEdit,
+  onOpen,
   onViewedChange,
   onDelete,
   lifecycleMode,
@@ -607,7 +613,15 @@ function TabRowPresentation({
             href={tab.url}
             target="_blank"
             rel="noreferrer"
-            onClick={() => onViewedChange(tab.id, true)}
+            onClick={event => {
+              event.preventDefault();
+              onOpen(tab);
+            }}
+            onAuxClick={event => {
+              if (event.button !== 1) return;
+              event.preventDefault();
+              onOpen(tab);
+            }}
             onPointerDown={event => event.stopPropagation()}
             className="min-w-0 truncate text-[12px] font-bold tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
             title={tab.title}
@@ -674,6 +688,7 @@ function TabRowPresentation({
             backend={previewBackend}
             hidden={lifecycleMode === "hidden"}
             onViewedChange={onViewedChange}
+            onOpen={onOpen}
           />
           <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-1">
             <button
@@ -730,6 +745,7 @@ function TabRowPresentation({
           fallbackMode={fallbackMode}
           hidden={lifecycleMode === "hidden"}
           onOpenTagManager={onOpenTagManager}
+          onOpen={onOpen}
           onViewedChange={onViewedChange}
         />
       )}
@@ -903,6 +919,7 @@ function StandardTabContent({
   fallbackMode,
   hidden,
   onOpenTagManager,
+  onOpen,
   onViewedChange,
 }: {
   tab: TabListItem;
@@ -911,6 +928,7 @@ function StandardTabContent({
   fallbackMode?: "text_fallback" | "semantic";
   hidden: boolean;
   onOpenTagManager: () => void;
+  onOpen: (tab: TabListItem, url?: string) => void;
   onViewedChange: (id: string, viewed: boolean) => void;
 }) {
   return (
@@ -922,7 +940,15 @@ function StandardTabContent({
             href={tab.url}
             target="_blank"
             rel="noreferrer"
-            onClick={() => onViewedChange(tab.id, true)}
+            onClick={event => {
+              event.preventDefault();
+              onOpen(tab);
+            }}
+            onAuxClick={event => {
+              if (event.button !== 1) return;
+              event.preventDefault();
+              onOpen(tab);
+            }}
             className="block min-w-0 truncate text-[13px] font-bold leading-5 tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
             title={tab.title}
           >
@@ -1057,11 +1083,13 @@ function ReadableArticlePreview({
   backend,
   hidden,
   onViewedChange,
+  onOpen,
 }: {
   tab: TabListItem;
   backend?: { url: string; apiKey: string };
   hidden: boolean;
   onViewedChange: (id: string, viewed: boolean) => void;
+  onOpen: (tab: TabListItem, url?: string) => void;
 }) {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<ReadabilityState>({
@@ -1160,7 +1188,15 @@ function ReadableArticlePreview({
               href={tab.url}
               target="_blank"
               rel="noreferrer"
-              onClick={() => onViewedChange(tab.id, true)}
+              onClick={event => {
+                event.preventDefault();
+                onOpen(tab);
+              }}
+              onAuxClick={event => {
+                if (event.button !== 1) return;
+                event.preventDefault();
+                onOpen(tab);
+              }}
               className="inline-flex items-center gap-1.5 text-[10px] font-bold text-[#43554a] hover:text-[#e95224] hover:underline"
             >
               Open original <ArrowUpRight className="h-3.5 w-3.5" />
@@ -1196,6 +1232,23 @@ function ReadableArticlePreview({
       </div>
       <div
         className="reader-preview max-h-[360px] overflow-y-auto border-y border-[#e9e3d8] bg-[#fdfbf6] px-4 py-4 text-[13px] leading-7 text-[#38463d] [&_a]:text-[#c64b27] [&_a]:underline [&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-[#d7b091] [&_blockquote]:pl-3 [&_figcaption]:mt-1 [&_figcaption]:text-[10px] [&_figcaption]:text-[#7b8078] [&_h1]:mt-5 [&_h1]:font-['DM_Sans'] [&_h1]:text-[24px] [&_h1]:font-bold [&_h2]:mt-5 [&_h2]:font-['DM_Sans'] [&_h2]:text-[20px] [&_h2]:font-bold [&_h3]:mt-4 [&_h3]:font-bold [&_img]:my-4 [&_img]:max-h-72 [&_img]:w-auto [&_img]:max-w-full [&_img]:object-contain [&_li]:ml-5 [&_li]:list-disc [&_p]:mb-4"
+        onClick={event => {
+          const anchor = (event.target as Element).closest("a");
+          if (!anchor) return;
+          const href = anchor.getAttribute("href");
+          if (!href) return;
+          event.preventDefault();
+          onOpen(tab, new URL(href, article.url).toString());
+        }}
+        onAuxClick={event => {
+          if (event.button !== 1) return;
+          const anchor = (event.target as Element).closest("a");
+          if (!anchor) return;
+          const href = anchor.getAttribute("href");
+          if (!href) return;
+          event.preventDefault();
+          onOpen(tab, new URL(href, article.url).toString());
+        }}
         dangerouslySetInnerHTML={{ __html: article.content }}
       />
       <div className="flex flex-wrap items-center gap-1.5 bg-[#fffdf8] px-4 py-3">
@@ -1211,7 +1264,15 @@ function ReadableArticlePreview({
           href={article.url}
           target="_blank"
           rel="noreferrer"
-          onClick={() => onViewedChange(tab.id, true)}
+          onClick={event => {
+            event.preventDefault();
+            onOpen(tab, article.url);
+          }}
+          onAuxClick={event => {
+            if (event.button !== 1) return;
+            event.preventDefault();
+            onOpen(tab, article.url);
+          }}
           className="ml-auto inline-flex items-center gap-1 font-mono text-[8px] uppercase tracking-[0.08em] text-[#e95224] hover:underline"
         >
           Open original <ArrowUpRight className="h-3 w-3" />
