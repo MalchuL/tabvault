@@ -18,19 +18,41 @@ DEFAULT_SERVER_URL = "http://127.0.0.1:47821"
 
 
 class TabVaultApiError(RuntimeError):
-    """Indicate an unavailable or unsuccessful local API request."""
+    """Indicate an unavailable or unsuccessful local API request.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+    """
 
 
 @dataclass(frozen=True)
 class TabVaultApi:
-    """Small standard-library client for the local TabVault API."""
+    """Small standard-library client for the local TabVault API.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Attributes:
+        base_url (str): URL used for base.
+        api_key (str | None): Typed api key value carried by this object.
+    """
 
     base_url: str
     api_key: str | None
 
     @classmethod
     def from_environment(cls) -> TabVaultApi:
-        """Build a client from server URL and API key environment values."""
+        """Build a client from server URL and API key environment values.
+
+        This MCP-facing operation deliberately uses the public local HTTP API instead of database
+        access, so agent actions observe the same visibility, validation, and transaction rules as
+        other clients.
+
+        Returns:
+            TabVaultApi: Result produced by the operation described above.
+        """
         return cls(
             os.environ.get("TABVAULT_SERVER_URL", DEFAULT_SERVER_URL).rstrip("/"),
             os.environ.get("TABVAULT_API_KEY") or None,
@@ -44,7 +66,26 @@ class TabVaultApi:
         query: dict[str, Any] | None = None,
         content_type: str = "application/json",
     ) -> dict[str, Any]:
-        """Send one request and return its structured JSON response."""
+        """Send one request and return its structured JSON response.
+
+        This MCP-facing operation deliberately uses the public local HTTP API instead of database
+        access, so agent actions observe the same visibility, validation, and transaction rules as
+        other clients.
+
+        Args:
+            method (str): Method value consumed by this operation.
+            path (str): Filesystem path used by the operation.
+            body (Any): Validated request body supplied by the caller.
+            query (dict[str, Any] | None): Search text supplied by the caller.
+            content_type (str): Content type value consumed by this operation.
+
+        Returns:
+            dict[str, Any]: Result produced by the operation described above.
+
+        Raises:
+            TabVaultApiError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         query_values = {key: value for key, value in (query or {}).items() if value is not None}
         url = f"{self.base_url}/api/v1{path}"
         if query_values:
@@ -86,18 +127,48 @@ class TabVaultApi:
 
 
 def api() -> TabVaultApi:
-    """Build the current environment-backed API client."""
+    """Build the current environment-backed API client.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Returns:
+        TabVaultApi: Result produced by the operation described above.
+    """
     return TabVaultApi.from_environment()
 
 
 def _data(response: dict[str, Any]) -> dict[str, Any]:
-    """Read one object from the standard API envelope."""
+    """Read one object from the standard API envelope.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        response (dict[str, Any]): Response value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     value = response.get("data")
     return value if isinstance(value, dict) else {}
 
 
 def _is_hidden(tab: dict[str, Any]) -> bool:
-    """Return whether an active tab is under a future visibility embargo."""
+    """Return whether an active tab is under a future visibility embargo.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        tab (dict[str, Any]): Tab value consumed by this operation.
+
+    Returns:
+        bool: Result produced by the operation described above.
+    """
     raw = tab.get("hiddenUntil")
     if not isinstance(raw, str) or not raw:
         return False
@@ -108,7 +179,22 @@ def _is_hidden(tab: dict[str, Any]) -> bool:
 
 
 def _visible_tab(client: TabVaultApi, tab_id: str) -> dict[str, Any]:
-    """Load one tab only when MCP is allowed to access it."""
+    """Load one tab only when MCP is allowed to access it.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        client (TabVaultApi): Client value consumed by this operation.
+        tab_id (str): Stable identifier of the tab targeted by the operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+
+    Raises:
+        TabVaultApiError: Propagated when its documented validation or operation condition occurs.
+    """
     response = client.request("GET", f"/tabs/{tab_id}")
     tab = _data(response)
     if tab.get("archived") is True or _is_hidden(tab):
@@ -117,7 +203,19 @@ def _visible_tab(client: TabVaultApi, tab_id: str) -> dict[str, Any]:
 
 
 def _visible_group(client: TabVaultApi, group_id: str) -> None:
-    """Require a Group to appear in the ordinary visible collection."""
+    """Require a Group to appear in the ordinary visible collection.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        client (TabVaultApi): Client value consumed by this operation.
+        group_id (str): Stable identifier of the group targeted by the operation.
+
+    Raises:
+        TabVaultApiError: Propagated when its documented validation or operation condition occurs.
+    """
     response = client.request("GET", "/groups", query={"visibility": "visible"})
     groups = _data(response).get("groups", [])
     if not any(isinstance(group, dict) and group.get("id") == group_id for group in groups):
@@ -149,7 +247,25 @@ def list_tabs(
     cursor: str | None = None,
     fields: str = "full",
 ) -> dict[str, Any]:
-    """List active visible tabs, including Unassigned or one Group category."""
+    """List active visible tabs, including Unassigned or one Group category.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        groupId (str): Groupid value consumed by this operation.
+        category (str | None): Optional free-form Group category used to restrict results.
+        tags (str): Tags value consumed by this operation.
+        search (str | None): Search value consumed by this operation.
+        limit (int): Maximum number of matching records to return.
+        cursor (str | None): Opaque keyset cursor returned by an earlier page, or ``None`` for the
+            first page.
+        fields (str): Requested response projection controlling which fields are serialized.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     return api().request(
         "GET",
         "/tabs",
@@ -173,7 +289,21 @@ def search_tabs(
     limit: int = 10,
     groupId: str | None = None,
 ) -> dict[str, Any]:
-    """Search saved tabs by meaning and text."""
+    """Search saved tabs by meaning and text.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        query (str): Search text supplied by the caller.
+        mode (Literal["semantic", "keyword", "hybrid"]): Requested import or update behavior.
+        limit (int): Maximum number of matching records to return.
+        groupId (str | None): Groupid value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     return api().request(
         "GET", "/search", query={"q": query, "mode": mode, "limit": limit, "groupId": groupId}
     )
@@ -181,7 +311,18 @@ def search_tabs(
 
 @mcp.tool(annotations=READ, structured_output=True)
 def get_tab(id: str) -> dict[str, Any]:
-    """Read one active visible saved tab."""
+    """Read one active visible saved tab.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        id (str): Id value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     client = api()
     return _visible_tab(client, id)
 
@@ -196,7 +337,24 @@ def save_tab(
     tags: list[str] | None = None,
     groupId: str | None = None,
 ) -> dict[str, Any]:
-    """Save exactly one active occurrence with optional metadata."""
+    """Save exactly one active occurrence with optional metadata.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        url (str): Absolute HTTP or HTTPS URL used by the operation.
+        title (str | None): Title value consumed by this operation.
+        note (str): Note value consumed by this operation.
+        agentReview (str): Agentreview value consumed by this operation.
+        viewed (bool): Viewed value consumed by this operation.
+        tags (list[str] | None): Tags value consumed by this operation.
+        groupId (str | None): Groupid value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     client = api()
     if groupId is not None:
         _visible_group(client, groupId)
@@ -227,7 +385,26 @@ def update_tab(
     position: float | None = None,
     hiddenUntil: str | None = None,
 ) -> dict[str, Any]:
-    """Update supplied fields on one active visible tab."""
+    """Update supplied fields on one active visible tab.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        id (str): Id value consumed by this operation.
+        url (str | None): Absolute HTTP or HTTPS URL used by the operation.
+        title (str | None): Title value consumed by this operation.
+        note (str | None): Note value consumed by this operation.
+        agentReview (str | None): Agentreview value consumed by this operation.
+        viewed (bool | None): Viewed value consumed by this operation.
+        tags (list[str] | None): Tags value consumed by this operation.
+        position (float | None): Position value consumed by this operation.
+        hiddenUntil (str | None): Hiddenuntil value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     client = api()
     _visible_tab(client, id)
     values = {
@@ -247,7 +424,18 @@ def update_tab(
 
 @mcp.tool(annotations=DESTRUCTIVE, structured_output=True)
 def delete_tab(id: str) -> dict[str, Any]:
-    """Archive and Unassign one active visible tab."""
+    """Archive and Unassign one active visible tab.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        id (str): Id value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     client = api()
     _visible_tab(client, id)
     return client.request("DELETE", f"/tabs/{id}")
@@ -257,7 +445,20 @@ def delete_tab(id: str) -> dict[str, Any]:
 def move_tab(
     id: str, targetGroupId: str | None = None, position: int | None = None
 ) -> dict[str, Any]:
-    """PATCH one active visible tab into a Group or Unassigned."""
+    """PATCH one active visible tab into a Group or Unassigned.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        id (str): Id value consumed by this operation.
+        targetGroupId (str | None): Targetgroupid value consumed by this operation.
+        position (int | None): Position value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     client = api()
     _visible_tab(client, id)
     if targetGroupId is not None:
@@ -270,7 +471,18 @@ def move_tab(
 
 @mcp.tool(annotations=READ, structured_output=True)
 def list_groups(category: str | None = None) -> dict[str, Any]:
-    """List visible flat Groups, optionally restricted by category."""
+    """List visible flat Groups, optionally restricted by category.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        category (str | None): Optional free-form Group category used to restrict results.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     return api().request("GET", "/groups", query={"visibility": "visible", "category": category})
 
 
@@ -280,7 +492,20 @@ def create_group(
     description: str = "",
     color: str | None = None,
 ) -> dict[str, Any]:
-    """Create a Manual Group."""
+    """Create a Manual Group.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        name (str): Human-readable name used by the operation.
+        description (str): Description value consumed by this operation.
+        color (str | None): Color value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     return api().request(
         "POST",
         "/groups",
@@ -296,7 +521,22 @@ def update_group(
     color: str | None = None,
     position: float | None = None,
 ) -> dict[str, Any]:
-    """Update a visible Group and explicitly reclassify it as manual."""
+    """Update a visible Group and explicitly reclassify it as manual.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        id (str): Id value consumed by this operation.
+        name (str | None): Human-readable name used by the operation.
+        description (str | None): Description value consumed by this operation.
+        color (str | None): Color value consumed by this operation.
+        position (float | None): Position value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     client = api()
     _visible_group(client, id)
     values = {
@@ -313,7 +553,21 @@ def update_group(
 
 @mcp.tool(annotations=DESTRUCTIVE, structured_output=True)
 def delete_group(id: str) -> dict[str, Any]:
-    """Delete a visible Group when it contains no hidden members."""
+    """Delete a visible Group when it contains no hidden members.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        id (str): Id value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+
+    Raises:
+        TabVaultApiError: Propagated when its documented validation or operation condition occurs.
+    """
     client = api()
     _visible_group(client, id)
     hidden = client.request(
@@ -328,13 +582,33 @@ def delete_group(id: str) -> dict[str, Any]:
 
 @mcp.tool(annotations=READ, structured_output=True)
 def list_tags() -> dict[str, Any]:
-    """List known tags and their descriptions."""
+    """List known tags and their descriptions.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     return api().request("GET", "/tags")
 
 
 @mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)
 def tag_tab(tabId: str, tagName: str) -> dict[str, Any]:
-    """Attach one tag to one tab."""
+    """Attach one tag to one tab.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        tabId (str): Tabid value consumed by this operation.
+        tagName (str): Tagname value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     client = api()
     _visible_tab(client, tabId)
     return client.request("POST", f"/tabs/{tabId}/tags", {"tagName": tagName})
@@ -342,14 +616,31 @@ def tag_tab(tabId: str, tagName: str) -> dict[str, Any]:
 
 @mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)
 def untag_tab(tabId: str, tagName: str) -> dict[str, Any]:
-    """Detach one tag from one tab."""
+    """Detach one tag from one tab.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+
+    Args:
+        tabId (str): Tabid value consumed by this operation.
+        tagName (str): Tagname value consumed by this operation.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     client = api()
     _visible_tab(client, tabId)
     return client.request("DELETE", f"/tabs/{tabId}/tags/{tagName}")
 
 
 def main() -> None:
-    """Run the MCP server over its configured transport."""
+    """Run the MCP server over its configured transport.
+
+    This MCP-facing operation deliberately uses the public local HTTP API instead of database
+    access, so agent actions observe the same visibility, validation, and transaction rules as other
+    clients.
+    """
     mcp.run()
 
 

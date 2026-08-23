@@ -26,7 +26,12 @@ logger = logging.getLogger(__name__)
 
 
 class PreviewService:
-    """Capture sanitized tab previews while owning transactions."""
+    """Capture sanitized tab previews while owning transactions.
+
+    The operation participates in the local preview pipeline, where remote content is bounded,
+    sanitized, and converted into database metadata without exposing unsanitized markup to API
+    consumers.
+    """
 
     def __init__(
         self,
@@ -35,7 +40,19 @@ class PreviewService:
         capture: WebCaptureProtocol,
         repository: SystemRepository,
     ) -> None:
-        """Initialize preview capture dependencies."""
+        """Initialize preview capture dependencies.
+
+        The operation participates in the local preview pipeline, where remote content is bounded,
+        sanitized, and converted into database metadata without exposing unsanitized markup to API
+        consumers.
+
+        Args:
+            db (AsyncSession): Request-scoped asynchronous database session used by this operation.
+            settings (Settings): Validated process settings that control this component.
+            capture (WebCaptureProtocol): Capture value consumed by this operation.
+            repository (SystemRepository): Persistence adapter used to load and mutate domain
+                records.
+        """
         self.db = db
         self.settings = settings
         self.capture = capture
@@ -49,7 +66,21 @@ class PreviewService:
         content_type: str,
         source_url: str,
     ) -> Asset:
-        """Write and persist one deduplicated captured asset."""
+        """Write and persist one deduplicated captured asset.
+
+        The operation participates in the local preview pipeline, where remote content is bounded,
+        sanitized, and converted into database metadata without exposing unsanitized markup to API
+        consumers.
+
+        Args:
+            kind (AssetKind): Kind value consumed by this operation.
+            content (bytes): Untrusted serialized content to parse or validate.
+            content_type (str): Content type value consumed by this operation.
+            source_url (str): Source url value consumed by this operation.
+
+        Returns:
+            Asset: Result produced by the operation described above.
+        """
         checksum = hashlib.sha256(content).hexdigest()
         existing = await self.repository.find_asset_checksum(checksum)
         if existing:
@@ -82,7 +113,20 @@ class PreviewService:
     def _extract(
         content: bytes, base_url: str
     ) -> tuple[ExtractedArticleDTO, list[str], str | None]:
-        """Extract and sanitize readable article content from HTML."""
+        """Extract and sanitize readable article content from HTML.
+
+        The operation participates in the local preview pipeline, where remote content is bounded,
+        sanitized, and converted into database metadata without exposing unsanitized markup to API
+        consumers.
+
+        Args:
+            content (bytes): Untrusted serialized content to parse or validate.
+            base_url (str): Base url value consumed by this operation.
+
+        Returns:
+            tuple[ExtractedArticleDTO, list[str], str | None]: Result produced by the operation
+                described above.
+        """
         source = content.decode("utf-8", errors="replace")
         doc = Document(source)
         summary = doc.summary(html_partial=True, keep_all_images=True)
@@ -144,7 +188,18 @@ class PreviewService:
         )
 
     async def capture_tab(self, tab_id: str) -> PreviewCaptureResultDTO:
-        """Capture, sanitize, and persist preview content for one tab."""
+        """Capture, sanitize, and persist preview content for one tab.
+
+        The operation participates in the local preview pipeline, where remote content is bounded,
+        sanitized, and converted into database metadata without exposing unsanitized markup to API
+        consumers.
+
+        Args:
+            tab_id (str): Stable identifier of the tab targeted by the operation.
+
+        Returns:
+            PreviewCaptureResultDTO: Result produced by the operation described above.
+        """
         tab = await self.repository.get_tab(tab_id)
         if tab is None:
             return PreviewCaptureResultDTO(skipped="tab_not_found")

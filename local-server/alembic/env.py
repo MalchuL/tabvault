@@ -19,7 +19,11 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    """Run migrations using only a configured database URL."""
+    """Run migrations using only a configured database URL.
+
+    Alembic invokes this entry point while moving a database between declared schema revisions;
+    application services are not available during this operation.
+    """
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
@@ -32,7 +36,11 @@ def run_migrations_offline() -> None:
 
 
 def run_online_migrations() -> None:
-    """Run migrations through a synchronous migration connection."""
+    """Run migrations through a synchronous migration connection.
+
+    Alembic invokes this entry point while moving a database between declared schema revisions;
+    application services are not available during this operation.
+    """
     engine = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

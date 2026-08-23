@@ -12,10 +12,25 @@ from .repository import GroupRepository
 
 
 class GroupService:
-    """Orchestrate flat Group use cases."""
+    """Orchestrate flat Group use cases.
+
+    This application-layer operation coordinates domain rules and persistence, then maps loaded ORM
+    state into transport DTOs. Callers do not need to know how records are queried or related data
+    is assembled.
+    """
 
     def __init__(self, db: AsyncSession, repository: GroupRepository) -> None:
-        """Initialize the service and persistence dependency."""
+        """Initialize the service and persistence dependency.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            db (AsyncSession): Request-scoped asynchronous database session used by this operation.
+            repository (GroupRepository): Persistence adapter used to load and mutate domain
+                records.
+        """
         self.db = db
         self.repository = repository
         self.mapper = GroupMapper()
@@ -23,7 +38,19 @@ class GroupService:
     async def list(
         self, visibility: TabVisibility = "visible", category: str | None = None
     ) -> list[GroupDTO]:
-        """List Groups relevant to one mutually exclusive visibility page."""
+        """List Groups relevant to one mutually exclusive visibility page.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
+            category (str | None): Optional free-form Group category used to restrict results.
+
+        Returns:
+            list[GroupDTO]: Result produced by the operation described above.
+        """
         groups = await self.repository.list_groups(category)
         if visibility == "archived":
             return []
@@ -41,7 +68,22 @@ class GroupService:
         ]
 
     async def get(self, group_id: str) -> GroupDTO:
-        """Return one Group or fail without hierarchy semantics."""
+        """Return one Group or fail without hierarchy semantics.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            group_id (str): Stable identifier of the group targeted by the operation.
+
+        Returns:
+            GroupDTO: Result produced by the operation described above.
+
+        Raises:
+            GroupNotFoundError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         group = await self.repository.get(group_id)
         if group is None:
             raise GroupNotFoundError(f"Group {group_id!r} was not found")
@@ -49,7 +91,18 @@ class GroupService:
         return self.mapper.to_dto(group, visible.get(group.id, 0))
 
     async def create(self, dto: GroupCreateDTO) -> GroupDTO:
-        """Create one Group."""
+        """Create one Group.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Args:
+            dto (GroupCreateDTO): Validated data-transfer object supplied to the operation.
+
+        Returns:
+            GroupDTO: Result produced by the operation described above.
+        """
         position = (
             dto.position if dto.position is not None else await self.repository.next_position()
         )
@@ -63,7 +116,25 @@ class GroupService:
         return self.mapper.to_dto(group)
 
     async def update(self, group_id: str, dto: GroupUpdateDTO) -> GroupDTO:
-        """Patch one Group."""
+        """Patch one Group.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Args:
+            group_id (str): Stable identifier of the group targeted by the operation.
+            dto (GroupUpdateDTO): Validated data-transfer object supplied to the operation.
+
+        Returns:
+            GroupDTO: Result produced by the operation described above.
+
+        Raises:
+            EmptyGroupUpdateError: Propagated when its documented validation or operation condition
+                occurs.
+            GroupNotFoundError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         group = await self.repository.get(group_id)
         if group is None:
             raise GroupNotFoundError(f"Group {group_id!r} was not found")
@@ -80,7 +151,22 @@ class GroupService:
         return self.mapper.to_dto(group)
 
     async def delete(self, group_id: str) -> GroupDeleteResultDTO:
-        """Archive and Unassign all members, then permanently delete the Group."""
+        """Archive and Unassign all members, then permanently delete the Group.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Args:
+            group_id (str): Stable identifier of the group targeted by the operation.
+
+        Returns:
+            GroupDeleteResultDTO: Result produced by the operation described above.
+
+        Raises:
+            GroupNotFoundError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         if await self.repository.get(group_id) is None:
             raise GroupNotFoundError(f"Group {group_id!r} was not found")
         now = utc_now()

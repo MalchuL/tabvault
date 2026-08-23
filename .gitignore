@@ -120,3 +120,4 @@ temp/
 
 .project-config.json
 
+local-server/.coverage

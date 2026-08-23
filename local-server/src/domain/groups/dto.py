@@ -10,7 +10,22 @@ from lib.dto_config import model_config
 
 
 class GroupCreateDTO(BaseModel):
-    """Describe one Group to create."""
+    """Describe one Group to create.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        name (str): Typed name value carried by this object.
+        category (str): Free-form Group category, such as ``session`` or ``manual``.
+        description (str | None): Optional human-readable explanatory text.
+        color (str | None): Typed color value carried by this object.
+        position (float | None): Stable display position within the current Group or Unassigned
+            section.
+        id (str | None): Stable identifier for this record.
+        created_at (datetime | None): UTC instant at which the record was created.
+        updated_at (datetime | None): UTC instant at which the record was last changed.
+    """
 
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=128)
@@ -24,7 +39,19 @@ class GroupCreateDTO(BaseModel):
 
 
 class GroupUpdateDTO(BaseModel):
-    """Describe explicitly supplied Group fields."""
+    """Describe explicitly supplied Group fields.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        name (str | None): Typed name value carried by this object.
+        category (str | None): Free-form Group category, such as ``session`` or ``manual``.
+        description (str | None): Optional human-readable explanatory text.
+        color (str | None): Typed color value carried by this object.
+        position (float | None): Stable display position within the current Group or Unassigned
+            section.
+    """
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     category: str | None = Field(default=None, min_length=1, max_length=128)
@@ -35,7 +62,22 @@ class GroupUpdateDTO(BaseModel):
 
 
 class GroupDTO(BaseModel):
-    """Represent one flat Group."""
+    """Represent one flat Group.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        id (str): Stable identifier for this record.
+        name (str): Typed name value carried by this object.
+        category (str): Free-form Group category, such as ``session`` or ``manual``.
+        description (str): Optional human-readable explanatory text.
+        color (str | None): Typed color value carried by this object.
+        position (float): Stable display position within the current Group or Unassigned section.
+        created_at (datetime): UTC instant at which the record was created.
+        updated_at (datetime): UTC instant at which the record was last changed.
+        tab_count (int): Number of tab records represented by this object.
+    """
 
     id: str
     name: str
@@ -50,14 +92,30 @@ class GroupDTO(BaseModel):
 
 
 class GroupListDataDTO(BaseModel):
-    """Expose Groups in the common API envelope."""
+    """Expose Groups in the common API envelope.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        groups (list[GroupDTO]): Typed groups value carried by this object.
+    """
 
     groups: list[GroupDTO]
     model_config = model_config()
 
 
 class GroupDeleteResultDTO(BaseModel):
-    """Describe permanent Group deletion and archived members."""
+    """Describe permanent Group deletion and archived members.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        id (str): Stable identifier for this record.
+        archived_tab_count (int): Number of archived tab records represented by this object.
+        deleted_at (datetime): UTC instant associated with deleted.
+    """
 
     id: str
     archived_tab_count: int

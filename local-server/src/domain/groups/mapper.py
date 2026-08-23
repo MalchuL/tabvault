@@ -9,11 +9,28 @@ from .dto import GroupCreateDTO, GroupDTO, GroupUpdateDTO
 
 
 class GroupMapper:
-    """Convert between Group DTOs and ORM models."""
+    """Convert between Group DTOs and ORM models.
+
+    Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+    boundary and centralizes differences between database field names, public DTOs, and portable
+    transfer records.
+    """
 
     @staticmethod
     def to_dto(group: Group, tab_count: int = 0) -> GroupDTO:
-        """Convert a Group row to its response DTO."""
+        """Convert a Group row to its response DTO.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            group (Group): Group value consumed by this operation.
+            tab_count (int): Tab count value consumed by this operation.
+
+        Returns:
+            GroupDTO: Result produced by the operation described above.
+        """
         return GroupDTO(
             id=group.id,
             name=group.name,
@@ -28,7 +45,19 @@ class GroupMapper:
 
     @staticmethod
     def from_create_dto(dto: GroupCreateDTO, position: float) -> Group:
-        """Create a Group row from a validated request."""
+        """Create a Group row from a validated request.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            dto (GroupCreateDTO): Validated data-transfer object supplied to the operation.
+            position (float): Position value consumed by this operation.
+
+        Returns:
+            Group: Result produced by the operation described above.
+        """
         values: dict[str, Any] = {
             "name": dto.name,
             "category": dto.category,
@@ -44,7 +73,18 @@ class GroupMapper:
 
     @staticmethod
     def to_update_dict(dto: GroupUpdateDTO) -> dict[str, Any]:
-        """Convert explicitly supplied fields to ORM names."""
+        """Convert explicitly supplied fields to ORM names.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            dto (GroupUpdateDTO): Validated data-transfer object supplied to the operation.
+
+        Returns:
+            dict[str, Any]: Result produced by the operation described above.
+        """
         values = dto.model_dump(exclude_unset=True)
         if "description" in values and values["description"] is None:
             values["description"] = ""

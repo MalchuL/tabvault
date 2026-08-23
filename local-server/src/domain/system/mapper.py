@@ -22,16 +22,43 @@ from .dto import (
 
 
 class SystemMapper:
-    """Convert system ORM rows and stable values to DTOs."""
+    """Convert system ORM rows and stable values to DTOs.
+
+    Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+    boundary and centralizes differences between database field names, public DTOs, and portable
+    transfer records.
+    """
 
     @staticmethod
     def vector_status(value: dict[str, object]) -> VectorStatusDTO:
-        """Validate vector-index status data."""
+        """Validate vector-index status data.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            value (dict[str, object]): Value to validate, convert, or persist.
+
+        Returns:
+            VectorStatusDTO: Result produced by the operation described above.
+        """
         return VectorStatusDTO.model_validate(value)
 
     @staticmethod
     def job_to_dto(job: Job) -> JobDTO:
-        """Convert a job row to a response DTO."""
+        """Convert a job row to a response DTO.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            job (Job): Job value consumed by this operation.
+
+        Returns:
+            JobDTO: Result produced by the operation described above.
+        """
         return JobDTO(
             id=job.id,
             status=job.status,
@@ -44,7 +71,18 @@ class SystemMapper:
 
     @staticmethod
     def backup_to_dto(backup: Backup) -> BackupDTO:
-        """Convert a backup row to a response DTO."""
+        """Convert a backup row to a response DTO.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            backup (Backup): Backup value consumed by this operation.
+
+        Returns:
+            BackupDTO: Result produced by the operation described above.
+        """
         return BackupDTO(
             id=backup.id,
             created_at=backup.created_at,
@@ -54,7 +92,19 @@ class SystemMapper:
 
     @staticmethod
     def preview_to_dto(tab_id: str, preview: Preview | None) -> PreviewDTO:
-        """Convert optional preview state to a response DTO."""
+        """Convert optional preview state to a response DTO.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            tab_id (str): Stable identifier of the tab targeted by the operation.
+            preview (Preview | None): Preview value consumed by this operation.
+
+        Returns:
+            PreviewDTO: Result produced by the operation described above.
+        """
         if preview is None:
             return PreviewDTO(
                 tab_id=tab_id,
@@ -78,7 +128,18 @@ class SystemMapper:
 
     @staticmethod
     def schedule_to_dto(schedule: HealthSchedule) -> HealthScheduleDTO:
-        """Convert a health schedule row to a response DTO."""
+        """Convert a health schedule row to a response DTO.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            schedule (HealthSchedule): Schedule value consumed by this operation.
+
+        Returns:
+            HealthScheduleDTO: Result produced by the operation described above.
+        """
         return HealthScheduleDTO(
             enabled=schedule.interval_seconds > 0,
             interval_seconds=schedule.interval_seconds,
@@ -90,12 +151,35 @@ class SystemMapper:
 
     @staticmethod
     def asset_file(path: Path, media_type: str) -> AssetFileDTO:
-        """Create a typed asset-file result."""
+        """Create a typed asset-file result.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            path (Path): Filesystem path used by the operation.
+            media_type (str): Media type value consumed by this operation.
+
+        Returns:
+            AssetFileDTO: Result produced by the operation described above.
+        """
         return AssetFileDTO(path=path, media_type=media_type)
 
     @staticmethod
     def tag_to_transfer(tag: Tag) -> TransferTagDTO:
-        """Convert a tag row to a portable-document DTO."""
+        """Convert a tag row to a portable-document DTO.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            tag (Tag): Tag value consumed by this operation.
+
+        Returns:
+            TransferTagDTO: Result produced by the operation described above.
+        """
         return TransferTagDTO(
             name=tag.name,
             description=tag.description,
@@ -105,7 +189,18 @@ class SystemMapper:
 
     @staticmethod
     def group_to_transfer(group: Group) -> TransferGroupDTO:
-        """Convert a group row to a portable-document DTO."""
+        """Convert a group row to a portable-document DTO.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            group (Group): Group value consumed by this operation.
+
+        Returns:
+            TransferGroupDTO: Result produced by the operation described above.
+        """
         return TransferGroupDTO(
             id=group.id,
             name=group.name,
@@ -119,7 +214,18 @@ class SystemMapper:
 
     @staticmethod
     def tab_to_transfer(tab: Tab) -> TransferTabDTO:
-        """Convert a tab row to a portable-document DTO."""
+        """Convert a tab row to a portable-document DTO.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            tab (Tab): Tab value consumed by this operation.
+
+        Returns:
+            TransferTabDTO: Result produced by the operation described above.
+        """
         return TransferTabDTO(
             id=tab.id,
             url=tab.url,
@@ -140,7 +246,18 @@ class SystemMapper:
 
     @staticmethod
     def tag_from_transfer(dto: TransferTagDTO) -> Tag:
-        """Create a tag model from portable data."""
+        """Create a tag model from portable data.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            dto (TransferTagDTO): Validated data-transfer object supplied to the operation.
+
+        Returns:
+            Tag: Result produced by the operation described above.
+        """
         return Tag(
             name=dto.name,
             description=dto.description,
@@ -150,7 +267,18 @@ class SystemMapper:
 
     @staticmethod
     def group_from_transfer(dto: TransferGroupDTO) -> Group:
-        """Create a group model from portable data."""
+        """Create a group model from portable data.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            dto (TransferGroupDTO): Validated data-transfer object supplied to the operation.
+
+        Returns:
+            Group: Result produced by the operation described above.
+        """
         return Group(
             id=dto.id,
             name=dto.name,
@@ -164,12 +292,34 @@ class SystemMapper:
 
     @staticmethod
     def tag_transfer_changes(dto: TransferTagDTO) -> dict[str, object]:
-        """Map newer portable tag data to ORM fields."""
+        """Map newer portable tag data to ORM fields.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            dto (TransferTagDTO): Validated data-transfer object supplied to the operation.
+
+        Returns:
+            dict[str, object]: Result produced by the operation described above.
+        """
         return {"description": dto.description, "updated_at": dto.updated_at}
 
     @staticmethod
     def group_transfer_changes(dto: TransferGroupDTO) -> dict[str, object]:
-        """Map newer portable group data to ORM fields."""
+        """Map newer portable group data to ORM fields.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            dto (TransferGroupDTO): Validated data-transfer object supplied to the operation.
+
+        Returns:
+            dict[str, object]: Result produced by the operation described above.
+        """
         return {
             "name": dto.name,
             "category": dto.category,
@@ -181,7 +331,19 @@ class SystemMapper:
 
     @staticmethod
     def tab_from_transfer(dto: TransferTabDTO, tags: list[Tag]) -> Tab:
-        """Create a tab model from portable data."""
+        """Create a tab model from portable data.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            dto (TransferTabDTO): Validated data-transfer object supplied to the operation.
+            tags (list[Tag]): Tags value consumed by this operation.
+
+        Returns:
+            Tab: Result produced by the operation described above.
+        """
         return Tab(
             id=dto.id,
             url=dto.url,
@@ -201,7 +363,19 @@ class SystemMapper:
 
     @staticmethod
     def tab_transfer_changes(dto: TransferTabDTO, tags: list[Tag]) -> dict[str, object]:
-        """Map newer portable tab data to ORM fields."""
+        """Map newer portable tab data to ORM fields.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            dto (TransferTabDTO): Validated data-transfer object supplied to the operation.
+            tags (list[Tag]): Tags value consumed by this operation.
+
+        Returns:
+            dict[str, object]: Result produced by the operation described above.
+        """
         return {
             "url": dto.url,
             "title": dto.title,
@@ -219,12 +393,39 @@ class SystemMapper:
 
     @staticmethod
     def backup(backup_id: str, path: Path, reason: str, size_bytes: int) -> Backup:
-        """Create a backup model from generated file metadata."""
+        """Create a backup model from generated file metadata.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            backup_id (str): Stable identifier of the backup targeted by the operation.
+            path (Path): Filesystem path used by the operation.
+            reason (str): Stable reason recorded for the operation.
+            size_bytes (int): Size bytes value consumed by this operation.
+
+        Returns:
+            Backup: Result produced by the operation described above.
+        """
         return Backup(id=backup_id, path=str(path), reason=reason, size_bytes=size_bytes)
 
     @staticmethod
     def job(kind: str, target_id: str | None = None, result: dict[str, Any] | None = None) -> Job:
-        """Create a job model from stable scheduling values."""
+        """Create a job model from stable scheduling values.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            kind (str): Kind value consumed by this operation.
+            target_id (str | None): Stable identifier of the target targeted by the operation.
+            result (dict[str, Any] | None): Result value consumed by this operation.
+
+        Returns:
+            Job: Result produced by the operation described above.
+        """
         return Job(kind=kind, target_id=target_id, result=result)
 
     @staticmethod
@@ -237,7 +438,23 @@ class SystemMapper:
         checksum: str,
         source_url: str,
     ) -> Asset:
-        """Create an asset model from captured file metadata."""
+        """Create an asset model from captured file metadata.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            kind (str): Kind value consumed by this operation.
+            path (Path): Filesystem path used by the operation.
+            content_type (str): Content type value consumed by this operation.
+            size_bytes (int): Size bytes value consumed by this operation.
+            checksum (str): Checksum value consumed by this operation.
+            source_url (str): Source url value consumed by this operation.
+
+        Returns:
+            Asset: Result produced by the operation described above.
+        """
         return Asset(
             kind=kind,
             path=str(path),
@@ -249,5 +466,16 @@ class SystemMapper:
 
     @staticmethod
     def preview(tab_id: str) -> Preview:
-        """Create pending preview state for a tab."""
+        """Create pending preview state for a tab.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            tab_id (str): Stable identifier of the tab targeted by the operation.
+
+        Returns:
+            Preview: Result produced by the operation described above.
+        """
         return Preview(tab_id=tab_id)

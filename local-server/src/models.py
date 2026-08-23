@@ -34,11 +34,22 @@ HealthResult: TypeAlias = Literal["ready", "needs_attention"]
 
 
 class Base(DeclarativeBase):
-    """Declarative base for every persisted model."""
+    """Declarative base for every persisted model.
+
+    SQLAlchemy maps this definition to the local relational schema. Services enforce lifecycle rules
+    around the model, while repositories load and mutate it inside request-scoped transactions.
+    """
 
 
 def uuid4() -> str:
-    """Return a random UUID string for model defaults."""
+    """Return a random UUID string for model defaults.
+
+    SQLAlchemy maps this definition to the local relational schema. Services enforce lifecycle rules
+    around the model, while repositories load and mutate it inside request-scoped transactions.
+
+    Returns:
+        str: Result produced by the operation described above.
+    """
     return str(uuid.uuid4())
 
 
@@ -51,7 +62,22 @@ tab_tags = Table(
 
 
 class Group(Base):
-    """Persist a flat categorized tab group."""
+    """Persist a flat categorized tab group.
+
+    SQLAlchemy maps this definition to the local relational schema. Services enforce lifecycle rules
+    around the model, while repositories load and mutate it inside request-scoped transactions.
+
+    Attributes:
+        id (Mapped[str]): Stable identifier for this record.
+        name (Mapped[str]): Typed name value carried by this object.
+        description (Mapped[str]): Optional human-readable explanatory text.
+        category (Mapped[str]): Free-form Group category, such as ``session`` or ``manual``.
+        color (Mapped[str | None]): Typed color value carried by this object.
+        position (Mapped[float]): Stable display position within the current Group or Unassigned
+            section.
+        created_at (Mapped[datetime]): UTC instant at which the record was created.
+        updated_at (Mapped[datetime]): UTC instant at which the record was last changed.
+    """
 
     __tablename__ = "groups"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid4)
@@ -67,7 +93,31 @@ class Group(Base):
 
 
 class Tab(Base):
-    """Persist a saved browser tab and its archive state."""
+    """Persist a saved browser tab and its archive state.
+
+    SQLAlchemy maps this definition to the local relational schema. Services enforce lifecycle rules
+    around the model, while repositories load and mutate it inside request-scoped transactions.
+
+    Attributes:
+        id (Mapped[str]): Stable identifier for this record.
+        url (Mapped[str]): Original saved URL, preserved without canonicalization.
+        title (Mapped[str]): Human-readable title.
+        favicon_asset_id (Mapped[str | None]): Stable identifier of the related favicon asset.
+        note (Mapped[str]): User-authored note stored with the Saved Tab.
+        agent_review (Mapped[str]): Agent-authored review text stored with the Saved Tab.
+        viewed (Mapped[bool]): Whether any equivalent occurrence has been viewed.
+        group_id (Mapped[str | None]): Identifier of the containing Group, or ``None`` for
+            Unassigned.
+        position (Mapped[float]): Stable display position within the current Group or Unassigned
+            section.
+        archived (Mapped[bool]): Whether the record is outside the active library.
+        archived_at (Mapped[datetime | None]): UTC instant at which the record entered the archive.
+        hidden_until (Mapped[datetime | None]): Absolute UTC deadline before which the tab stays
+            hidden.
+        created_at (Mapped[datetime]): UTC instant at which the record was created.
+        updated_at (Mapped[datetime]): UTC instant at which the record was last changed.
+        tags (Mapped[list[Tag]]): Tags associated with the Saved Tab.
+    """
 
     __tablename__ = "tabs"
     # Ensure that archived tabs cannot belong to any group.
@@ -99,7 +149,17 @@ class Tab(Base):
 
 
 class Tag(Base):
-    """Persist case-insensitive tag metadata."""
+    """Persist case-insensitive tag metadata.
+
+    SQLAlchemy maps this definition to the local relational schema. Services enforce lifecycle rules
+    around the model, while repositories load and mutate it inside request-scoped transactions.
+
+    Attributes:
+        name (Mapped[str]): Typed name value carried by this object.
+        description (Mapped[str | None]): Optional human-readable explanatory text.
+        created_at (Mapped[datetime]): UTC instant at which the record was created.
+        updated_at (Mapped[datetime]): UTC instant at which the record was last changed.
+    """
 
     __tablename__ = "tags"
     name: Mapped[str] = mapped_column(String(256, collation="NOCASE"), primary_key=True)
@@ -111,7 +171,21 @@ class Tag(Base):
 
 
 class Asset(Base):
-    """Persist metadata for a captured local asset file."""
+    """Persist metadata for a captured local asset file.
+
+    SQLAlchemy maps this definition to the local relational schema. Services enforce lifecycle rules
+    around the model, while repositories load and mutate it inside request-scoped transactions.
+
+    Attributes:
+        id (Mapped[str]): Stable identifier for this record.
+        kind (Mapped[AssetKind]): Typed kind value carried by this object.
+        path (Mapped[str]): Typed path value carried by this object.
+        content_type (Mapped[str]): Typed content type value carried by this object.
+        size_bytes (Mapped[int]): Typed size bytes value carried by this object.
+        checksum (Mapped[str]): Typed checksum value carried by this object.
+        source_url (Mapped[str | None]): URL used for source.
+        created_at (Mapped[datetime]): UTC instant at which the record was created.
+    """
 
     __tablename__ = "assets"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid4)
@@ -125,7 +199,24 @@ class Asset(Base):
 
 
 class Preview(Base):
-    """Persist sanitized preview content for a tab."""
+    """Persist sanitized preview content for a tab.
+
+    SQLAlchemy maps this definition to the local relational schema. Services enforce lifecycle rules
+    around the model, while repositories load and mutate it inside request-scoped transactions.
+
+    Attributes:
+        tab_id (Mapped[str]): Stable identifier of the related tab.
+        status (Mapped[PreviewStatus]): Current lifecycle or readiness state.
+        title (Mapped[str | None]): Human-readable title.
+        byline (Mapped[str | None]): Typed byline value carried by this object.
+        site_name (Mapped[str | None]): Typed site name value carried by this object.
+        excerpt (Mapped[str | None]): Typed excerpt value carried by this object.
+        content_html (Mapped[str | None]): Typed content html value carried by this object.
+        length (Mapped[int]): Typed length value carried by this object.
+        source_url (Mapped[str | None]): URL used for source.
+        error (Mapped[str | None]): Typed error value carried by this object.
+        fetched_at (Mapped[datetime | None]): UTC instant associated with fetched.
+    """
 
     __tablename__ = "previews"
     tab_id: Mapped[str] = mapped_column(ForeignKey("tabs.id", ondelete="CASCADE"), primary_key=True)
@@ -142,7 +233,22 @@ class Preview(Base):
 
 
 class Job(Base):
-    """Persist a local background job and its result."""
+    """Persist a local background job and its result.
+
+    SQLAlchemy maps this definition to the local relational schema. Services enforce lifecycle rules
+    around the model, while repositories load and mutate it inside request-scoped transactions.
+
+    Attributes:
+        id (Mapped[str]): Stable identifier for this record.
+        kind (Mapped[JobKind]): Typed kind value carried by this object.
+        target_id (Mapped[str | None]): Stable identifier of the related target.
+        status (Mapped[JobStatus]): Current lifecycle or readiness state.
+        progress (Mapped[float]): Typed progress value carried by this object.
+        result (Mapped[dict[str, Any] | None]): Typed result value carried by this object.
+        error (Mapped[str | None]): Typed error value carried by this object.
+        created_at (Mapped[datetime]): UTC instant at which the record was created.
+        updated_at (Mapped[datetime]): UTC instant at which the record was last changed.
+    """
 
     __tablename__ = "jobs"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid4)
@@ -159,7 +265,18 @@ class Job(Base):
 
 
 class Backup(Base):
-    """Persist metadata for an on-disk portable backup."""
+    """Persist metadata for an on-disk portable backup.
+
+    SQLAlchemy maps this definition to the local relational schema. Services enforce lifecycle rules
+    around the model, while repositories load and mutate it inside request-scoped transactions.
+
+    Attributes:
+        id (Mapped[str]): Stable identifier for this record.
+        path (Mapped[str]): Typed path value carried by this object.
+        reason (Mapped[BackupReason]): Typed reason value carried by this object.
+        size_bytes (Mapped[int]): Typed size bytes value carried by this object.
+        created_at (Mapped[datetime]): UTC instant at which the record was created.
+    """
 
     __tablename__ = "backups"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid4)
@@ -170,7 +287,17 @@ class Backup(Base):
 
 
 class Tombstone(Base):
-    """Prevent synchronized restoration of permanently deleted entities."""
+    """Prevent synchronized restoration of permanently deleted entities.
+
+    SQLAlchemy maps this definition to the local relational schema. Services enforce lifecycle rules
+    around the model, while repositories load and mutate it inside request-scoped transactions.
+
+    Attributes:
+        id (Mapped[int]): Stable identifier for this record.
+        entity_type (Mapped[TombstoneType]): Typed entity type value carried by this object.
+        entity_id (Mapped[str]): Stable identifier of the related entity.
+        deleted_at (Mapped[datetime]): UTC instant associated with deleted.
+    """
 
     __tablename__ = "tombstones"
     __table_args__ = (UniqueConstraint("entity_type", "entity_id"),)
@@ -181,7 +308,20 @@ class Tombstone(Base):
 
 
 class HealthSchedule(Base):
-    """Persist singleton vector-index health scheduling state."""
+    """Persist singleton vector-index health scheduling state.
+
+    SQLAlchemy maps this definition to the local relational schema. Services enforce lifecycle rules
+    around the model, while repositories load and mutate it inside request-scoped transactions.
+
+    Attributes:
+        id (Mapped[int]): Stable identifier for this record.
+        interval_seconds (Mapped[int]): Typed interval seconds value carried by this object.
+        notify_on_needs_attention (Mapped[bool]): Typed notify on needs attention value carried by
+            this object.
+        last_check (Mapped[datetime | None]): Typed last check value carried by this object.
+        last_result (Mapped[HealthResult | None]): Typed last result value carried by this object.
+        last_alert (Mapped[datetime | None]): Typed last alert value carried by this object.
+    """
 
     __tablename__ = "health_schedule"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)

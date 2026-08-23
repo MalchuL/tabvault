@@ -12,10 +12,23 @@ from .dto import VectorStatusDTO
 
 
 class LocalVectorIndex:
-    """Manage a lazy sentence-transformer and local zvec collection."""
+    """Manage a lazy sentence-transformer and local zvec collection.
+
+    The operation belongs to the optional local semantic-search adapter. Blocking model or index
+    work is isolated from the asyncio event loop, and readiness failures are surfaced to the system
+    service rather than hidden.
+    """
 
     def __init__(self, settings: Settings) -> None:
-        """Initialize lazy vector-index state."""
+        """Initialize lazy vector-index state.
+
+        The operation belongs to the optional local semantic-search adapter. Blocking model or index
+        work is isolated from the asyncio event loop, and readiness failures are surfaced to the
+        system service rather than hidden.
+
+        Args:
+            settings (Settings): Validated process settings that control this component.
+        """
         self.settings = settings
         self.path = settings.data_dir / "zvec"
         self._model: Any = None
@@ -24,7 +37,15 @@ class LocalVectorIndex:
         self.indexed_count = 0
 
     def _load_model(self) -> Any:
-        """Load the configured embedding model on first use."""
+        """Load the configured embedding model on first use.
+
+        The operation belongs to the optional local semantic-search adapter. Blocking model or index
+        work is isolated from the asyncio event loop, and readiness failures are surfaced to the
+        system service rather than hidden.
+
+        Returns:
+            Any: Result produced by the operation described above.
+        """
         if self._model is None:
             from sentence_transformers import SentenceTransformer
 
@@ -35,7 +56,19 @@ class LocalVectorIndex:
         return self._model
 
     def _open_or_create(self, dimension: int, recreate: bool = False) -> Any:
-        """Open or create the local vector collection."""
+        """Open or create the local vector collection.
+
+        The operation belongs to the optional local semantic-search adapter. Blocking model or index
+        work is isolated from the asyncio event loop, and readiness failures are surfaced to the
+        system service rather than hidden.
+
+        Args:
+            dimension (int): Number of scalar values in each embedding vector.
+            recreate (bool): Whether existing local state is replaced before opening it.
+
+        Returns:
+            Any: Result produced by the operation described above.
+        """
         import zvec
 
         if recreate and self.path.exists():
@@ -60,7 +93,18 @@ class LocalVectorIndex:
         return self._collection
 
     def _rebuild_sync(self, documents: list[tuple[str, str]]) -> int:
-        """Synchronously replace the vector collection."""
+        """Synchronously replace the vector collection.
+
+        The operation belongs to the optional local semantic-search adapter. Blocking model or index
+        work is isolated from the asyncio event loop, and readiness failures are surfaced to the
+        system service rather than hidden.
+
+        Args:
+            documents (list[tuple[str, str]]): Tab identifiers paired with text to embed and index.
+
+        Returns:
+            int: Result produced by the operation described above.
+        """
         import zvec
 
         model = self._load_model()
@@ -85,7 +129,18 @@ class LocalVectorIndex:
         return len(documents)
 
     async def rebuild(self, documents: list[tuple[str, str]]) -> int:
-        """Rebuild the vector collection outside the event loop."""
+        """Rebuild the vector collection outside the event loop.
+
+        The operation belongs to the optional local semantic-search adapter. Blocking model or index
+        work is isolated from the asyncio event loop, and readiness failures are surfaced to the
+        system service rather than hidden.
+
+        Args:
+            documents (list[tuple[str, str]]): Tab identifiers paired with text to embed and index.
+
+        Returns:
+            int: Result produced by the operation described above.
+        """
         try:
             self.indexed_count = await asyncio.to_thread(self._rebuild_sync, documents)
             self.last_error = None
@@ -95,7 +150,19 @@ class LocalVectorIndex:
             raise
 
     def _search_sync(self, query: str, limit: int) -> list[tuple[str, float]]:
-        """Synchronously search for semantically similar documents."""
+        """Synchronously search for semantically similar documents.
+
+        The operation belongs to the optional local semantic-search adapter. Blocking model or index
+        work is isolated from the asyncio event loop, and readiness failures are surfaced to the
+        system service rather than hidden.
+
+        Args:
+            query (str): Search text supplied by the caller.
+            limit (int): Maximum number of matching records to return.
+
+        Returns:
+            list[tuple[str, float]]: Result produced by the operation described above.
+        """
         model = self._load_model()
         vector = model.encode([query], normalize_embeddings=True)[0].tolist()
         collection = self._open_or_create(len(vector))
@@ -117,7 +184,19 @@ class LocalVectorIndex:
         ]
 
     async def search(self, query: str, limit: int) -> list[tuple[str, float]]:
-        """Search the vector collection outside the event loop."""
+        """Search the vector collection outside the event loop.
+
+        The operation belongs to the optional local semantic-search adapter. Blocking model or index
+        work is isolated from the asyncio event loop, and readiness failures are surfaced to the
+        system service rather than hidden.
+
+        Args:
+            query (str): Search text supplied by the caller.
+            limit (int): Maximum number of matching records to return.
+
+        Returns:
+            list[tuple[str, float]]: Result produced by the operation described above.
+        """
         try:
             result = await asyncio.to_thread(self._search_sync, query, limit)
             self.last_error = None
@@ -127,7 +206,15 @@ class LocalVectorIndex:
             raise
 
     def status(self) -> VectorStatusDTO:
-        """Return current vector-index readiness."""
+        """Return current vector-index readiness.
+
+        The operation belongs to the optional local semantic-search adapter. Blocking model or index
+        work is isolated from the asyncio event loop, and readiness failures are surfaced to the
+        system service rather than hidden.
+
+        Returns:
+            VectorStatusDTO: Result produced by the operation described above.
+        """
         return VectorStatusDTO(
             status="ready" if self.indexed_count and not self.last_error else "not_ready",
             indexed_count=self.indexed_count,

@@ -21,7 +21,19 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 def configure_database(
     settings: Settings | None = None,
 ) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
-    """Create the process engine and request-scoped session factory."""
+    """Create the process engine and request-scoped session factory.
+
+    This database infrastructure helper manages process-wide engine configuration or one
+    request-scoped session; domain services remain responsible for committing application
+    transactions.
+
+    Args:
+        settings (Settings | None): Validated process settings that control this component.
+
+    Returns:
+        tuple[AsyncEngine, async_sessionmaker[AsyncSession]]: Result produced by the operation
+            described above.
+    """
     global _engine, _session_factory
     settings = settings or get_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -31,7 +43,16 @@ def configure_database(
 
         @event.listens_for(_engine.sync_engine, "connect")
         def configure_sqlite(dbapi_connection: object, _record: object) -> None:
-            """Enable SQLite integrity and bounded lock waits."""
+            """Enable SQLite integrity and bounded lock waits.
+
+            This database infrastructure helper manages process-wide engine configuration or one
+            request-scoped session; domain services remain responsible for committing application
+            transactions.
+
+            Args:
+                dbapi_connection (object): Dbapi connection value consumed by this operation.
+                _record (object): Record value consumed by this operation.
+            """
             cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.execute("PRAGMA busy_timeout=5000")
@@ -42,7 +63,15 @@ def configure_database(
 
 
 def get_engine() -> AsyncEngine:
-    """Return the configured engine, initializing it if needed."""
+    """Return the configured engine, initializing it if needed.
+
+    This database infrastructure helper manages process-wide engine configuration or one
+    request-scoped session; domain services remain responsible for committing application
+    transactions.
+
+    Returns:
+        AsyncEngine: Result produced by the operation described above.
+    """
     global _engine
     if _engine is None:
         configure_database()
@@ -51,7 +80,15 @@ def get_engine() -> AsyncEngine:
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
-    """Return the configured session factory, initializing it if needed."""
+    """Return the configured session factory, initializing it if needed.
+
+    This database infrastructure helper manages process-wide engine configuration or one
+    request-scoped session; domain services remain responsible for committing application
+    transactions.
+
+    Returns:
+        async_sessionmaker[AsyncSession]: Result produced by the operation described above.
+    """
     global _session_factory
     if _session_factory is None:
         configure_database()
@@ -60,13 +97,26 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 async def get_async_session() -> AsyncIterator[AsyncSession]:
-    """Yield one request-scoped async database session."""
+    """Yield one request-scoped async database session.
+
+    This database infrastructure helper manages process-wide engine configuration or one
+    request-scoped session; domain services remain responsible for committing application
+    transactions.
+
+    Returns:
+        AsyncIterator[AsyncSession]: Result produced by the operation described above.
+    """
     async with get_session_factory()() as session:
         yield session
 
 
 async def dispose_database() -> None:
-    """Dispose the engine and clear process database state."""
+    """Dispose the engine and clear process database state.
+
+    This database infrastructure helper manages process-wide engine configuration or one
+    request-scoped session; domain services remain responsible for committing application
+    transactions.
+    """
     global _engine, _session_factory
     if _engine is not None:
         await _engine.dispose()

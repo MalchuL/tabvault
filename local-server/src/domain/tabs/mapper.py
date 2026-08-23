@@ -11,11 +11,27 @@ from .dto import TabCreateDTO, TabDTO, TabProjectionDTO, TabUpdateDTO
 
 
 class TabMapper:
-    """Convert between Saved Tab DTOs and ORM models."""
+    """Convert between Saved Tab DTOs and ORM models.
+
+    Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+    boundary and centralizes differences between database field names, public DTOs, and portable
+    transfer records.
+    """
 
     @staticmethod
     def to_dto(tab: Tab) -> TabDTO:
-        """Convert a Saved Tab row to its complete response DTO."""
+        """Convert a Saved Tab row to its complete response DTO.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            tab (Tab): Tab value consumed by this operation.
+
+        Returns:
+            TabDTO: Result produced by the operation described above.
+        """
         return TabDTO(
             id=tab.id,
             url=tab.url,
@@ -36,7 +52,19 @@ class TabMapper:
 
     @classmethod
     def to_projection(cls, tab: Tab, fields: str) -> TabDTO | TabProjectionDTO:
-        """Convert a Saved Tab to the requested field projection."""
+        """Convert a Saved Tab to the requested field projection.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            tab (Tab): Tab value consumed by this operation.
+            fields (str): Requested response projection controlling which fields are serialized.
+
+        Returns:
+            TabDTO | TabProjectionDTO: Result produced by the operation described above.
+        """
         dto = cls.to_dto(tab)
         if fields == "full":
             return dto
@@ -54,7 +82,21 @@ class TabMapper:
     def from_create_dto(
         dto: TabCreateDTO, *, group_id: str | None, position: float, tags: list[Tag]
     ) -> Tab:
-        """Create a Saved Tab occurrence without URL normalization."""
+        """Create a Saved Tab occurrence without URL normalization.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            dto (TabCreateDTO): Validated data-transfer object supplied to the operation.
+            group_id (str | None): Stable identifier of the group targeted by the operation.
+            position (float): Position value consumed by this operation.
+            tags (list[Tag]): Tags value consumed by this operation.
+
+        Returns:
+            Tab: Result produced by the operation described above.
+        """
         values: dict[str, Any] = {
             "url": dto.url,
             "title": dto.title or dto.url,
@@ -74,7 +116,18 @@ class TabMapper:
 
     @staticmethod
     def to_update_dict(dto: TabUpdateDTO) -> dict[str, Any]:
-        """Convert explicitly supplied fields to ORM names."""
+        """Convert explicitly supplied fields to ORM names.
+
+        Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
+        boundary and centralizes differences between database field names, public DTOs, and portable
+        transfer records.
+
+        Args:
+            dto (TabUpdateDTO): Validated data-transfer object supplied to the operation.
+
+        Returns:
+            dict[str, Any]: Result produced by the operation described above.
+        """
         values = dto.model_dump(exclude_unset=True)
         for field in ("note", "agent_review"):
             if field in values and values[field] is None:

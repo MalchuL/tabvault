@@ -23,27 +23,78 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 def get_tab_service(db: SessionDep) -> TabService:
-    """Build a request-scoped tab service."""
+    """Build a request-scoped tab service.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+
+    Args:
+        db (SessionDep): Request-scoped asynchronous database session used by this operation.
+
+    Returns:
+        TabService: Result produced by the operation described above.
+    """
     return TabService(db, TabRepository(db))
 
 
 def get_group_service(db: SessionDep) -> GroupService:
-    """Build a request-scoped group service."""
+    """Build a request-scoped group service.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+
+    Args:
+        db (SessionDep): Request-scoped asynchronous database session used by this operation.
+
+    Returns:
+        GroupService: Result produced by the operation described above.
+    """
     return GroupService(db, GroupRepository(db))
 
 
 def get_tag_service(db: SessionDep) -> TagService:
-    """Build a request-scoped tag service."""
+    """Build a request-scoped tag service.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+
+    Args:
+        db (SessionDep): Request-scoped asynchronous database session used by this operation.
+
+    Returns:
+        TagService: Result produced by the operation described above.
+    """
     return TagService(db, TagRepository(db))
 
 
 def get_vector_index(request: Request) -> LocalVectorIndex:
-    """Return the process-wide local vector index."""
+    """Return the process-wide local vector index.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+
+    Args:
+        request (Request): Incoming FastAPI request, including its headers and body.
+
+    Returns:
+        LocalVectorIndex: Result produced by the operation described above.
+    """
     return cast(LocalVectorIndex, request.app.state.vectors)
 
 
 def get_transfer_service(db: SessionDep, settings: SettingsDep) -> TransferService:
-    """Build a request-scoped transfer service."""
+    """Build a request-scoped transfer service.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+
+    Args:
+        db (SessionDep): Request-scoped asynchronous database session used by this operation.
+        settings (SettingsDep): Validated process settings that control this component.
+
+    Returns:
+        TransferService: Result produced by the operation described above.
+    """
     return TransferService(db, settings, SystemRepository(db))
 
 
@@ -53,5 +104,20 @@ def get_system_service(
     vectors: Annotated[LocalVectorIndex, Depends(get_vector_index)],
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
 ) -> SystemService:
-    """Build a request-scoped system service."""
+    """Build a request-scoped system service.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+
+    Args:
+        db (SessionDep): Request-scoped asynchronous database session used by this operation.
+        settings (SettingsDep): Validated process settings that control this component.
+        vectors (Annotated[LocalVectorIndex, Depends(get_vector_index)]): Vectors value consumed by
+            this operation.
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Transfer value
+            consumed by this operation.
+
+    Returns:
+        SystemService: Result produced by the operation described above.
+    """
     return SystemService(db, settings, vectors, SystemRepository(db), transfer)

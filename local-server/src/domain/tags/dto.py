@@ -8,14 +8,32 @@ from lib.dto_config import model_config
 
 
 class TagUpsertDTO(BaseModel):
-    """Describe mutable tag metadata."""
+    """Describe mutable tag metadata.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        description (str | None): Optional human-readable explanatory text.
+    """
 
     description: str | None = Field(default=None, max_length=4096)
     model_config = model_config()
 
 
 class TagDTO(BaseModel):
-    """Represent a tag and its usage count."""
+    """Represent a tag and its usage count.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        name (str): Typed name value carried by this object.
+        description (str | None): Optional human-readable explanatory text.
+        created_at (datetime): UTC instant at which the record was created.
+        updated_at (datetime): UTC instant at which the record was last changed.
+        tab_count (int): Number of tab records represented by this object.
+    """
 
     name: str
     description: str | None
@@ -26,14 +44,29 @@ class TagDTO(BaseModel):
 
 
 class TagListDataDTO(BaseModel):
-    """Expose tags in an API data envelope."""
+    """Expose tags in an API data envelope.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        tags (list[TagDTO]): Tags associated with the Saved Tab.
+    """
 
     tags: list[TagDTO]
     model_config = model_config()
 
 
 class TagDeleteResultDTO(BaseModel):
-    """Describe a deleted tag and detached tab count."""
+    """Describe a deleted tag and detached tab count.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        name (str): Typed name value carried by this object.
+        detached_from_tabs (int): Typed detached from tabs value carried by this object.
+    """
 
     name: str
     detached_from_tabs: int

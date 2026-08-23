@@ -18,13 +18,37 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 async def list_tags(
     service: Annotated[TagService, Depends(get_tag_service)],
 ) -> SuccessResponseDTO[TagListDataDTO]:
-    """List tags with usage counts."""
+    """List tags with usage counts.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[TagService, Depends(get_tag_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[TagListDataDTO]: Result produced by the operation described above.
+    """
     return success(TagListDataDTO(tags=await service.list()))
 
 
 @router.get("/export.md", response_class=PlainTextResponse)
 async def export_tags(service: Annotated[TagService, Depends(get_tag_service)]) -> str:
-    """Export tags as Markdown."""
+    """Export tags as Markdown.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[TagService, Depends(get_tag_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        str: Result produced by the operation described above.
+    """
     return await service.markdown()
 
 
@@ -32,7 +56,21 @@ async def export_tags(service: Annotated[TagService, Depends(get_tag_service)]) 
 async def upsert_tag(
     name: str, body: TagUpsertDTO, service: Annotated[TagService, Depends(get_tag_service)]
 ) -> SuccessResponseDTO[TagDTO]:
-    """Create or update a tag."""
+    """Create or update a tag.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        name (str): Human-readable name used by the operation.
+        body (TagUpsertDTO): Validated request body supplied by the caller.
+        service (Annotated[TagService, Depends(get_tag_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[TagDTO]: Result produced by the operation described above.
+    """
     return success(await service.upsert(name, body))
 
 
@@ -45,5 +83,19 @@ async def delete_tag(
     service: Annotated[TagService, Depends(get_tag_service)],
     detach_from_tabs: bool = Query(False, alias="detachFromTabs"),
 ) -> SuccessResponseDTO[TagDeleteResultDTO]:
-    """Delete a tag."""
+    """Delete a tag.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        name (str): Human-readable name used by the operation.
+        service (Annotated[TagService, Depends(get_tag_service)]): Request-scoped application
+            service that implements the use case.
+        detach_from_tabs (bool): Detach from tabs value consumed by this operation.
+
+    Returns:
+        SuccessResponseDTO[TagDeleteResultDTO]: Result produced by the operation described above.
+    """
     return success(await service.delete(name, detach_from_tabs))

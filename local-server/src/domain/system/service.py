@@ -49,7 +49,12 @@ logger = logging.getLogger(__name__)
 
 
 class SystemService:
-    """Orchestrate system use cases while owning transactions."""
+    """Orchestrate system use cases while owning transactions.
+
+    This application-layer operation coordinates domain rules and persistence, then maps loaded ORM
+    state into transport DTOs. Callers do not need to know how records are queried or related data
+    is assembled.
+    """
 
     def __init__(
         self,
@@ -59,7 +64,20 @@ class SystemService:
         repository: SystemRepository,
         transfer: TransferService,
     ) -> None:
-        """Initialize the service and its dependencies."""
+        """Initialize the service and its dependencies.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            db (AsyncSession): Request-scoped asynchronous database session used by this operation.
+            settings (Settings): Validated process settings that control this component.
+            vectors (LocalVectorIndex): Vectors value consumed by this operation.
+            repository (SystemRepository): Persistence adapter used to load and mutate domain
+                records.
+            transfer (TransferService): Transfer value consumed by this operation.
+        """
         self.db = db
         self.settings = settings
         self.vectors = vectors
@@ -69,7 +87,15 @@ class SystemService:
         self.system_mapper = SystemMapper()
 
     async def health(self) -> HealthDTO:
-        """Return server and storage health."""
+        """Return server and storage health.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Returns:
+            HealthDTO: Result produced by the operation described above.
+        """
         tabs, groups, tags = await self.repository.health_counts(utc_now())
         return HealthDTO(
             status="ok",
@@ -88,7 +114,27 @@ class SystemService:
         tags: list[str],
         min_score: float,
     ) -> SearchResultDTO:
-        """Search active tabs using keyword and optional semantic scores."""
+        """Search active tabs using keyword and optional semantic scores.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            q (str): Q value consumed by this operation.
+            mode (SearchMode): Requested import or update behavior.
+            limit (int): Maximum number of matching records to return.
+            group_id (str | None): Stable identifier of the group targeted by the operation.
+            tags (list[str]): Tags value consumed by this operation.
+            min_score (float): Min score value consumed by this operation.
+
+        Returns:
+            SearchResultDTO: Result produced by the operation described above.
+
+        Raises:
+            SemanticUnavailableError: Propagated when its documented validation or operation
+                condition occurs.
+        """
         started = time.perf_counter()
         rows = await self.repository.search_tabs(group_id, tags, utc_now())
         by_id = {row.id: row for row in rows}
@@ -172,7 +218,15 @@ class SystemService:
         )
 
     async def queue_reindex(self) -> JobQueuedDTO:
-        """Queue a vector-index rebuild unless one is already active."""
+        """Queue a vector-index rebuild unless one is already active.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Returns:
+            JobQueuedDTO: Result produced by the operation described above.
+        """
         existing = await self.repository.find_active_job("search_reindex")
         if existing:
             return JobQueuedDTO(job_id=existing.id)
@@ -181,21 +235,60 @@ class SystemService:
         return JobQueuedDTO(job_id=job.id)
 
     async def index_status(self) -> IndexStatusDTO:
-        """Return vector-index and scheduled health state."""
+        """Return vector-index and scheduled health state.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Returns:
+            IndexStatusDTO: Result produced by the operation described above.
+        """
         schedule = await self._schedule()
         vector = self.vectors.status()
         return IndexStatusDTO(**vector.model_dump(), health_check=self._schedule_dict(schedule))
 
     async def _schedule(self) -> HealthSchedule:
-        """Load or initialize health scheduling state."""
+        """Load or initialize health scheduling state.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Returns:
+            HealthSchedule: Result produced by the operation described above.
+        """
         return await self.repository.get_schedule()
 
     def _schedule_dict(self, schedule: HealthSchedule) -> HealthScheduleDTO:
-        """Map health scheduling state to a response DTO."""
+        """Map health scheduling state to a response DTO.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            schedule (HealthSchedule): Schedule value consumed by this operation.
+
+        Returns:
+            HealthScheduleDTO: Result produced by the operation described above.
+        """
         return self.system_mapper.schedule_to_dto(schedule)
 
     async def configure_health(self, interval: int, notify: bool | None) -> HealthScheduleDTO:
-        """Configure recurring vector-index health checks."""
+        """Configure recurring vector-index health checks.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Args:
+            interval (int): Interval value consumed by this operation.
+            notify (bool | None): Notify value consumed by this operation.
+
+        Returns:
+            HealthScheduleDTO: Result produced by the operation described above.
+        """
         schedule = await self._schedule()
         changes: dict[str, object] = {"interval_seconds": interval}
         if notify is not None:
@@ -205,7 +298,15 @@ class SystemService:
         return self._schedule_dict(schedule)
 
     async def run_health(self) -> HealthScheduleDTO:
-        """Run and persist a vector-index health check."""
+        """Run and persist a vector-index health check.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Returns:
+            HealthScheduleDTO: Result produced by the operation described above.
+        """
         schedule = await self._schedule()
         last_check = utc_now()
         last_result = "ready" if self.vectors.status().status == "ready" else "needs_attention"
@@ -224,20 +325,65 @@ class SystemService:
         return self._schedule_dict(schedule)
 
     async def job(self, job_id: str) -> JobDTO:
-        """Return one background job."""
+        """Return one background job.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            job_id (str): Stable identifier of the job targeted by the operation.
+
+        Returns:
+            JobDTO: Result produced by the operation described above.
+
+        Raises:
+            JobNotFoundError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         job = await self.repository.get_job(job_id)
         if job is None:
             raise JobNotFoundError(f"Job {job_id!r} was not found")
         return self.system_mapper.job_to_dto(job)
 
     async def preview(self, tab_id: str) -> PreviewDTO:
-        """Return current preview state for a tab."""
+        """Return current preview state for a tab.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            tab_id (str): Stable identifier of the tab targeted by the operation.
+
+        Returns:
+            PreviewDTO: Result produced by the operation described above.
+
+        Raises:
+            TabNotFoundError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         if await self.repository.get_tab(tab_id) is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")
         return self.system_mapper.preview_to_dto(tab_id, await self.repository.get_preview(tab_id))
 
     async def queue_preview(self, tab_id: str) -> JobQueuedDTO:
-        """Queue preview capture unless one is already active."""
+        """Queue preview capture unless one is already active.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Args:
+            tab_id (str): Stable identifier of the tab targeted by the operation.
+
+        Returns:
+            JobQueuedDTO: Result produced by the operation described above.
+
+        Raises:
+            TabNotFoundError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         if await self.repository.get_tab(tab_id) is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")
         existing = await self.repository.find_active_job("preview_capture", tab_id)
@@ -250,7 +396,18 @@ class SystemService:
         return JobQueuedDTO(job_id=job.id)
 
     async def asset(self, asset_id: str) -> AssetFileDTO:
-        """Resolve an asset file or bundled fallback."""
+        """Resolve an asset file or bundled fallback.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            asset_id (str): Stable identifier of the asset targeted by the operation.
+
+        Returns:
+            AssetFileDTO: Result produced by the operation described above.
+        """
         fallback = asset_id in {"fallback-icon", "fallback-preview"}
         if fallback:
             path = (
@@ -277,18 +434,49 @@ class SystemService:
         return self.system_mapper.asset_file(path, asset.content_type)
 
     async def backups(self) -> list[BackupDTO]:
-        """List available backup snapshots."""
+        """List available backup snapshots.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Returns:
+            list[BackupDTO]: Result produced by the operation described above.
+        """
         return [self.system_mapper.backup_to_dto(row) for row in await self.repository.backups()]
 
     async def restore_backup(self, backup_id: str) -> JobQueuedDTO:
-        """Queue restoration of an existing backup."""
+        """Queue restoration of an existing backup.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Args:
+            backup_id (str): Stable identifier of the backup targeted by the operation.
+
+        Returns:
+            JobQueuedDTO: Result produced by the operation described above.
+
+        Raises:
+            BackupNotFoundError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         job_id = await self.transfer.restore_backup(backup_id)
         if job_id is None:
             raise BackupNotFoundError(f"Backup {backup_id!r} was not found")
         return JobQueuedDTO(job_id=job_id)
 
     async def clear_library(self) -> LibraryClearDTO:
-        """Back up and clear the complete local library."""
+        """Back up and clear the complete local library.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Returns:
+            LibraryClearDTO: Result produced by the operation described above.
+        """
         backup = await self.transfer.create_backup("clear_library")
         await self.repository.clear_library()
         await self.db.commit()
@@ -296,12 +484,28 @@ class SystemService:
 
     @staticmethod
     def schema() -> dict[str, Any]:
-        """Load the canonical portable-document JSON schema."""
+        """Load the canonical portable-document JSON schema.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Returns:
+            dict[str, Any]: Result produced by the operation described above.
+        """
         path = Path(__file__).parents[3] / "schema" / "v2.tabvault.schema.json"
         return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
 
     @staticmethod
     def errors() -> dict[str, Any]:
-        """Load the stable API error catalog."""
+        """Load the stable API error catalog.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Returns:
+            dict[str, Any]: Result produced by the operation described above.
+        """
         path = Path(__file__).parents[3] / "errors" / "catalog.json"
         return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))

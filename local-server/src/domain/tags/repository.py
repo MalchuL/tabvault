@@ -11,23 +11,59 @@ from models import Tab, Tag, tab_tags
 
 
 class TagRepository(BaseRepository[Tag]):
-    """Persist tags and tab-tag associations."""
+    """Persist tags and tab-tag associations.
+
+    This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
+    session. It reads or stages database state without committing; the calling service owns the
+    surrounding transaction.
+    """
 
     model_type = Tag
 
     def __init__(self, session: AsyncSession) -> None:
-        """Initialize the repository with a request-scoped session."""
+        """Initialize the repository with a request-scoped session.
+
+        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
+        session. It reads or stages database state without committing; the calling service owns the
+        surrounding transaction.
+
+        Args:
+            session (AsyncSession): Request-scoped asynchronous database session used by this
+                operation.
+        """
         super().__init__(session)
         self.session = session
 
     async def get_casefold(self, name: str) -> Tag | None:
-        """Load a tag using case-insensitive name matching."""
+        """Load a tag using case-insensitive name matching.
+
+        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
+        session. It reads or stages database state without committing; the calling service owns the
+        surrounding transaction.
+
+        Args:
+            name (str): Human-readable name used by the operation.
+
+        Returns:
+            Tag | None: Result produced by the operation described above.
+        """
         return await self.session.scalar(  # type: ignore[no-any-return]
             select(Tag).where(func.lower(Tag.name) == name.lower())
         )
 
     async def list_with_counts(self, now: datetime) -> list[tuple[Tag, int]]:
-        """List tags with visible active-tab counts."""
+        """List tags with visible active-tab counts.
+
+        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
+        session. It reads or stages database state without committing; the calling service owns the
+        surrounding transaction.
+
+        Args:
+            now (datetime): Current absolute UTC instant used for consistent visibility decisions.
+
+        Returns:
+            list[tuple[Tag, int]]: Result produced by the operation described above.
+        """
         rows = await self.session.execute(
             select(Tag, func.count(Tab.id))
             .outerjoin(tab_tags, tab_tags.c.tag_name == Tag.name)
@@ -38,7 +74,19 @@ class TagRepository(BaseRepository[Tag]):
         return [(tag, int(count)) for tag, count in rows.all()]
 
     async def count_visible_tabs(self, name: str, now: datetime) -> int:
-        """Count visible active tabs attached to a tag."""
+        """Count visible active tabs attached to a tag.
+
+        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
+        session. It reads or stages database state without committing; the calling service owns the
+        surrounding transaction.
+
+        Args:
+            name (str): Human-readable name used by the operation.
+            now (datetime): Current absolute UTC instant used for consistent visibility decisions.
+
+        Returns:
+            int: Result produced by the operation described above.
+        """
         return int(
             await self.session.scalar(
                 select(func.count(Tab.id))
@@ -50,7 +98,19 @@ class TagRepository(BaseRepository[Tag]):
         )
 
     async def save(self, tag: Tag, changes: dict[str, object] | None = None) -> Tag:
-        """Add a new tag or apply changes to an existing tag."""
+        """Add a new tag or apply changes to an existing tag.
+
+        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
+        session. It reads or stages database state without committing; the calling service owns the
+        surrounding transaction.
+
+        Args:
+            tag (Tag): Tag value consumed by this operation.
+            changes (dict[str, object] | None): Changes value consumed by this operation.
+
+        Returns:
+            Tag: Result produced by the operation described above.
+        """
         if changes is None:
             self.session.add(tag)
             await self.session.flush()
@@ -60,7 +120,18 @@ class TagRepository(BaseRepository[Tag]):
         return tag
 
     async def count_tabs(self, name: str) -> int:
-        """Count tabs attached to a tag name."""
+        """Count tabs attached to a tag name.
+
+        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
+        session. It reads or stages database state without committing; the calling service owns the
+        surrounding transaction.
+
+        Args:
+            name (str): Human-readable name used by the operation.
+
+        Returns:
+            int: Result produced by the operation described above.
+        """
         return int(
             await self.session.scalar(
                 select(func.count()).select_from(tab_tags).where(tab_tags.c.tag_name == name)
@@ -69,6 +140,14 @@ class TagRepository(BaseRepository[Tag]):
         )
 
     async def delete_tag(self, tag: Tag) -> None:
-        """Detach and permanently delete a tag."""
+        """Detach and permanently delete a tag.
+
+        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
+        session. It reads or stages database state without committing; the calling service owns the
+        surrounding transaction.
+
+        Args:
+            tag (Tag): Tag value consumed by this operation.
+        """
         await self.session.execute(delete(tab_tags).where(tab_tags.c.tag_name == tag.name))
         await self.session.delete(tag)

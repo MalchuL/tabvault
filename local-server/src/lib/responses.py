@@ -12,7 +12,16 @@ DataT = TypeVar("DataT")
 
 
 class WarningDTO(BaseModel):
-    """Describe a non-fatal API warning."""
+    """Describe a non-fatal API warning.
+
+    This shared backend helper centralizes the behavior so API, domain, and infrastructure code use
+    the same representation and edge-case handling.
+
+    Attributes:
+        code (str): Stable machine-readable issue code.
+        path (str): Typed path value carried by this object.
+        message (str): Human-readable issue explanation.
+    """
 
     code: str
     path: str
@@ -21,7 +30,17 @@ class WarningDTO(BaseModel):
 
 
 class IssueDTO(WarningDTO):
-    """Describe a validation or domain error returned by the API."""
+    """Describe a validation or domain error returned by the API.
+
+    This shared backend helper centralizes the behavior so API, domain, and infrastructure code use
+    the same representation and edge-case handling.
+
+    Attributes:
+        expected (str): Typed expected value carried by this object.
+        received (Any): Typed received value carried by this object.
+        http_status (int): Typed http status value carried by this object.
+        suggested_fix (str | None): Typed suggested fix value carried by this object.
+    """
 
     expected: str
     received: Any = None
@@ -30,7 +49,18 @@ class IssueDTO(WarningDTO):
 
 
 class SuccessResponseDTO(BaseModel, Generic[DataT]):
-    """Wrap a successful API result."""
+    """Wrap a successful API result.
+
+    This shared backend helper centralizes the behavior so API, domain, and infrastructure code use
+    the same representation and edge-case handling.
+
+    Attributes:
+        success (bool): Whether the enclosing API operation succeeded.
+        data (DataT): Typed response payload.
+        meta (Any | None): Optional endpoint-specific metadata.
+        warnings (list[WarningDTO] | None): Structured non-fatal issues.
+        errors (list[IssueDTO] | None): Structured fatal or per-item issues.
+    """
 
     success: bool = True
     data: DataT
@@ -41,7 +71,16 @@ class SuccessResponseDTO(BaseModel, Generic[DataT]):
 
 
 class FailureResponseDTO(BaseModel):
-    """Wrap one or more API errors."""
+    """Wrap one or more API errors.
+
+    This shared backend helper centralizes the behavior so API, domain, and infrastructure code use
+    the same representation and edge-case handling.
+
+    Attributes:
+        success (bool): Whether the enclosing API operation succeeded.
+        errors (list[IssueDTO]): Structured fatal or per-item issues.
+        warnings (list[WarningDTO]): Structured non-fatal issues.
+    """
 
     success: bool = False
     errors: list[IssueDTO]

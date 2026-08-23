@@ -22,35 +22,63 @@ logger = logging.getLogger(__name__)
 
 
 class JobWorker:
-    """Run queued local jobs sequentially in the application process."""
+    """Run queued local jobs sequentially in the application process.
+
+    The operation participates in the single-process background worker. Durable Job rows remain the
+    source of truth, while the in-memory wake signal only reduces polling latency.
+    """
 
     def __init__(self, settings: Settings, vectors: LocalVectorIndex) -> None:
-        """Initialize worker state and dependencies."""
+        """Initialize worker state and dependencies.
+
+        The operation participates in the single-process background worker. Durable Job rows remain
+        the source of truth, while the in-memory wake signal only reduces polling latency.
+
+        Args:
+            settings (Settings): Validated process settings that control this component.
+            vectors (LocalVectorIndex): Vectors value consumed by this operation.
+        """
         self.settings = settings
         self.vectors = vectors
         self._task: asyncio.Task[None] | None = None
         self._wake = asyncio.Event()
 
     async def start(self) -> None:
-        """Reset interrupted jobs and start the worker task."""
+        """Reset interrupted jobs and start the worker task.
+
+        The operation participates in the single-process background worker. Durable Job rows remain
+        the source of truth, while the in-memory wake signal only reduces polling latency.
+        """
         async with get_session_factory()() as db:
             await SystemRepository(db).reset_running_jobs()
             await db.commit()
         self._task = asyncio.create_task(self._run(), name="tabvault-jobs")
 
     async def stop(self) -> None:
-        """Cancel and await the worker task."""
+        """Cancel and await the worker task.
+
+        The operation participates in the single-process background worker. Durable Job rows remain
+        the source of truth, while the in-memory wake signal only reduces polling latency.
+        """
         if self._task:
             self._task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._task
 
     def wake(self) -> None:
-        """Wake the worker after a producer queues work."""
+        """Wake the worker after a producer queues work.
+
+        The operation participates in the single-process background worker. Durable Job rows remain
+        the source of truth, while the in-memory wake signal only reduces polling latency.
+        """
         self._wake.set()
 
     async def _run(self) -> None:
-        """Poll for work until the task is cancelled."""
+        """Poll for work until the task is cancelled.
+
+        The operation participates in the single-process background worker. Durable Job rows remain
+        the source of truth, while the in-memory wake signal only reduces polling latency.
+        """
         while True:
             handled = await self._next()
             if handled:
@@ -60,7 +88,14 @@ class JobWorker:
             self._wake.clear()
 
     async def _next(self) -> bool:
-        """Process the next pending job if one exists."""
+        """Process the next pending job if one exists.
+
+        The operation participates in the single-process background worker. Durable Job rows remain
+        the source of truth, while the in-memory wake signal only reduces polling latency.
+
+        Returns:
+            bool: Result produced by the operation described above.
+        """
         async with get_session_factory()() as db:
             repository = SystemRepository(db)
             job = await repository.next_pending_job()

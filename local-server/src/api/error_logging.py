@@ -19,11 +19,29 @@ logger = logging.getLogger(__name__)
 
 
 def register_error_handlers(app: FastAPI) -> None:
-    """Register validation, HTTP, domain, and fallback handlers."""
+    """Register validation, HTTP, domain, and fallback handlers.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+
+    Args:
+        app (FastAPI): App value consumed by this operation.
+    """
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, error: RequestValidationError) -> JSONResponse:
-        """Translate Pydantic request errors into the common envelope."""
+        """Translate Pydantic request errors into the common envelope.
+
+        This application-boundary helper configures or protects the FastAPI process while keeping
+        domain use cases in their dedicated services.
+
+        Args:
+            _request (Request): Request value consumed by this operation.
+            error (RequestValidationError): Exception being translated or recorded.
+
+        Returns:
+            JSONResponse: Result produced by the operation described above.
+        """
         errors: list[IssueDTO] = []
         for item in error.errors():
             location = list(item["loc"])
@@ -36,7 +54,18 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(HTTPException)
     async def http_error(_request: Request, error: HTTPException) -> JSONResponse:
-        """Translate FastAPI HTTP errors into the common envelope."""
+        """Translate FastAPI HTTP errors into the common envelope.
+
+        This application-boundary helper configures or protects the FastAPI process while keeping
+        domain use cases in their dedicated services.
+
+        Args:
+            _request (Request): Request value consumed by this operation.
+            error (HTTPException): Exception being translated or recorded.
+
+        Returns:
+            JSONResponse: Result produced by the operation described above.
+        """
         detail: Any = error.detail
         if isinstance(detail, dict) and "code" in detail:
             item = IssueDTO.model_validate(detail)
@@ -56,7 +85,18 @@ def register_error_handlers(app: FastAPI) -> None:
         )
 
     async def domain_error(_request: Request, error: Exception) -> JSONResponse:
-        """Translate framework-free domain errors into HTTP responses."""
+        """Translate framework-free domain errors into HTTP responses.
+
+        This application-boundary helper configures or protects the FastAPI process while keeping
+        domain use cases in their dedicated services.
+
+        Args:
+            _request (Request): Request value consumed by this operation.
+            error (Exception): Exception being translated or recorded.
+
+        Returns:
+            JSONResponse: Result produced by the operation described above.
+        """
         if isinstance(error, ImportValidationError):
             return JSONResponse(json_data(failure(error.errors)), status_code=422)
         value: Any = error
@@ -83,7 +123,18 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled(_request: Request, error: Exception) -> JSONResponse:
-        """Log unexpected failures without leaking internal details."""
+        """Log unexpected failures without leaking internal details.
+
+        This application-boundary helper configures or protects the FastAPI process while keeping
+        domain use cases in their dedicated services.
+
+        Args:
+            _request (Request): Request value consumed by this operation.
+            error (Exception): Exception being translated or recorded.
+
+        Returns:
+            JSONResponse: Result produced by the operation described above.
+        """
         logger.exception("Unhandled API error", exc_info=error)
         return JSONResponse(
             json_data(

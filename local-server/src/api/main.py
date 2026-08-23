@@ -41,7 +41,18 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 async def require_api_key(value: ApiKeyDep, settings: SettingsDep) -> None:
-    """Reject requests that do not provide the configured API key."""
+    """Reject requests that do not provide the configured API key.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+
+    Args:
+        value (ApiKeyDep): Value to validate, convert, or persist.
+        settings (SettingsDep): Validated process settings that control this component.
+
+    Raises:
+        HTTPException: Propagated when its documented validation or operation condition occurs.
+    """
     if settings.api_key and (value is None or not hmac.compare_digest(value, settings.api_key)):
         raise HTTPException(
             401,
@@ -60,7 +71,11 @@ async def require_api_key(value: ApiKeyDep, settings: SettingsDep) -> None:
 
 
 def run_migrations() -> None:
-    """Upgrade the configured database to the latest schema revision."""
+    """Upgrade the configured database to the latest schema revision.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+    """
     root = Path(__file__).parents[2]
     config = Config(str(root / "alembic.ini"))
     command.upgrade(config, "head")
@@ -68,7 +83,17 @@ def run_migrations() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Initialize and dispose process-wide application resources."""
+    """Initialize and dispose process-wide application resources.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+
+    Args:
+        app (FastAPI): App value consumed by this operation.
+
+    Returns:
+        AsyncIterator[None]: Result produced by the operation described above.
+    """
     settings = get_settings()
     configure_logging(settings)
     settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -98,7 +123,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    """Build and configure the FastAPI application."""
+    """Build and configure the FastAPI application.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+
+    Returns:
+        FastAPI: Result produced by the operation described above.
+    """
     settings = get_settings()
     app = FastAPI(
         title="TabVault API Server",
@@ -120,7 +152,15 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def idempotency(request, call_next):  # type: ignore[no-untyped-def]
-        """Replay matching POST requests identified by an idempotency key."""
+        """Replay matching POST requests identified by an idempotency key.
+
+        This application-boundary helper configures or protects the FastAPI process while keeping
+        domain use cases in their dedicated services.
+
+        Args:
+            request (object): Incoming FastAPI request, including its headers and body.
+            call_next (object): Next ASGI handler in the middleware chain.
+        """
         key = request.headers.get("idempotency-key")
         if request.method != "POST" or request.url.path != f"{settings.api_prefix}/tabs" or not key:
             return await call_next(request)
@@ -137,6 +177,7 @@ def create_app() -> FastAPI:
         ).hexdigest()
         cache_key = (request.headers.get("x-api-key", ""), key)
         # ponytail: one process-wide lock is enough for the local server; shard if throughput matters.
+        # TODO Move to another approach or remove this middleware entirely.
         async with idempotency_lock:
             now = time.monotonic()
             while idempotency_cache and next(iter(idempotency_cache.values()))[0] <= now:
@@ -198,7 +239,11 @@ app = create_app()
 
 
 def main() -> None:
-    """Run the production ASGI server."""
+    """Run the production ASGI server.
+
+    This application-boundary helper configures or protects the FastAPI process while keeping domain
+    use cases in their dedicated services.
+    """
     settings = get_settings()
     uvicorn.run(
         "api.main:app",

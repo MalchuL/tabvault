@@ -26,7 +26,16 @@ VectorStatus: TypeAlias = Literal["ready", "not_ready"]
 
 
 class HealthConfigDTO(BaseModel):
-    """Configure recurring vector-index health checks."""
+    """Configure recurring vector-index health checks.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        interval_seconds (int): Typed interval seconds value carried by this object.
+        notify_on_needs_attention (bool | None): Typed notify on needs attention value carried by
+            this object.
+    """
 
     interval_seconds: int = Field(ge=0, le=86400)
     notify_on_needs_attention: bool | None = None
@@ -34,7 +43,16 @@ class HealthConfigDTO(BaseModel):
 
 
 class ImportEnvelopeDTO(BaseModel):
-    """Wrap JSON imports that specify their own mode and format."""
+    """Wrap JSON imports that specify their own mode and format.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        mode (ImportMode): Typed mode value carried by this object.
+        format (TransferFormat): Typed format value carried by this object.
+        content (object): Typed content value carried by this object.
+    """
 
     mode: ImportMode
     format: TransferFormat
@@ -43,7 +61,16 @@ class ImportEnvelopeDTO(BaseModel):
 
 
 class StorageCountsDTO(BaseModel):
-    """Report active database entity counts."""
+    """Report active database entity counts.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        tabs (int): Typed tabs value carried by this object.
+        groups (int): Typed groups value carried by this object.
+        tags (int): Tags associated with the Saved Tab.
+    """
 
     tabs: int
     groups: int
@@ -52,7 +79,19 @@ class StorageCountsDTO(BaseModel):
 
 
 class VectorStatusDTO(BaseModel):
-    """Describe local vector-index availability."""
+    """Describe local vector-index availability.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        status (VectorStatus): Current lifecycle or readiness state.
+        indexed_count (int): Number of indexed records represented by this object.
+        provider (Literal["sentence-transformers"]): Implementation that supplies the reported
+            capability.
+        model (str): Configured embedding model identifier.
+        last_error (str | None): Typed last error value carried by this object.
+    """
 
     status: VectorStatus
     indexed_count: int
@@ -63,7 +102,18 @@ class VectorStatusDTO(BaseModel):
 
 
 class HealthDTO(BaseModel):
-    """Describe server, schema, storage, and vector health."""
+    """Describe server, schema, storage, and vector health.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        status (Literal["ok"]): Current lifecycle or readiness state.
+        version (str): Typed version value carried by this object.
+        schema_version (Literal[2]): Typed schema version value carried by this object.
+        storage (StorageCountsDTO): Typed storage value carried by this object.
+        vector_index (VectorStatusDTO): Typed vector index value carried by this object.
+    """
 
     status: Literal["ok"]
     version: str
@@ -74,7 +124,17 @@ class HealthDTO(BaseModel):
 
 
 class SearchItemDTO(BaseModel):
-    """Represent one scored search result."""
+    """Represent one scored search result.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        tab (TabDTO): Typed tab value carried by this object.
+        score (float): Typed score value carried by this object.
+        match_type (SearchMatchType): Typed match type value carried by this object.
+        matched_on (SearchMatchedOn): Typed matched on value carried by this object.
+    """
 
     tab: TabDTO
     score: float
@@ -84,7 +144,15 @@ class SearchItemDTO(BaseModel):
 
 
 class SearchMetaDTO(BaseModel):
-    """Report search timing metadata."""
+    """Report search timing metadata.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        query_embedding_ms (int): Typed query embedding ms value carried by this object.
+        search_ms (int): Typed search ms value carried by this object.
+    """
 
     query_embedding_ms: int
     search_ms: int
@@ -92,7 +160,16 @@ class SearchMetaDTO(BaseModel):
 
 
 class SearchResultDTO(BaseModel):
-    """Contain search results, timing, and warnings."""
+    """Contain search results, timing, and warnings.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        results (list[SearchItemDTO]): Typed results value carried by this object.
+        meta (SearchMetaDTO): Optional endpoint-specific metadata.
+        warnings (list[WarningDTO]): Structured non-fatal issues.
+    """
 
     results: list[SearchItemDTO]
     meta: SearchMetaDTO
@@ -101,21 +178,48 @@ class SearchResultDTO(BaseModel):
 
 
 class SearchDataDTO(BaseModel):
-    """Expose search results inside the API data envelope."""
+    """Expose search results inside the API data envelope.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        results (list[SearchItemDTO]): Typed results value carried by this object.
+    """
 
     results: list[SearchItemDTO]
     model_config = model_config()
 
 
 class JobQueuedDTO(BaseModel):
-    """Identify a queued background job."""
+    """Identify a queued background job.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        job_id (str): Stable identifier of the related job.
+    """
 
     job_id: str
     model_config = model_config()
 
 
 class JobDTO(BaseModel):
-    """Represent background job state."""
+    """Represent background job state.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        id (str): Stable identifier for this record.
+        status (JobStatus): Current lifecycle or readiness state.
+        progress (float): Typed progress value carried by this object.
+        result (dict[str, Any] | None): Typed result value carried by this object.
+        error (str | None): Typed error value carried by this object.
+        created_at (datetime): UTC instant at which the record was created.
+        updated_at (datetime): UTC instant at which the record was last changed.
+    """
 
     id: str
     status: JobStatus
@@ -128,7 +232,17 @@ class JobDTO(BaseModel):
 
 
 class BackupDTO(BaseModel):
-    """Represent an available backup snapshot."""
+    """Represent an available backup snapshot.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        id (str): Stable identifier for this record.
+        created_at (datetime): UTC instant at which the record was created.
+        reason (str): Typed reason value carried by this object.
+        size_bytes (int): Typed size bytes value carried by this object.
+    """
 
     id: str
     created_at: datetime
@@ -138,14 +252,39 @@ class BackupDTO(BaseModel):
 
 
 class BackupListDataDTO(BaseModel):
-    """Expose backup snapshots inside an API data envelope."""
+    """Expose backup snapshots inside an API data envelope.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        backups (list[BackupDTO]): Typed backups value carried by this object.
+    """
 
     backups: list[BackupDTO]
     model_config = model_config()
 
 
 class PreviewDTO(BaseModel):
-    """Represent captured preview content or its pending state."""
+    """Represent captured preview content or its pending state.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        tab_id (str): Stable identifier of the related tab.
+        status (PreviewStatus): Current lifecycle or readiness state.
+        title (str | None): Human-readable title.
+        byline (str | None): Typed byline value carried by this object.
+        site_name (str | None): Typed site name value carried by this object.
+        excerpt (str | None): Typed excerpt value carried by this object.
+        content_html (str | None): Typed content html value carried by this object.
+        length (int | None): Typed length value carried by this object.
+        source_url (str | None): URL used for source.
+        error (str | None): Typed error value carried by this object.
+        fetched_at (datetime | None): UTC instant associated with fetched.
+        fallback_asset (str): Typed fallback asset value carried by this object.
+    """
 
     tab_id: str
     status: PreviewStatus
@@ -163,7 +302,15 @@ class PreviewDTO(BaseModel):
 
 
 class AssetFileDTO(BaseModel):
-    """Describe an asset file ready for an HTTP file response."""
+    """Describe an asset file ready for an HTTP file response.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        path (Path): Typed path value carried by this object.
+        media_type (str): Typed media type value carried by this object.
+    """
 
     path: Path
     media_type: str
@@ -171,7 +318,20 @@ class AssetFileDTO(BaseModel):
 
 
 class HealthScheduleDTO(BaseModel):
-    """Represent vector-index health-check scheduling state."""
+    """Represent vector-index health-check scheduling state.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        enabled (bool): Typed enabled value carried by this object.
+        interval_seconds (int): Typed interval seconds value carried by this object.
+        notify_on_needs_attention (bool): Typed notify on needs attention value carried by this
+            object.
+        last_check (datetime | None): Typed last check value carried by this object.
+        last_result (HealthResult | None): Typed last result value carried by this object.
+        last_alert (datetime | None): Typed last alert value carried by this object.
+    """
 
     enabled: bool
     interval_seconds: int
@@ -183,13 +343,28 @@ class HealthScheduleDTO(BaseModel):
 
 
 class IndexStatusDTO(VectorStatusDTO):
-    """Combine vector-index and health-schedule state."""
+    """Combine vector-index and health-schedule state.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        health_check (HealthScheduleDTO): Typed health check value carried by this object.
+    """
 
     health_check: HealthScheduleDTO
 
 
 class LibraryClearDTO(BaseModel):
-    """Report library clearing and its safety backup."""
+    """Report library clearing and its safety backup.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        cleared (Literal[True]): Typed cleared value carried by this object.
+        backup_snapshot_id (str): Stable identifier of the related backup snapshot.
+    """
 
     cleared: Literal[True]
     backup_snapshot_id: str
@@ -197,7 +372,17 @@ class LibraryClearDTO(BaseModel):
 
 
 class TransferTagDTO(BaseModel):
-    """Represent a tag in a portable library document."""
+    """Represent a tag in a portable library document.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        name (str): Typed name value carried by this object.
+        description (str | None): Optional human-readable explanatory text.
+        created_at (datetime | None): UTC instant at which the record was created.
+        updated_at (datetime | None): UTC instant at which the record was last changed.
+    """
 
     name: str
     description: str | None = None
@@ -207,7 +392,21 @@ class TransferTagDTO(BaseModel):
 
 
 class TransferGroupDTO(BaseModel):
-    """Represent a group in a portable library document."""
+    """Represent a group in a portable library document.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        id (str): Stable identifier for this record.
+        name (str): Typed name value carried by this object.
+        category (str): Free-form Group category, such as ``session`` or ``manual``.
+        description (str | None): Optional human-readable explanatory text.
+        color (str | None): Typed color value carried by this object.
+        position (float): Stable display position within the current Group or Unassigned section.
+        created_at (datetime | None): UTC instant at which the record was created.
+        updated_at (datetime | None): UTC instant at which the record was last changed.
+    """
 
     id: str
     name: str
@@ -221,7 +420,28 @@ class TransferGroupDTO(BaseModel):
 
 
 class TransferTabDTO(BaseModel):
-    """Represent a tab in a portable library document."""
+    """Represent a tab in a portable library document.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        id (str): Stable identifier for this record.
+        url (str): Original saved URL, preserved without canonicalization.
+        title (str): Human-readable title.
+        favicon (str | None): Typed favicon value carried by this object.
+        note (str | None): User-authored note stored with the Saved Tab.
+        agent_review (str | None): Agent-authored review text stored with the Saved Tab.
+        viewed (bool): Whether any equivalent occurrence has been viewed.
+        tags (list[str]): Tags associated with the Saved Tab.
+        group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
+        position (float): Stable display position within the current Group or Unassigned section.
+        archived (bool): Whether the record is outside the active library.
+        archived_at (datetime | None): UTC instant at which the record entered the archive.
+        hidden_until (datetime | None): Absolute UTC deadline before which the tab stays hidden.
+        created_at (datetime | None): UTC instant at which the record was created.
+        updated_at (datetime | None): UTC instant at which the record was last changed.
+    """
 
     id: str
     url: str
@@ -243,14 +463,36 @@ class TransferTabDTO(BaseModel):
     @field_validator("hidden_until")
     @classmethod
     def hidden_until_is_utc(cls, value: datetime | None) -> datetime | None:
-        """Require an absolute instant and normalize it to UTC."""
+        """Require an absolute instant and normalize it to UTC.
+
+        This type is part of a validated boundary: Pydantic enforces its declared shape while the
+        shared DTO configuration serializes public field names in camelCase and rejects unknown
+        input fields.
+
+        Args:
+            value (datetime | None): Value to validate, convert, or persist.
+
+        Returns:
+            datetime | None: Result produced by the operation described above.
+        """
         if value is None:
             return None
         return absolute_utc(value)
 
 
 class TransferDocumentDTO(BaseModel):
-    """Represent the versioned portable TabVault document."""
+    """Represent the versioned portable TabVault document.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        schema_version (Literal[2]): Typed schema version value carried by this object.
+        exported_at (datetime | None): UTC instant associated with exported.
+        tags (list[TransferTagDTO]): Tags associated with the Saved Tab.
+        groups (list[TransferGroupDTO]): Typed groups value carried by this object.
+        tabs (list[TransferTabDTO]): Typed tabs value carried by this object.
+    """
 
     schema_version: Literal[2] = 2
     exported_at: datetime | None = None
@@ -261,7 +503,19 @@ class TransferDocumentDTO(BaseModel):
 
 
 class MinimalTransferTabDTO(BaseModel):
-    """Represent the minimal portable tab projection."""
+    """Represent the minimal portable tab projection.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        id (str): Stable identifier for this record.
+        url (str): Original saved URL, preserved without canonicalization.
+        title (str): Human-readable title.
+        favicon (str | None): Typed favicon value carried by this object.
+        group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
+        tags (list[str]): Tags associated with the Saved Tab.
+    """
 
     id: str
     url: str
@@ -273,7 +527,18 @@ class MinimalTransferTabDTO(BaseModel):
 
 
 class MinimalTransferDocumentDTO(BaseModel):
-    """Represent a portable document with minimal tab fields."""
+    """Represent a portable document with minimal tab fields.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        schema_version (Literal[2]): Typed schema version value carried by this object.
+        exported_at (datetime | None): UTC instant associated with exported.
+        tags (list[TransferTagDTO]): Tags associated with the Saved Tab.
+        groups (list[TransferGroupDTO]): Typed groups value carried by this object.
+        tabs (list[MinimalTransferTabDTO]): Typed tabs value carried by this object.
+    """
 
     schema_version: Literal[2] = 2
     exported_at: datetime | None = None
@@ -284,7 +549,16 @@ class MinimalTransferDocumentDTO(BaseModel):
 
 
 class TransferExportDTO(BaseModel):
-    """Contain rendered export content and its media type."""
+    """Contain rendered export content and its media type.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        content (str | TransferDocumentDTO | MinimalTransferDocumentDTO): Typed content value
+            carried by this object.
+        media_type (str): Typed media type value carried by this object.
+    """
 
     content: str | TransferDocumentDTO | MinimalTransferDocumentDTO
     media_type: str
@@ -292,7 +566,16 @@ class TransferExportDTO(BaseModel):
 
 
 class ImportCountsDTO(BaseModel):
-    """Count imported entities by bounded-context type."""
+    """Count imported entities by bounded-context type.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        tabs (int): Typed tabs value carried by this object.
+        groups (int): Typed groups value carried by this object.
+        tags (int): Tags associated with the Saved Tab.
+    """
 
     tabs: int = 0
     groups: int = 0
@@ -301,7 +584,19 @@ class ImportCountsDTO(BaseModel):
 
 
 class ImportValidationDTO(BaseModel):
-    """Report import validity and anticipated mutations."""
+    """Report import validity and anticipated mutations.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        valid (bool): Typed valid value carried by this object.
+        errors (list[IssueDTO]): Structured fatal or per-item issues.
+        warnings (list[WarningDTO]): Structured non-fatal issues.
+        would_create (ImportCountsDTO): Typed would create value carried by this object.
+        would_update (ImportCountsDTO): Typed would update value carried by this object.
+        would_skip (ImportCountsDTO): Typed would skip value carried by this object.
+    """
 
     valid: bool
     errors: list[IssueDTO]
@@ -313,7 +608,18 @@ class ImportValidationDTO(BaseModel):
 
 
 class ImportApplyDataDTO(BaseModel):
-    """Report mutations performed by a successful import."""
+    """Report mutations performed by a successful import.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        mode (ImportMode): Typed mode value carried by this object.
+        created (ImportCountsDTO): Typed created value carried by this object.
+        updated (ImportCountsDTO): Typed updated value carried by this object.
+        skipped_duplicates (int): Typed skipped duplicates value carried by this object.
+        backup_snapshot_id (str | None): Stable identifier of the related backup snapshot.
+    """
 
     mode: ImportMode
     created: ImportCountsDTO
@@ -324,7 +630,17 @@ class ImportApplyDataDTO(BaseModel):
 
 
 class ImportApplyResultDTO(BaseModel):
-    """Represent the complete import HTTP response."""
+    """Represent the complete import HTTP response.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        success (bool): Whether the enclosing API operation succeeded.
+        data (ImportApplyDataDTO | None): Typed response payload.
+        errors (list[IssueDTO] | None): Structured fatal or per-item issues.
+        warnings (list[WarningDTO]): Structured non-fatal issues.
+    """
 
     success: bool
     data: ImportApplyDataDTO | None = None
@@ -334,7 +650,19 @@ class ImportApplyResultDTO(BaseModel):
 
 
 class ExtractedArticleDTO(BaseModel):
-    """Represent sanitized article fields extracted from HTML."""
+    """Represent sanitized article fields extracted from HTML.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        title (str | None): Human-readable title.
+        byline (str | None): Typed byline value carried by this object.
+        site_name (str | None): Typed site name value carried by this object.
+        excerpt (str | None): Typed excerpt value carried by this object.
+        content_html (str): Typed content html value carried by this object.
+        length (int): Typed length value carried by this object.
+    """
 
     title: str | None
     byline: str | None
@@ -346,7 +674,17 @@ class ExtractedArticleDTO(BaseModel):
 
 
 class PreviewCaptureResultDTO(BaseModel):
-    """Report the outcome of a background preview capture."""
+    """Report the outcome of a background preview capture.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        tab_id (str | None): Stable identifier of the related tab.
+        status (PreviewStatus | None): Current lifecycle or readiness state.
+        skipped (Literal["tab_not_found"] | None): Typed skipped value carried by this object.
+        error (str | None): Typed error value carried by this object.
+    """
 
     tab_id: str | None = None
     status: PreviewStatus | None = None

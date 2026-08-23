@@ -44,7 +44,19 @@ router = APIRouter(tags=["system"])
 
 @router.get("/health", response_model=HealthDTO)
 async def health(service: Annotated[SystemService, Depends(get_system_service)]) -> HealthDTO:
-    """Return server and storage health."""
+    """Return server and storage health.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        HealthDTO: Result produced by the operation described above.
+    """
     return await service.health()
 
 
@@ -58,7 +70,25 @@ async def search(
     tags: str = "",
     min_score: float = Query(0.3, ge=0, le=1, alias="minScore"),
 ) -> SuccessResponseDTO[SearchDataDTO]:
-    """Search tabs using keyword, semantic, or hybrid scoring."""
+    """Search tabs using keyword, semantic, or hybrid scoring.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+        q (str): Q value consumed by this operation.
+        mode (SearchMode): Requested import or update behavior.
+        limit (int): Maximum number of matching records to return.
+        group_id (str | None): Stable identifier of the group targeted by the operation.
+        tags (str): Tags value consumed by this operation.
+        min_score (float): Min score value consumed by this operation.
+
+    Returns:
+        SuccessResponseDTO[SearchDataDTO]: Result produced by the operation described above.
+    """
     result = await service.search(
         q, mode, limit, group_id, [x for x in tags.split(",") if x], min_score
     )
@@ -77,7 +107,20 @@ async def search(
 async def reindex(
     request: Request, service: Annotated[SystemService, Depends(get_system_service)]
 ) -> SuccessResponseDTO[JobQueuedDTO]:
-    """Queue a vector-index rebuild."""
+    """Queue a vector-index rebuild.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        request (Request): Incoming FastAPI request, including its headers and body.
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[JobQueuedDTO]: Result produced by the operation described above.
+    """
     result = await service.queue_reindex()
     request.app.state.worker.wake()
     return success(result)
@@ -87,7 +130,20 @@ async def reindex(
 async def job(
     job_id: str, service: Annotated[SystemService, Depends(get_system_service)]
 ) -> SuccessResponseDTO[JobDTO]:
-    """Return one background job."""
+    """Return one background job.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        job_id (str): Stable identifier of the job targeted by the operation.
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[JobDTO]: Result produced by the operation described above.
+    """
     return success(await service.job(job_id))
 
 
@@ -98,7 +154,19 @@ async def job(
 async def backups(
     service: Annotated[SystemService, Depends(get_system_service)],
 ) -> SuccessResponseDTO[BackupListDataDTO]:
-    """List backup snapshots."""
+    """List backup snapshots.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[BackupListDataDTO]: Result produced by the operation described above.
+    """
     return success(BackupListDataDTO(backups=await service.backups()))
 
 
@@ -110,7 +178,21 @@ async def backups(
 async def restore_backup(
     backup_id: str, request: Request, service: Annotated[SystemService, Depends(get_system_service)]
 ) -> SuccessResponseDTO[JobQueuedDTO]:
-    """Queue restoration of a backup snapshot."""
+    """Queue restoration of a backup snapshot.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        backup_id (str): Stable identifier of the backup targeted by the operation.
+        request (Request): Incoming FastAPI request, including its headers and body.
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[JobQueuedDTO]: Result produced by the operation described above.
+    """
     result = await service.restore_backup(backup_id)
     request.app.state.worker.wake()
     return success(result)
@@ -123,7 +205,20 @@ async def restore_backup(
 async def preview(
     tab_id: str, service: Annotated[SystemService, Depends(get_system_service)]
 ) -> SuccessResponseDTO[PreviewDTO]:
-    """Return preview state for a tab."""
+    """Return preview state for a tab.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        tab_id (str): Stable identifier of the tab targeted by the operation.
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[PreviewDTO]: Result produced by the operation described above.
+    """
     return success(await service.preview(tab_id))
 
 
@@ -135,7 +230,21 @@ async def preview(
 async def refresh_preview(
     tab_id: str, request: Request, service: Annotated[SystemService, Depends(get_system_service)]
 ) -> SuccessResponseDTO[JobQueuedDTO]:
-    """Queue fresh preview capture for a tab."""
+    """Queue fresh preview capture for a tab.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        tab_id (str): Stable identifier of the tab targeted by the operation.
+        request (Request): Incoming FastAPI request, including its headers and body.
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[JobQueuedDTO]: Result produced by the operation described above.
+    """
     result = await service.queue_preview(tab_id)
     request.app.state.worker.wake()
     return success(result)
@@ -145,7 +254,20 @@ async def refresh_preview(
 async def asset(
     asset_id: str, service: Annotated[SystemService, Depends(get_system_service)]
 ) -> FileResponse:
-    """Return a captured asset or bundled fallback."""
+    """Return a captured asset or bundled fallback.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        asset_id (str): Stable identifier of the asset targeted by the operation.
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        FileResponse: Result produced by the operation described above.
+    """
     result = await service.asset(asset_id)
     return FileResponse(result.path, media_type=result.media_type)
 
@@ -157,7 +279,23 @@ async def export_data(
     scope: str = "all",
     fields: ExportFields = "full",
 ) -> Response:
-    """Export the library as portable JSON or Markdown."""
+    """Export the library as portable JSON or Markdown.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Transfer value
+            consumed by this operation.
+        format (TransferFormat): Requested interchange representation.
+        scope (str): Scope value consumed by this operation.
+        fields (ExportFields): Requested response projection controlling which fields are
+            serialized.
+
+    Returns:
+        Response: Result produced by the operation described above.
+    """
     result = await transfer.export(format, scope, fields)
     filename = f"tabvault-export-{datetime.now(UTC).date()}.{format if format == 'json' else 'md'}"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
@@ -175,12 +313,35 @@ async def export_data(
 async def sync_document(
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
 ) -> JSONResponse:
-    """Return the complete schema-v2 document for trusted browser synchronization."""
+    """Return the complete schema-v2 document for trusted browser synchronization.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Transfer value
+            consumed by this operation.
+
+    Returns:
+        JSONResponse: Result produced by the operation described above.
+    """
     return JSONResponse(json_data(await transfer.document()))
 
 
 async def _import_body(request: Request) -> tuple[object, TransferFormat]:
-    """Read JSON or Markdown import content from a request."""
+    """Read JSON or Markdown import content from a request.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        request (Request): Incoming FastAPI request, including its headers and body.
+
+    Returns:
+        tuple[object, TransferFormat]: Result produced by the operation described above.
+    """
     content_type = request.headers.get("content-type", "").split(";", 1)[0]
     raw = await request.body()
     if content_type == "text/markdown":
@@ -200,7 +361,22 @@ async def import_data(
     mode: ImportMode | None = None,
     scope: str = "all",
 ) -> Response:
-    """Validate and apply an imported library document."""
+    """Validate and apply an imported library document.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        request (Request): Incoming FastAPI request, including its headers and body.
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Transfer value
+            consumed by this operation.
+        mode (ImportMode | None): Requested import or update behavior.
+        scope (str): Scope value consumed by this operation.
+
+    Returns:
+        Response: Result produced by the operation described above.
+    """
     content, format = await _import_body(request)
     if mode is None:
         try:
@@ -232,7 +408,20 @@ async def import_data(
 async def validate_import(
     request: Request, transfer: Annotated[TransferService, Depends(get_transfer_service)]
 ) -> Response:
-    """Validate an import without applying it."""
+    """Validate an import without applying it.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        request (Request): Incoming FastAPI request, including its headers and body.
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Transfer value
+            consumed by this operation.
+
+    Returns:
+        Response: Result produced by the operation described above.
+    """
     content, format = await _import_body(request)
     result = await transfer.validate(content, format)
     return JSONResponse(
@@ -248,7 +437,19 @@ async def validate_import(
 async def index_status(
     service: Annotated[SystemService, Depends(get_system_service)],
 ) -> SuccessResponseDTO[IndexStatusDTO]:
-    """Return vector-index status and health scheduling state."""
+    """Return vector-index status and health scheduling state.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[IndexStatusDTO]: Result produced by the operation described above.
+    """
     return success(await service.index_status())
 
 
@@ -259,7 +460,19 @@ async def index_status(
 async def health_schedule(
     service: Annotated[SystemService, Depends(get_system_service)],
 ) -> SuccessResponseDTO[HealthScheduleDTO]:
-    """Return vector-index health scheduling state."""
+    """Return vector-index health scheduling state.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[HealthScheduleDTO]: Result produced by the operation described above.
+    """
     return success((await service.index_status()).health_check)
 
 
@@ -270,7 +483,20 @@ async def health_schedule(
 async def configure_health(
     body: HealthConfigDTO, service: Annotated[SystemService, Depends(get_system_service)]
 ) -> SuccessResponseDTO[HealthScheduleDTO]:
-    """Configure vector-index health scheduling."""
+    """Configure vector-index health scheduling.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        body (HealthConfigDTO): Validated request body supplied by the caller.
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[HealthScheduleDTO]: Result produced by the operation described above.
+    """
     return success(
         await service.configure_health(body.interval_seconds, body.notify_on_needs_attention)
     )
@@ -283,19 +509,55 @@ async def configure_health(
 async def run_health(
     service: Annotated[SystemService, Depends(get_system_service)],
 ) -> SuccessResponseDTO[HealthScheduleDTO]:
-    """Run a vector-index health check immediately."""
+    """Run a vector-index health check immediately.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[HealthScheduleDTO]: Result produced by the operation described above.
+    """
     return success(await service.run_health())
 
 
 @router.get("/schema")
 async def schema(service: Annotated[SystemService, Depends(get_system_service)]) -> dict:
-    """Return the portable-document JSON schema."""
+    """Return the portable-document JSON schema.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        dict: Result produced by the operation described above.
+    """
     return service.schema()
 
 
 @router.get("/errors")
 async def errors(service: Annotated[SystemService, Depends(get_system_service)]) -> dict:
-    """Return the stable API error catalog."""
+    """Return the stable API error catalog.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        dict: Result produced by the operation described above.
+    """
     return service.errors()
 
 
@@ -303,5 +565,17 @@ async def errors(service: Annotated[SystemService, Depends(get_system_service)])
 async def clear_library(
     service: Annotated[SystemService, Depends(get_system_service)],
 ) -> SuccessResponseDTO[LibraryClearDTO]:
-    """Back up and clear the local library."""
+    """Back up and clear the local library.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[LibraryClearDTO]: Result produced by the operation described above.
+    """
     return success(await service.clear_library())

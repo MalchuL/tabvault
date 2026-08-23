@@ -35,19 +35,60 @@ from .repository import TabRepository
 
 
 class TabService:
-    """Orchestrate Saved Tab use cases."""
+    """Orchestrate Saved Tab use cases.
+
+    This application-layer operation coordinates domain rules and persistence, then maps loaded ORM
+    state into transport DTOs. Callers do not need to know how records are queried or related data
+    is assembled.
+    """
 
     def __init__(self, db: AsyncSession, repository: TabRepository) -> None:
-        """Initialize the service and persistence dependency."""
+        """Initialize the service and persistence dependency.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            db (AsyncSession): Request-scoped asynchronous database session used by this operation.
+            repository (TabRepository): Persistence adapter used to load and mutate domain records.
+        """
         self.db = db
         self.repository = repository
         self.mapper = TabMapper()
 
     async def _tags(self, names: list[str]) -> list[Tag]:
+        """Resolve caller-supplied tag names into persistent Tag records.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            names (list[str]): Names value consumed by this operation.
+
+        Returns:
+            list[Tag]: Result produced by the operation described above.
+        """
         return await self.repository.resolve_tags(names)
 
     async def list(self, options: TabListOptionsDTO) -> TabListResultDTO:
-        """List Saved Tabs using validated filters and cursor pagination."""
+        """List Saved Tabs using validated filters and cursor pagination.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            options (TabListOptionsDTO): Options value consumed by this operation.
+
+        Returns:
+            TabListResultDTO: Result produced by the operation described above.
+
+        Raises:
+            InvalidCursorError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         limit = min(max(options.limit, 1), 200)
         now = utc_now()
         try:
@@ -95,14 +136,46 @@ class TabService:
         )
 
     async def get(self, tab_id: str) -> TabDTO:
-        """Return one Saved Tab."""
+        """Return one Saved Tab.
+
+        This application-layer operation coordinates domain rules and persistence, then maps loaded
+        ORM state into transport DTOs. Callers do not need to know how records are queried or
+        related data is assembled.
+
+        Args:
+            tab_id (str): Stable identifier of the tab targeted by the operation.
+
+        Returns:
+            TabDTO: Result produced by the operation described above.
+
+        Raises:
+            TabNotFoundError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         tab = await self.repository.get(tab_id)
         if tab is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")
         return self.mapper.to_dto(tab)
 
     async def create(self, dto: TabCreateDTO) -> tuple[TabDTO, TabJobDTO]:
-        """Create one occurrence without URL lookup or deduplication."""
+        """Create one occurrence without URL lookup or deduplication.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Args:
+            dto (TabCreateDTO): Validated data-transfer object supplied to the operation.
+
+        Returns:
+            tuple[TabDTO, TabJobDTO]: Result produced by the operation described above.
+
+        Raises:
+            DuplicateTabIdError: Propagated when its documented validation or operation condition
+                occurs.
+            InvalidGroupError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         if not await self.repository.active_group_exists(dto.group_id):
             raise InvalidGroupError(f"Group {dto.group_id!r} does not exist")
         position = (
@@ -126,7 +199,27 @@ class TabService:
         return self.mapper.to_dto(tab), TabJobDTO(tab_id=tab.id, job_id=job.id)
 
     async def update(self, tab_id: str, dto: TabUpdateDTO) -> TabDTO:
-        """Patch one Saved Tab while preserving archive invariants."""
+        """Patch one Saved Tab while preserving archive invariants.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Args:
+            tab_id (str): Stable identifier of the tab targeted by the operation.
+            dto (TabUpdateDTO): Validated data-transfer object supplied to the operation.
+
+        Returns:
+            TabDTO: Result produced by the operation described above.
+
+        Raises:
+            EmptyUpdateError: Propagated when its documented validation or operation condition
+                occurs.
+            InvalidGroupError: Propagated when its documented validation or operation condition
+                occurs.
+            TabNotFoundError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         tab = await self.repository.get(tab_id)
         if tab is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")
@@ -157,7 +250,26 @@ class TabService:
         return self.mapper.to_dto(tab)
 
     async def delete(self, tab_id: str, hard: bool) -> TabDeleteResultDTO:
-        """Archive one Saved Tab or permanently delete an archived one."""
+        """Archive one Saved Tab or permanently delete an archived one.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Args:
+            tab_id (str): Stable identifier of the tab targeted by the operation.
+            hard (bool): Whether to permanently delete an already archived record instead of
+                archiving it.
+
+        Returns:
+            TabDeleteResultDTO: Result produced by the operation described above.
+
+        Raises:
+            ActiveTabDeleteError: Propagated when its documented validation or operation condition
+                occurs.
+            TabNotFoundError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         tab = await self.repository.get(tab_id)
         if tab is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")
@@ -177,7 +289,25 @@ class TabService:
     async def tag(
         self, tab_id: str, name: str, add: bool
     ) -> tuple[TabDTO, builtins.list[WarningDTO]]:
-        """Attach or detach one tag."""
+        """Attach or detach one tag.
+
+        This application-layer operation coordinates validated domain input with repository
+        operations. It owns the transaction boundary for mutations so related changes commit
+        together and failures can be rolled back without exposing ORM rows to callers.
+
+        Args:
+            tab_id (str): Stable identifier of the tab targeted by the operation.
+            name (str): Human-readable name used by the operation.
+            add (bool): Whether the relation is attached; false requests detachment.
+
+        Returns:
+            tuple[TabDTO, builtins.list[WarningDTO]]: Result produced by the operation described
+                above.
+
+        Raises:
+            TabNotFoundError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         tab = await self.repository.get(tab_id)
         if tab is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")

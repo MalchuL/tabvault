@@ -37,12 +37,31 @@ from .repository import SystemRepository
 
 
 def empty_document() -> dict[str, Any]:
-    """Create an empty raw portable document for the Markdown parser."""
+    """Create an empty raw portable document for the Markdown parser.
+
+    The operation handles the versioned portable-library boundary. Imported content is treated as
+    untrusted until structural and referential validation succeeds, and exported records use
+    deterministic ordering for stable backups.
+
+    Returns:
+        dict[str, Any]: Result produced by the operation described above.
+    """
     return {"schemaVersion": 2, "exportedAt": iso(utc_now()), "tags": [], "groups": [], "tabs": []}
 
 
 def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
-    """Validate untrusted portable-document structure and references."""
+    """Validate untrusted portable-document structure and references.
+
+    The operation handles the versioned portable-library boundary. Imported content is treated as
+    untrusted until structural and referential validation succeeds, and exported records use
+    deterministic ordering for stable backups.
+
+    Args:
+        document (Any): Document value consumed by this operation.
+
+    Returns:
+        tuple[list[IssueDTO], list[WarningDTO]]: Result produced by the operation described above.
+    """
     errors: list[IssueDTO] = []
     warnings: list[WarningDTO] = []
     if not isinstance(document, dict):
@@ -215,7 +234,19 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
 
 
 def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]]:
-    """Parse the documented Markdown interchange format."""
+    """Parse the documented Markdown interchange format.
+
+    The operation handles the versioned portable-library boundary. Imported content is treated as
+    untrusted until structural and referential validation succeeds, and exported records use
+    deterministic ordering for stable backups.
+
+    Args:
+        content (str): Untrusted serialized content to parse or validate.
+
+    Returns:
+        tuple[dict[str, Any] | None, list[IssueDTO]]: Result produced by the operation described
+            above.
+    """
     document = empty_document()
     active_group: str | None = None
     active_group_record: dict[str, Any] | None = None
@@ -287,17 +318,44 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
 
 
 class TransferService:
-    """Orchestrate transfer and backup use cases while owning transactions."""
+    """Orchestrate transfer and backup use cases while owning transactions.
+
+    The operation handles the versioned portable-library boundary. Imported content is treated as
+    untrusted until structural and referential validation succeeds, and exported records use
+    deterministic ordering for stable backups.
+    """
 
     def __init__(self, db: AsyncSession, settings: Settings, repository: SystemRepository) -> None:
-        """Initialize the service and its persistence dependency."""
+        """Initialize the service and its persistence dependency.
+
+        The operation handles the versioned portable-library boundary. Imported content is treated
+        as untrusted until structural and referential validation succeeds, and exported records use
+        deterministic ordering for stable backups.
+
+        Args:
+            db (AsyncSession): Request-scoped asynchronous database session used by this operation.
+            settings (Settings): Validated process settings that control this component.
+            repository (SystemRepository): Persistence adapter used to load and mutate domain
+                records.
+        """
         self.db = db
         self.settings = settings
         self.repository = repository
         self.mapper = SystemMapper()
 
     async def document(self, *, include_hidden: bool = True) -> TransferDocumentDTO:
-        """Build the complete portable library document."""
+        """Build the complete portable library document.
+
+        The operation handles the versioned portable-library boundary. Imported content is treated
+        as untrusted until structural and referential validation succeeds, and exported records use
+        deterministic ordering for stable backups.
+
+        Args:
+            include_hidden (bool): Whether returned data includes hidden.
+
+        Returns:
+            TransferDocumentDTO: Result produced by the operation described above.
+        """
         tags, groups, tabs = await self.repository.transfer_rows(
             include_hidden=include_hidden,
             now=utc_now() if not include_hidden else None,
@@ -310,7 +368,18 @@ class TransferService:
         )
 
     async def create_backup(self, reason: str) -> BackupDTO:
-        """Atomically write and register a library backup."""
+        """Atomically write and register a library backup.
+
+        The operation handles the versioned portable-library boundary. Imported content is treated
+        as untrusted until structural and referential validation succeeds, and exported records use
+        deterministic ordering for stable backups.
+
+        Args:
+            reason (str): Stable reason recorded for the operation.
+
+        Returns:
+            BackupDTO: Result produced by the operation described above.
+        """
         directory = self.settings.data_dir / "backups"
         directory.mkdir(parents=True, exist_ok=True)
         backup_id = str(uuid.uuid4())
@@ -332,7 +401,21 @@ class TransferService:
         scope: str,
         fields: ExportFields,
     ) -> TransferExportDTO:
-        """Export a filtered library as JSON or Markdown."""
+        """Export a filtered library as JSON or Markdown.
+
+        The operation handles the versioned portable-library boundary. Imported content is treated
+        as untrusted until structural and referential validation succeeds, and exported records use
+        deterministic ordering for stable backups.
+
+        Args:
+            format (TransferFormat): Requested interchange representation.
+            scope (str): Scope value consumed by this operation.
+            fields (ExportFields): Requested response projection controlling which fields are
+                serialized.
+
+        Returns:
+            TransferExportDTO: Result produced by the operation described above.
+        """
         document = await self.document(include_hidden=False)
         if scope.startswith("group:"):
             group_id = scope.split(":", 1)[1]
@@ -365,7 +448,15 @@ class TransferService:
         lines: list[str] = []
 
         def write_tabs(group_id: str | None) -> None:
-            """Append Markdown for active tabs in one group."""
+            """Append Markdown for active tabs in one group.
+
+            The operation handles the versioned portable-library boundary. Imported content is
+            treated as untrusted until structural and referential validation succeeds, and exported
+            records use deterministic ordering for stable backups.
+
+            Args:
+                group_id (str | None): Stable identifier of the group targeted by the operation.
+            """
             for tab in document.tabs:
                 if tab.group_id == group_id and not tab.archived:
                     lines.append(f"- [{tab.title}]({tab.url})")
@@ -378,7 +469,15 @@ class TransferService:
                     lines.append("")
 
         def write_group(group: TransferGroupDTO) -> None:
-            """Append Markdown for one flat Group."""
+            """Append Markdown for one flat Group.
+
+            The operation handles the versioned portable-library boundary. Imported content is
+            treated as untrusted until structural and referential validation succeeds, and exported
+            records use deterministic ordering for stable backups.
+
+            Args:
+                group (TransferGroupDTO): Group value consumed by this operation.
+            """
             lines.append(f"## {group.name}")
             if fields != "minimal":
                 lines.append(f"  description: {group.description or ''}")
@@ -397,7 +496,20 @@ class TransferService:
     def parse(
         self, content: Any, format: TransferFormat
     ) -> tuple[dict[str, Any] | None, list[IssueDTO]]:
-        """Parse untrusted JSON or Markdown into a raw document."""
+        """Parse untrusted JSON or Markdown into a raw document.
+
+        The operation handles the versioned portable-library boundary. Imported content is treated
+        as untrusted until structural and referential validation succeeds, and exported records use
+        deterministic ordering for stable backups.
+
+        Args:
+            content (Any): Untrusted serialized content to parse or validate.
+            format (TransferFormat): Requested interchange representation.
+
+        Returns:
+            tuple[dict[str, Any] | None, list[IssueDTO]]: Result produced by the operation described
+                above.
+        """
         if format == "markdown":
             return markdown_import(str(content))
         if isinstance(content, dict):
@@ -418,7 +530,19 @@ class TransferService:
             ]
 
     async def validate(self, content: Any, format: TransferFormat) -> ImportValidationDTO:
-        """Validate an import and estimate its database effects."""
+        """Validate an import and estimate its database effects.
+
+        The operation handles the versioned portable-library boundary. Imported content is treated
+        as untrusted until structural and referential validation succeeds, and exported records use
+        deterministic ordering for stable backups.
+
+        Args:
+            content (Any): Untrusted serialized content to parse or validate.
+            format (TransferFormat): Requested interchange representation.
+
+        Returns:
+            ImportValidationDTO: Result produced by the operation described above.
+        """
         document, parse_errors = self.parse(content, format)
         if parse_errors or document is None:
             return ImportValidationDTO(
@@ -464,7 +588,21 @@ class TransferService:
         mode: ImportMode,
         scope: str = "all",
     ) -> ImportApplyResultDTO:
-        """Validate and apply an imported library document."""
+        """Validate and apply an imported library document.
+
+        The operation handles the versioned portable-library boundary. Imported content is treated
+        as untrusted until structural and referential validation succeeds, and exported records use
+        deterministic ordering for stable backups.
+
+        Args:
+            content (Any): Untrusted serialized content to parse or validate.
+            format (TransferFormat): Requested interchange representation.
+            mode (ImportMode): Requested import or update behavior.
+            scope (str): Scope value consumed by this operation.
+
+        Returns:
+            ImportApplyResultDTO: Result produced by the operation described above.
+        """
         document, parse_errors = self.parse(content, format)
         if parse_errors or document is None:
             return ImportApplyResultDTO(success=False, errors=parse_errors, warnings=[])
@@ -538,7 +676,18 @@ class TransferService:
         )
 
     async def restore_backup(self, backup_id: str) -> str | None:
-        """Queue replacement import from a stored backup file."""
+        """Queue replacement import from a stored backup file.
+
+        The operation handles the versioned portable-library boundary. Imported content is treated
+        as untrusted until structural and referential validation succeeds, and exported records use
+        deterministic ordering for stable backups.
+
+        Args:
+            backup_id (str): Stable identifier of the backup targeted by the operation.
+
+        Returns:
+            str | None: Result produced by the operation described above.
+        """
         backup = await self.repository.get_backup(backup_id)
         if backup is None or not Path(backup.path).exists():
             return None
@@ -553,5 +702,16 @@ class TransferService:
 
 
 def _aware(value: datetime) -> datetime:
-    """Attach the local UTC timezone to naive persisted datetimes."""
+    """Attach the local UTC timezone to naive persisted datetimes.
+
+    The operation handles the versioned portable-library boundary. Imported content is treated as
+    untrusted until structural and referential validation succeeds, and exported records use
+    deterministic ordering for stable backups.
+
+    Args:
+        value (datetime): Value to validate, convert, or persist.
+
+    Returns:
+        datetime: Result produced by the operation described above.
+    """
     return value.replace(tzinfo=utc_now().tzinfo) if value.tzinfo is None else value

@@ -44,7 +44,32 @@ async def list_tabs(
     fields: str = "full",
     visibility: TabVisibility = "visible",
 ) -> SuccessResponseDTO[TabListDataDTO]:
-    """List Saved Tabs using filters and cursor pagination."""
+    """List Saved Tabs using filters and cursor pagination.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped application
+            service that implements the use case.
+        group_id (str): Stable identifier of the group targeted by the operation.
+        category (str | None): Optional free-form Group category used to restrict results.
+        tags (str): Tags value consumed by this operation.
+        tags_all (str): Tags all value consumed by this operation.
+        search (str | None): Search value consumed by this operation.
+        sort_by (Literal["position", "createdAt", "updatedAt", "title"]): Sort by value consumed by
+            this operation.
+        sort_dir (Literal["asc", "desc"]): Directory used to store sort data.
+        limit (int): Maximum number of matching records to return.
+        cursor (str | None): Opaque keyset cursor returned by an earlier page, or ``None`` for the
+            first page.
+        fields (str): Requested response projection controlling which fields are serialized.
+        visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
+
+    Returns:
+        SuccessResponseDTO[TabListDataDTO]: Result produced by the operation described above.
+    """
     result = await service.list(
         TabListOptionsDTO(
             group_id=group_id,
@@ -70,7 +95,21 @@ async def create_tab(
     request: Request,
     service: Annotated[TabService, Depends(get_tab_service)],
 ) -> SuccessResponseDTO[TabDTO]:
-    """Create exactly one Saved Tab occurrence."""
+    """Create exactly one Saved Tab occurrence.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        body (TabCreateDTO): Validated request body supplied by the caller.
+        request (Request): Incoming FastAPI request, including its headers and body.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[TabDTO]: Result produced by the operation described above.
+    """
     tab, job = await service.create(body)
     request.app.state.worker.wake()
     return success(tab, meta=TabCreateMetaDTO(job=job))
@@ -80,7 +119,20 @@ async def create_tab(
 async def get_tab(
     tab_id: str, service: Annotated[TabService, Depends(get_tab_service)]
 ) -> SuccessResponseDTO[TabDTO]:
-    """Get one Saved Tab."""
+    """Get one Saved Tab.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        tab_id (str): Stable identifier of the tab targeted by the operation.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[TabDTO]: Result produced by the operation described above.
+    """
     return success(await service.get(tab_id))
 
 
@@ -88,7 +140,21 @@ async def get_tab(
 async def update_tab(
     tab_id: str, body: TabUpdateDTO, service: Annotated[TabService, Depends(get_tab_service)]
 ) -> SuccessResponseDTO[TabDTO]:
-    """Patch one Saved Tab, including move or restore state."""
+    """Patch one Saved Tab, including move or restore state.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        tab_id (str): Stable identifier of the tab targeted by the operation.
+        body (TabUpdateDTO): Validated request body supplied by the caller.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[TabDTO]: Result produced by the operation described above.
+    """
     return success(await service.update(tab_id, body))
 
 
@@ -96,7 +162,22 @@ async def update_tab(
 async def delete_tab(
     tab_id: str, service: Annotated[TabService, Depends(get_tab_service)], hard: bool = False
 ) -> SuccessResponseDTO[TabDeleteResultDTO]:
-    """Archive or permanently delete one Saved Tab."""
+    """Archive or permanently delete one Saved Tab.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        tab_id (str): Stable identifier of the tab targeted by the operation.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped application
+            service that implements the use case.
+        hard (bool): Whether to permanently delete an already archived record instead of archiving
+            it.
+
+    Returns:
+        SuccessResponseDTO[TabDeleteResultDTO]: Result produced by the operation described above.
+    """
     return success(await service.delete(tab_id, hard))
 
 
@@ -104,7 +185,21 @@ async def delete_tab(
 async def tag_tab(
     tab_id: str, body: TabTagDTO, service: Annotated[TabService, Depends(get_tab_service)]
 ) -> SuccessResponseDTO[TabDTO]:
-    """Attach one tag to one Saved Tab."""
+    """Attach one tag to one Saved Tab.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        tab_id (str): Stable identifier of the tab targeted by the operation.
+        body (TabTagDTO): Validated request body supplied by the caller.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[TabDTO]: Result produced by the operation described above.
+    """
     tab, warnings = await service.tag(tab_id, body.tag_name, True)
     return success(tab, warnings=warnings)
 
@@ -113,6 +208,20 @@ async def tag_tab(
 async def untag_tab(
     tab_id: str, tag_name: str, service: Annotated[TabService, Depends(get_tab_service)]
 ) -> SuccessResponseDTO[TabDTO]:
-    """Detach one tag from one Saved Tab."""
+    """Detach one tag from one Saved Tab.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        tab_id (str): Stable identifier of the tab targeted by the operation.
+        tag_name (str): Tag name value consumed by this operation.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[TabDTO]: Result produced by the operation described above.
+    """
     tab, warnings = await service.tag(tab_id, tag_name, False)
     return success(tab, warnings=warnings)

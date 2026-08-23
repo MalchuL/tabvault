@@ -15,37 +15,82 @@ from .protocol import CapturedResponse
 
 
 class CaptureRejectedError(ValueError):
-    """Indicate that a remote capture violates safety or size limits."""
+    """Indicate that a remote capture violates safety or size limits.
+
+    The client applies the backend's outbound-network safety policy before returning bounded
+    response data to preview capture. It does not persist results or own database transactions.
+    """
 
 
 class WebCaptureClient:
-    """Fetch bounded public HTTP resources for preview capture."""
+    """Fetch bounded public HTTP resources for preview capture.
+
+    The client applies the backend's outbound-network safety policy before returning bounded
+    response data to preview capture. It does not persist results or own database transactions.
+    """
 
     def __init__(self, settings: Settings) -> None:
-        """Initialize the client with capture limits and policy."""
+        """Initialize the client with capture limits and policy.
+
+        The client applies the backend's outbound-network safety policy before returning bounded
+        response data to preview capture. It does not persist results or own database transactions.
+
+        Args:
+            settings (Settings): Validated process settings that control this component.
+        """
         self.settings = settings
 
     async def _validate_url(self, url: str) -> None:
-        """Resolve and reject non-public destinations unless explicitly allowed."""
+        """Resolve and reject non-public destinations unless explicitly allowed.
+
+        The client applies the backend's outbound-network safety policy before returning bounded
+        response data to preview capture. It does not persist results or own database transactions.
+
+        Args:
+            url (str): Absolute HTTP or HTTPS URL used by the operation.
+
+        Raises:
+            CaptureRejectedError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise CaptureRejectedError("Only absolute HTTP(S) URLs are allowed")
         if self.settings.preview_allow_private_hosts:
             return
+        # Get addresses for the hostname (it calls C func from asyncio).
         addresses = await asyncio.get_running_loop().getaddrinfo(
             parsed.hostname,
             parsed.port or (443 if parsed.scheme == "https" else 80),
             type=socket.SOCK_STREAM,
         )
         for address in addresses:
-            ip = ipaddress.ip_address(address[4][0])
+            # Get IP address from the address tuple.
+            _, _, _, _, (ip_address, *_) = address
+            ip = ipaddress.ip_address(ip_address)
             if not ip.is_global:
                 raise CaptureRejectedError(
                     "Private, loopback, link-local, and reserved destinations are blocked"
                 )
 
     async def _fetch(self, url: str, accepted: tuple[str, ...], limit: int) -> CapturedResponse:
-        """Stream a validated resource with redirect and byte limits."""
+        """Stream a validated resource with redirect and byte limits.
+
+        The client applies the backend's outbound-network safety policy before returning bounded
+        response data to preview capture. It does not persist results or own database transactions.
+
+        Args:
+            url (str): Absolute HTTP or HTTPS URL used by the operation.
+            accepted (tuple[str, ...]): Accepted value consumed by this operation.
+            limit (int): Maximum number of matching records to return.
+
+        Returns:
+            CapturedResponse: Result produced by the operation described above.
+
+        Raises:
+            CaptureRejectedError: Propagated when its documented validation or operation condition
+                occurs.
+        """
         current = url
         async with httpx.AsyncClient(timeout=self.settings.preview_timeout_seconds) as client:
             for _ in range(6):
@@ -82,11 +127,31 @@ class WebCaptureClient:
             raise CaptureRejectedError("Too many redirects")
 
     async def fetch_html(self, url: str) -> CapturedResponse:
-        """Fetch an HTML document."""
+        """Fetch an HTML document.
+
+        The client applies the backend's outbound-network safety policy before returning bounded
+        response data to preview capture. It does not persist results or own database transactions.
+
+        Args:
+            url (str): Absolute HTTP or HTTPS URL used by the operation.
+
+        Returns:
+            CapturedResponse: Result produced by the operation described above.
+        """
         return await self._fetch(
             url, ("text/html", "application/xhtml+xml"), self.settings.preview_max_html_bytes
         )
 
     async def fetch_image(self, url: str) -> CapturedResponse:
-        """Fetch an image resource."""
+        """Fetch an image resource.
+
+        The client applies the backend's outbound-network safety policy before returning bounded
+        response data to preview capture. It does not persist results or own database transactions.
+
+        Args:
+            url (str): Absolute HTTP or HTTPS URL used by the operation.
+
+        Returns:
+            CapturedResponse: Result produced by the operation described above.
+        """
         return await self._fetch(url, ("image/*",), self.settings.preview_max_image_bytes)
