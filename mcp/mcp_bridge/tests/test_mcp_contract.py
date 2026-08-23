@@ -16,6 +16,7 @@ MANDATORY = {
     "update_tab",
     "delete_tab",
     "move_tab",
+    "reorder_tabs",
     "list_groups",
     "create_group",
     "update_group",
@@ -103,6 +104,7 @@ def test_mcp_functions_forward_v2_single_resource_shapes(monkeypatch) -> None:
     bridge.delete_tab("tab")
     bridge.move_tab("tab", targetGroupId="group", position=1)
     bridge.move_tab("tab", targetGroupId=None)
+    bridge.reorder_tabs(["tab"], groupId="group")
     bridge.list_groups(category="manual")
     bridge.create_group("Group", description="Filing context")
     bridge.update_group("group", description="Updated context", color="#fff")
@@ -123,6 +125,8 @@ def test_mcp_functions_forward_v2_single_resource_shapes(monkeypatch) -> None:
         call for call in calls if call[0][0:2] == ("PATCH", "/tabs/tab") and "groupId" in call[0][2]
     )
     assert move[0][2] == {"groupId": "group", "position": 1}
+    reorder = next(call for call in calls if call[0][0:2] == ("PUT", "/tabs/order"))
+    assert reorder[0][2] == {"groupId": "group", "tabIds": ["tab"]}
     created_group = next(call for call in calls if call[0][0:2] == ("POST", "/groups"))
     assert created_group[0][2]["category"] == "manual"
     changed_group = next(call for call in calls if call[0][0:2] == ("PATCH", "/groups/group"))

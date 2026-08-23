@@ -33,8 +33,6 @@ import {
 } from "@/lib/library";
 import { BrowserStorageAdapter } from "@/lib/persistence";
 
-const logoUrl = "/icon-128.png";
-
 type ValidationError = {
   code?: string;
   path?: string;
@@ -73,24 +71,6 @@ export default function Transfer() {
   const [isWorking, setIsWorking] = useState(false);
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
   const [issues, setIssues] = useState<ValidationError[]>([]);
-
-  const refresh = async () => {
-    try {
-      const health = await checkLocalServer(serverUrl, apiKey);
-      const online = health.status === "ok";
-      setServerOnline(online);
-      if (online) {
-        toast.success("TabVault server is connected", {
-          description: `Schema v${health.schemaVersion} is ready at ${serverUrl}.`,
-        });
-      } else {
-        toast.error("The TabVault server is unavailable");
-      }
-    } catch {
-      setServerOnline(false);
-      toast.error("The TabVault server is unavailable");
-    }
-  };
 
   useEffect(() => {
     void storage
@@ -242,71 +222,7 @@ export default function Transfer() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f6f3ec] text-[#18261f] lg:pl-[274px]">
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-[274px] flex-col border-r border-[#ded9cd] bg-[#f3f1ea] px-4 py-5 lg:flex">
-        <div className="flex items-center gap-3 px-2">
-          <img
-            src={logoUrl}
-            alt="TabVault"
-            className="h-8 w-8 object-contain"
-          />
-          <div>
-            <span className="block font-['DM_Sans'] text-[19px] font-bold leading-none tracking-[-0.055em]">
-              tabvault
-            </span>
-            <span className="mt-1 block font-mono text-[9px] uppercase tracking-[0.16em] text-[#83867e]">
-              local link library
-            </span>
-          </div>
-        </div>
-        <nav className="mt-10">
-          <p className="mb-2 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-[#8e9189]">
-            Workspace
-          </p>
-          <button
-            onClick={() => setLocation("/")}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[#666c65] transition hover:bg-[#efede6] hover:text-[#18261f]"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-            <span className="text-[13px] font-semibold">My library</span>
-          </button>
-          <div className="mt-8 border-t border-[#e3ded3] pt-6">
-            <p className="mb-2 px-2 font-mono text-[10px] uppercase tracking-[0.16em] text-[#8e9189]">
-              Data
-            </p>
-            <button
-              aria-current="page"
-              className="flex w-full items-center gap-2.5 rounded-lg border-l-2 border-[#e95224] bg-[#eeece4] px-3 py-2 text-left text-[#18261f]"
-            >
-              <ArrowDownToLine className="h-3.5 w-3.5 text-[#e95224]" />
-              <span className="text-[13px] font-semibold">Import & Export</span>
-            </button>
-          </div>
-        </nav>
-        <div className="mt-auto rounded-xl border border-[#ded9cd] bg-[#fffdf8] p-3.5 shadow-[0_8px_24px_rgba(24,38,31,0.04)]">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-              API connection
-            </span>
-            <span
-              className={`h-2 w-2 rounded-full ${serverOnline ? "bg-[#6e9870]" : "bg-[#c95f46]"}`}
-            />
-          </div>
-          <p className="mt-2 text-[12px] font-bold">
-            {serverOnline ? "Server available" : "Browser storage active"}
-          </p>
-          <p className="mt-1 truncate font-mono text-[9px] text-[#8c9088]">
-            {serverUrl.replace(/^https?:\/\//, "")}
-          </p>
-          <button
-            onClick={() => void refresh()}
-            className="mt-3 border-t border-[#e8e3d8] pt-2.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[#687067] hover:text-[#e95224]"
-          >
-            Check connection
-          </button>
-        </div>
-      </aside>
-
+    <div className="min-h-screen bg-[#f6f3ec] text-[#18261f]">
       <header className="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-[#ded9cd]/85 bg-[#f6f3ec]/88 px-5 backdrop-blur-xl sm:px-7 lg:px-9">
         <button
           onClick={() => setLocation("/")}

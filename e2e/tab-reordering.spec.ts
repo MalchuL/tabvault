@@ -113,6 +113,26 @@ test("manual groups are the only quick and selected move targets", async ({
     .getByTestId("tab-row-t-1001")
     .getByLabel("Move Agents can organize the web better than we can");
   await expect(rowMove.locator("option")).toHaveText(["Move to…", "Research"]);
+  await expect(
+    page
+      .getByTestId("tab-row-t-research")
+      .getByLabel("Move Model Context Protocol specification")
+  ).toHaveValue("research");
+
+  await page
+    .getByTestId("tab-row-advanced-new")
+    .getByLabel("Edit New title")
+    .click();
+  const editCollection = page
+    .getByRole("dialog", { name: "Edit tab" })
+    .getByLabel("Collection");
+  await expect(editCollection.locator("option")).toHaveText([
+    "Move from current session…",
+    "[Unassigned]",
+    "Research",
+    "Empty shelf",
+  ]);
+  await page.getByRole("button", { name: "Close dialog" }).click();
 
   await page.getByLabel("Compact tab view").click();
   const compactMove = page
@@ -123,6 +143,61 @@ test("manual groups are the only quick and selected move targets", async ({
     "Move to…",
     "Research",
   ]);
+});
+
+test("group board keeps every tab visible and emphasizes search matches", async ({
+  page,
+}) => {
+  await openSchemaV2Library(page);
+  await page.evaluate(() => {
+    const vault = JSON.parse(localStorage.getItem("tabvault-v2") || "{}");
+    const source = vault.tabs.find(
+      (tab: { id: string }) => tab.id === "advanced-new"
+    );
+    for (let index = 1; index <= 3; index += 1) {
+      const id = `group-board-extra-${index}`;
+      vault.tabs.push({
+        ...source,
+        id,
+        title: `Extra session tab ${index}`,
+        url: `https://example.com/group-board-${index}`,
+      });
+      vault.tabOrders.session.push(id);
+    }
+    localStorage.setItem("tabvault-v2", JSON.stringify(vault));
+  });
+  await page.reload();
+  await page.getByLabel("Collection-group board view").click();
+
+  const session = page.getByTestId("group-card-session");
+  await expect(
+    session.locator("button[data-testid^='grouped-tab-']")
+  ).toHaveCount(5);
+  await expect(page.getByTestId("grouped-tab-icon-advanced-new")).toBeVisible();
+
+  await page
+    .getByLabel("Search your TabVault library")
+    .fill("Extra session tab 2");
+  await expect(page.getByTestId("group-board")).toBeVisible();
+  await expect(
+    page.getByTestId("grouped-tab-group-board-extra-2")
+  ).toHaveAttribute("data-search-state", "match");
+  await expect(page.getByTestId("grouped-tab-advanced-new")).toHaveAttribute(
+    "data-search-state",
+    "dimmed"
+  );
+});
+
+test("workspace sidebar remains available on secondary pages", async ({
+  page,
+}) => {
+  await openSchemaV2Library(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const sidebar = page.getByTestId("workspace-sidebar");
+  await expect(sidebar).toBeVisible();
+  await sidebar.getByRole("button", { name: "Dashboard", exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(sidebar).toBeVisible();
 });
 
 test("empty Session groups remain until explicitly deleted", async ({

@@ -69,3 +69,15 @@ class EmptyUpdateError(TabError):
     code = "E_EMPTY_UPDATE"
     status_code = 422
     path = "body"
+
+
+class InvalidTabOrderError(TabError):
+    """Reject a reorder containing a tab outside the requested membership scope.
+
+    The service raises this error before committing any positions, keeping the batch atomic when a
+    caller supplies an archived, missing, or differently grouped Saved Tab identifier.
+    """
+
+    code = "E_INVALID_TAB_ORDER"
+    status_code = 409
+    path = "body.tabIds"

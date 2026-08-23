@@ -17,6 +17,8 @@ from .dto import (
     TabDTO,
     TabListOptionsDTO,
     TabListResponseDTO,
+    TabReorderDTO,
+    TabReorderResultDTO,
     TabTagDTO,
     TabUpdateDTO,
 )
@@ -83,6 +85,27 @@ async def list_tabs(
         ListOptions(limit=limit, offset=offset),
     )
     return result
+
+
+@router.put("/order", response_model=SuccessResponseDTO[TabReorderResultDTO])
+async def reorder_tabs(
+    body: TabReorderDTO,
+    service: Annotated[TabService, Depends(get_tab_service)],
+) -> SuccessResponseDTO[TabReorderResultDTO]:
+    """Reorder active Saved Tabs within one Group or Unassigned atomically.
+
+    This HTTP boundary validates the camelCase request body and delegates the single-transaction
+    batch to the Saved Tab service. It replaces clients issuing one position PATCH per tab.
+
+    Args:
+        body (TabReorderDTO): Membership scope and unique tab IDs from first to last.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped Saved Tab service
+            that validates membership and owns the transaction.
+
+    Returns:
+        SuccessResponseDTO[TabReorderResultDTO]: Accepted scope and ordered IDs.
+    """
+    return success(await service.reorder(body))
 
 
 @router.post("", status_code=201, response_model=SuccessResponseDTO[TabDTO])

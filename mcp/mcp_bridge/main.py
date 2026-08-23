@@ -483,6 +483,33 @@ def move_tab(
     return client.request("PATCH", f"/tabs/{id}", body)
 
 
+@mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)
+def reorder_tabs(tabIds: list[str], groupId: str | None = None) -> dict[str, Any]:
+    """Apply one relative order to visible active tabs in a Group or Unassigned.
+
+    The MCP boundary verifies that every supplied tab and non-null Group is visible before forwarding
+    one transactional batch request. Omitted members keep their existing relative order after the
+    supplied IDs, allowing agents to reorder only the records they can access.
+
+    Args:
+        tabIds (list[str]): Visible active Saved Tab IDs from first to last.
+        groupId (str | None): Target Group identifier, or ``None`` for Unassigned.
+
+    Returns:
+        dict[str, Any]: Structured API success response confirming the accepted order.
+
+    Raises:
+        TabVaultApiError: A supplied tab or Group is hidden, archived, unavailable, or rejected by
+            the local API.
+    """
+    client = api()
+    if groupId is not None:
+        _visible_group(client, groupId)
+    for tab_id in tabIds:
+        _visible_tab(client, tab_id)
+    return client.request("PUT", "/tabs/order", {"groupId": groupId, "tabIds": tabIds})
+
+
 @mcp.tool(annotations=READ, structured_output=True)
 def list_groups(category: str | None = None, limit: int = 100, offset: int = 0) -> dict[str, Any]:
     """List visible flat Groups, optionally restricted by category.

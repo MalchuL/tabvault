@@ -40,6 +40,7 @@ import {
   readSyncStatus,
   rebuildSemanticIndex,
   refreshLibraryFromServer,
+  reorderTabsOnLocalServer,
   runIndexHealthCheck,
   saveTabToLocalServer,
   searchLocalServer,
@@ -314,8 +315,7 @@ export default function Home() {
     : isHiddenPage
       ? "Hidden"
       : "All Tabs";
-  const isGroupBoard =
-    tabView === "groups" && !isArchivePage && !isHiddenPage && !query;
+  const isGroupBoard = tabView === "groups" && !isArchivePage && !isHiddenPage;
   const activeTabs = useMemo(
     () =>
       tabs.filter(
@@ -1974,7 +1974,7 @@ export default function Home() {
     setActiveDragHeight(undefined);
   };
 
-  const handleLibraryDragEnd = ({ active, over }: DragEndEvent) => {
+  const handleLibraryDragEnd = async ({ active, over }: DragEndEvent) => {
     const snapshot = dragSnapshotRef.current;
     const lastCrossOver = lastCrossOverRef.current;
     dragSnapshotRef.current = undefined;
@@ -1999,27 +1999,74 @@ export default function Home() {
     const stayedOnInitialCrossTarget =
       movedToAnotherGroup &&
       lastCrossOver?.entryOverId === lastCrossOver?.overId;
+    let nextTabOrders = tabOrders;
     if (
       active.id !== over.id &&
       target?.groupId === source.groupId &&
       !stayedOnInitialCrossTarget
     ) {
-      setTabOrders(current => {
-        const sourceKey = orderKey(source.groupId);
-        const currentOrder = current[sourceKey] ?? [];
-        const sourceIndex = currentOrder.indexOf(source.id);
-        const originalTargetIndex = currentOrder.indexOf(target.id);
-        const order = currentOrder.filter(id => id !== source.id);
-        const targetIndex = order.indexOf(target.id);
-        order.splice(
-          targetIndex < 0
-            ? order.length
-            : targetIndex + (sourceIndex < originalTargetIndex ? 1 : 0),
-          0,
-          source.id
+      const sourceKey = orderKey(source.groupId);
+      const currentOrder = nextTabOrders[sourceKey] ?? [];
+      const sourceIndex = currentOrder.indexOf(source.id);
+      const originalTargetIndex = currentOrder.indexOf(target.id);
+      const order = currentOrder.filter(id => id !== source.id);
+      const targetIndex = order.indexOf(target.id);
+      order.splice(
+        targetIndex < 0
+          ? order.length
+          : targetIndex + (sourceIndex < originalTargetIndex ? 1 : 0),
+        0,
+        source.id
+      );
+      nextTabOrders = { ...nextTabOrders, [sourceKey]: order };
+      setTabOrders(nextTabOrders);
+    }
+
+    if (storageMode === "backend" && serverOnline) {
+      const activeOrder = (groupId: GroupId | null) => {
+        const remaining = new Set(
+          tabs
+            .filter(tab => !tab.archived && tab.groupId === groupId)
+            .map(tab => tab.id)
         );
-        return { ...current, [sourceKey]: order };
-      });
+        const ordered = (nextTabOrders[orderKey(groupId)] ?? []).filter(id =>
+          remaining.delete(id)
+        );
+        return [...ordered, ...Array.from(remaining)];
+      };
+      try {
+        if (movedToAnotherGroup && original) {
+          await updateTabOnLocalServer(
+            localServerUrl,
+            source.id,
+            { groupId: source.groupId },
+            serverApiKey
+          );
+          await reorderTabsOnLocalServer(
+            localServerUrl,
+            original.groupId,
+            activeOrder(original.groupId),
+            serverApiKey
+          );
+          await reorderTabsOnLocalServer(
+            localServerUrl,
+            source.groupId,
+            activeOrder(source.groupId),
+            serverApiKey
+          );
+        } else {
+          await reorderTabsOnLocalServer(
+            localServerUrl,
+            source.groupId,
+            activeOrder(source.groupId),
+            serverApiKey
+          );
+        }
+      } catch {
+        setServerOnline(false);
+        toast.error("Could not save the new tab order");
+        return;
+      }
     }
 
     if (movedToAnotherGroup) {
@@ -3043,7 +3090,9 @@ export default function Home() {
                 {isGroupBoard ? (
                   <CollectionBoard
                     groups={vaultGroups}
-                    tabs={activeTabs}
+                    tabs={sortByStoredOrder(activeTabs)}
+                    query={query}
+                    matchedTabIds={new Set(visibleTabs.map(tab => tab.id))}
                     onOpen={group => void openCollectionTabs(group)}
                     onShare={group => void shareCollectionAsMarkdown(group)}
                     onDelete={setCollectionPendingDelete}

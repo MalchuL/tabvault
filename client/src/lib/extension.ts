@@ -673,6 +673,31 @@ export async function updateTabOnLocalServer(
   return response.json();
 }
 
+/**
+ * Persist one relative Saved Tab order with a single transactional API request.
+ *
+ * @param url - Configured local-server base URL.
+ * @param groupId - Persisted Group identifier, or `null` for Unassigned.
+ * @param tabIds - Active Saved Tab IDs from first to last.
+ * @param apiKey - Local-server API key.
+ * @returns The server success envelope confirming the accepted order.
+ */
+export async function reorderTabsOnLocalServer(
+  url: string,
+  groupId: string | null,
+  tabIds: string[],
+  apiKey = DEFAULT_TABVAULT_API_KEY
+) {
+  const response = await fetch(`${url.replace(/\/+$/, "")}/api/v1/tabs/order`, {
+    method: "PUT",
+    headers: apiHeaders(apiKey),
+    body: JSON.stringify({ groupId, tabIds }),
+  });
+  if (!response.ok)
+    throw new Error("TabVault local server could not reorder the tabs");
+  return response.json();
+}
+
 export async function updateGroupOnLocalServer(
   url: string,
   id: string,

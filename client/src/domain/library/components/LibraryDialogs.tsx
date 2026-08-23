@@ -331,6 +331,12 @@ export function EditTabDialog({
   onClose,
   onSave,
 }: EditTabDialogProps) {
+  const destinationGroups = groups.filter(
+    group => group.category !== "session"
+  );
+  const currentGroupIsSession = groups.some(
+    group => group.id === tab.groupId && group.category === "session"
+  );
   return (
     <div
       className="fixed inset-0 z-40 flex items-end justify-center bg-[#18261f]/35 p-3 backdrop-blur-[2px] sm:items-center sm:p-6"
@@ -400,7 +406,9 @@ export function EditTabDialog({
           </div>
           <Field label="Collection">
             <select
-              value={tab.groupId ?? ""}
+              value={
+                currentGroupIsSession ? "current-session" : (tab.groupId ?? "")
+              }
               onChange={event =>
                 onChange({
                   ...tab,
@@ -409,8 +417,13 @@ export function EditTabDialog({
               }
               className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[12px] font-semibold outline-none focus:border-[#e95224]"
             >
+              {currentGroupIsSession ? (
+                <option value="current-session" disabled>
+                  Move from current session…
+                </option>
+              ) : null}
               <option value="">[Unassigned]</option>
-              {groups.map(group => (
+              {destinationGroups.map(group => (
                 <option key={group.id} value={group.id}>
                   {group.name}
                 </option>

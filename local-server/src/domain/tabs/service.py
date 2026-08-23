@@ -19,6 +19,8 @@ from .dto import (
     TabJobDTO,
     TabListOptionsDTO,
     TabListResponseDTO,
+    TabReorderDTO,
+    TabReorderResultDTO,
     TabUpdateDTO,
 )
 from .error import (
@@ -26,6 +28,7 @@ from .error import (
     DuplicateTabIdError,
     EmptyUpdateError,
     InvalidGroupError,
+    InvalidTabOrderError,
     TabNotFoundError,
 )
 from .mapper import TabMapper
@@ -124,6 +127,37 @@ class TabService:
         if tab is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")
         return self.mapper.to_dto(tab)
+
+    async def reorder(self, dto: TabReorderDTO) -> TabReorderResultDTO:
+        """Atomically apply one relative order within a Group or Unassigned.
+
+        The service validates the destination and delegates membership validation plus position
+        normalization to the repository. All affected rows commit together; an invalid identifier
+        rolls back the request without changing any position.
+
+        Args:
+            dto (TabReorderDTO): Membership scope and unique IDs in desired relative order.
+
+        Returns:
+            TabReorderResultDTO: Scope and caller-supplied IDs accepted by the transaction.
+
+        Raises:
+            InvalidGroupError: The requested non-null Group does not exist.
+            InvalidTabOrderError: A supplied tab is missing, archived, or outside the requested
+                membership scope.
+        """
+        if not await self.repository.active_group_exists(dto.group_id):
+            raise InvalidGroupError(f"Group {dto.group_id!r} does not exist")
+        try:
+            if not await self.repository.reorder_tabs(dto.group_id, dto.tab_ids, utc_now()):
+                raise InvalidTabOrderError(
+                    "Every tabId must identify an active tab in the requested Group"
+                )
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+        return TabReorderResultDTO(group_id=dto.group_id, tab_ids=dto.tab_ids)
 
     async def create(self, dto: TabCreateDTO) -> tuple[TabDTO, TabJobDTO]:
         """Create one occurrence without URL lookup or deduplication.

@@ -5,10 +5,17 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
-import { Route, Router, Switch, type BaseLocationHook } from "wouter";
+import {
+  Route,
+  Router,
+  Switch,
+  useLocation,
+  type BaseLocationHook,
+} from "wouter";
 import { useBrowserLocation } from "wouter/use-browser-location";
 import { useHashLocation } from "wouter/use-hash-location";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import {
   clearBrowserLibrary,
@@ -50,6 +57,22 @@ function AppRoutes() {
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
+  );
+}
+
+function AppWorkspace() {
+  const [location] = useLocation();
+  const isLibraryRoute =
+    location === "/" ||
+    location === "/all-tabs" ||
+    location === "/archive" ||
+    location === "/hidden" ||
+    location.startsWith("/collections");
+  const routes = <AppRoutes />;
+  return isLibraryRoute ? (
+    routes
+  ) : (
+    <WorkspaceSidebar>{routes}</WorkspaceSidebar>
   );
 }
 
@@ -99,7 +122,7 @@ export default function App() {
                     : useNormalizedBrowserLocation
                 }
               >
-                <AppRoutes />
+                <AppWorkspace />
               </Router>
             </Suspense>
           </BrowserSchemaGate>

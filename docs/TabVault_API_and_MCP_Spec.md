@@ -40,8 +40,12 @@
 ```json
 {
   "success": true,
-  "data": { /* ... */ },
-  "meta": { /* пагинация, счётчики и т.п. — опционально */ }
+  "data": {
+    /* ... */
+  },
+  "meta": {
+    /* пагинация, счётчики и т.п. — опционально */
+  }
 }
 ```
 
@@ -61,6 +65,7 @@ List-эндпоинты вместо общего success-envelope возвра�
 ### 0.4 Частичные поля (`fields`)
 
 Параметр `?fields=minimal|full` на всех GET/list эндпоинтах:
+
 - `full` (по умолчанию) — все поля включая `note`, `createdAt`, `updatedAt`.
 - `minimal` — только `id, url, title, favicon, groupId, tags` — экономия токенов для агента, когда timestamps/note не нужны.
 - Можно указать точечно: `?fields=id,url,title` — явный whitelist полей.
@@ -81,20 +86,21 @@ List-эндпоинты вместо общего success-envelope возвра�
 
 **Query-параметры:**
 
-| Параметр | Тип | Обязательный | Описание |
-|---|---|---|---|
-| `groupId` | string \| `"inbox"` \| `"all"` | нет (default `"all"`) | Фильтр по группе; `"inbox"` — вкладки без группы |
-| `tags` | string (comma-separated) | нет | Фильтр «содержит любой из тегов» (OR) |
-| `tagsAll` | string (comma-separated) | нет | Фильтр «содержит все теги» (AND) |
-| `search` | string | нет | Текстовый поиск по title/url/note (substring, не семантический) |
-| `sortBy` | `position` \| `createdAt` \| `updatedAt` \| `title` | нет (default `position`) | Поле сортировки |
-| `sortDir` | `asc` \| `desc` | нет (default `asc`) | Направление |
-| `limit` | int 1–100 | нет (default 100) | Размер страницы |
-| `offset` | int ≥ 0 | нет (default 0) | Число пропускаемых записей |
-| `fields` | string | нет (default `full`) | См. §0.4 |
-| `includeArchived` | bool | нет (default `false`) | Включать архивированные вкладки |
+| Параметр          | Тип                                                 | Обязательный             | Описание                                                        |
+| ----------------- | --------------------------------------------------- | ------------------------ | --------------------------------------------------------------- |
+| `groupId`         | string \| `"inbox"` \| `"all"`                      | нет (default `"all"`)    | Фильтр по группе; `"inbox"` — вкладки без группы                |
+| `tags`            | string (comma-separated)                            | нет                      | Фильтр «содержит любой из тегов» (OR)                           |
+| `tagsAll`         | string (comma-separated)                            | нет                      | Фильтр «содержит все теги» (AND)                                |
+| `search`          | string                                              | нет                      | Текстовый поиск по title/url/note (substring, не семантический) |
+| `sortBy`          | `position` \| `createdAt` \| `updatedAt` \| `title` | нет (default `position`) | Поле сортировки                                                 |
+| `sortDir`         | `asc` \| `desc`                                     | нет (default `asc`)      | Направление                                                     |
+| `limit`           | int 1–100                                           | нет (default 100)        | Размер страницы                                                 |
+| `offset`          | int ≥ 0                                             | нет (default 0)          | Число пропускаемых записей                                      |
+| `fields`          | string                                              | нет (default `full`)     | См. §0.4                                                        |
+| `includeArchived` | bool                                                | нет (default `false`)    | Включать архивированные вкладки                                 |
 
 **Ответ 200:**
+
 ```json
 {
   "data": [
@@ -122,13 +128,27 @@ List-эндпоинты вместо общего success-envelope возвра�
 **Ответ 200:** `{ "success": true, "data": { /* Tab object, всегда fields=full */ } }`
 
 **Ответ 404:**
+
 ```json
-{ "success": false, "errors": [{ "code": "E_NOT_FOUND", "path": "params.id", "expected": "existing tab id", "received": "t-9999", "message": "Вкладка с id 't-9999' не найдена.", "httpStatus": 404 }] }
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "E_NOT_FOUND",
+      "path": "params.id",
+      "expected": "existing tab id",
+      "received": "t-9999",
+      "message": "Вкладка с id 't-9999' не найдена.",
+      "httpStatus": 404
+    }
+  ]
+}
 ```
 
 ### 1.3 `POST /tabs` — создать одну или несколько вкладок
 
 **Тело запроса:**
+
 ```json
 {
   "tabs": [
@@ -148,6 +168,7 @@ List-эндпоинты вместо общего success-envelope возвра�
 ```
 
 Правила:
+
 - `url` — обязательное, единственное строго обязательное поле. `title` — если не передан, сервер попытается извлечь из `<title>` страницы асинхронно (best-effort, не блокирует создание); до этого `title` = url.
 - `groupId: null` → попадает в Inbox.
 - `position: null` → добавляется в конец списка (группы/Inbox).
@@ -156,12 +177,25 @@ List-эндпоинты вместо общего success-envelope возвра�
 - `dedupeStrategy`: `"skip"` (пропустить дубликат, вернуть существующий в ответе с флагом `wasDuplicate: true`), `"merge"` (объединить теги и обновить note/title, если новые непустые), `"createAnyway"` (форс-создание дубликата).
 
 **Ответ 201:**
+
 ```json
 {
   "success": true,
   "data": {
-    "created": [ { "id": "t-2001", "url": "...", "wasDuplicate": false, /* ...остальные поля */ } ],
-    "skipped": [ { "url": "https://existing.com", "existingId": "t-1050", "reason": "duplicate_url" } ]
+    "created": [
+      {
+        "id": "t-2001",
+        "url": "...",
+        "wasDuplicate": false /* ...остальные поля */
+      }
+    ],
+    "skipped": [
+      {
+        "url": "https://existing.com",
+        "existingId": "t-1050",
+        "reason": "duplicate_url"
+      }
+    ]
   }
 }
 ```
@@ -175,8 +209,21 @@ List-эндпоинты вместо общего success-envelope возвра�
 **Ответ 200:** обновлённый объект Tab (fields=full).
 
 **Ответ 409** (конфликт — например, `groupId` указывает на несуществующую или архивированную группу):
+
 ```json
-{ "success": false, "errors": [{ "code": "E_INVALID_REFERENCE", "path": "body.groupId", "expected": "existing, non-archived group id", "received": "g-999", "message": "Группа 'g-999' не существует.", "httpStatus": 409 }] }
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "E_INVALID_REFERENCE",
+      "path": "body.groupId",
+      "expected": "existing, non-archived group id",
+      "received": "g-999",
+      "message": "Группа 'g-999' не существует.",
+      "httpStatus": 409
+    }
+  ]
+}
 ```
 
 ### 1.5 `DELETE /tabs/{id}` — удалить вкладку
@@ -185,20 +232,30 @@ List-эндпоинты вместо общего success-envelope возвра�
 
 **Ответ 200:** `{ "success": true, "data": { "id": "t-1001", "deletedAt": "...", "hard": false } }`
 
-### 1.6 `POST /tabs/batch-delete` — массовое удаление
+### 1.6 `PUT /tabs/order` — изменить порядок вкладок
 
-**Тело:** `{ "ids": ["t-1", "t-2"], "hard": false }`
-**Ответ 200:** `{ "success": true, "data": { "deleted": ["t-1", "t-2"], "notFound": [] } }` — не найденные id не считаются ошибкой (идемпотентно), просто перечисляются отдельно.
+**Тело:** `{ "groupId": "g-3", "tabIds": ["t-3", "t-1", "t-2"] }`.
+`groupId: null` означает Unassigned. `tabIds` задаёт относительный порядок от первой вкладки к
+последней и не может содержать дубликаты.
 
-### 1.7 `POST /tabs/{id}/move` — переместить вкладку
+Сервер в одной транзакции нормализует `position` активных вкладок этой группы. Вкладки, которых нет
+в запросе (например, созданные параллельно или скрытые от агента), сохраняются и добавляются после
+переданных ID в прежнем относительном порядке. Архивный, отсутствующий или принадлежащий другой
+группе `tabId` отклоняет весь запрос с `409`; позиции не меняются.
 
-**Тело:** `{ "targetGroupId": "g-3", "position": 2 }` (`targetGroupId: null` → в Inbox; `position: null` → в конец).
+**Ответ 200:**
+`{ "success": true, "data": { "groupId": "g-3", "tabIds": ["t-3", "t-1", "t-2"] } }`.
 
-**Ответ 200:** обновлённый Tab + пересчитанные `position` соседей в затронутой группе (если использовалась схема целочисленных позиций с реордером — см. §1.8).
+### 1.7 Перемещение между группами
+
+Перемещение одной вкладки выполняется через `PATCH /tabs/{id}` с новым `groupId`. После этого
+клиент вызывает `PUT /tabs/order` для исходной и целевой групп, вместо отправки отдельного PATCH
+позиции для каждой вкладки.
 
 ### 1.8 Примечание к `position`
 
-Рекомендация к реализации: хранить `position` как **float** (не int), чтобы вставка между двумя элементами не требовала сдвига всех остальных (`position = (prev.position + next.position) / 2`). Периодическая ре-нормализация (batch job) на случай исчерпания точности float после многих вставок в одно место.
+`position` хранится как `float`, но batch reorder нормализует значения в `0, 1, 2, ...`. Клиенты
+передают порядок ID и не вычисляют позиции самостоятельно.
 
 ---
 
@@ -209,23 +266,40 @@ List-эндпоинты вместо общего success-envelope возвра�
 **Query:** `?flat=false` (default, вложенное дерево) | `?flat=true` (плоский список с `parentId`, удобнее для агента, который сам строит структуру).
 
 **Ответ 200 (flat=false):**
+
 ```json
 {
   "success": true,
   "data": {
     "groups": [
       {
-        "id": "g-1", "name": "Research", "parentId": null, "color": "#4285F4",
-        "position": 0, "createdAt": "...", "updatedAt": "...", "tabCount": 12,
+        "id": "g-1",
+        "name": "Research",
+        "parentId": null,
+        "color": "#4285F4",
+        "position": 0,
+        "createdAt": "...",
+        "updatedAt": "...",
+        "tabCount": 12,
         "children": [
-          { "id": "g-2", "name": "LLM papers", "parentId": "g-1", "color": null,
-            "position": 0, "createdAt": "...", "updatedAt": "...", "tabCount": 5, "children": [] }
+          {
+            "id": "g-2",
+            "name": "LLM papers",
+            "parentId": "g-1",
+            "color": null,
+            "position": 0,
+            "createdAt": "...",
+            "updatedAt": "...",
+            "tabCount": 5,
+            "children": []
+          }
         ]
       }
     ]
   }
 }
 ```
+
 `tabCount` — прямые вкладки группы, без учёта дочерних групп (агрегат по поддереву доступен через `?includeDescendantCount=true` → добавляет поле `totalTabCount`).
 
 ### 2.2 `POST /groups` — создать группу
@@ -234,8 +308,14 @@ List-эндпоинты вместо общего success-envelope возвра�
 **Валидация:** `name` — обязателен, 1–200 символов. `parentId`, если указан, должен существовать и не создавать цикл (проверка всего пути до корня).
 
 **Ошибка цикла (409):**
+
 ```json
-{ "code": "E_CYCLIC_GROUP_REFERENCE", "path": "body.parentId", "message": "Группа 'g-5' не может быть родителем 'g-1', так как 'g-1' уже является предком 'g-5' в дереве.", "httpStatus": 409 }
+{
+  "code": "E_CYCLIC_GROUP_REFERENCE",
+  "path": "body.parentId",
+  "message": "Группа 'g-5' не может быть родителем 'g-1', так как 'g-1' уже является предком 'g-5' в дереве.",
+  "httpStatus": 409
+}
 ```
 
 ### 2.3 `PATCH /groups/{id}` — обновить группу
@@ -245,6 +325,7 @@ List-эндпоинты вместо общего success-envelope возвра�
 ### 2.4 `DELETE /groups/{id}` — удалить группу
 
 **Query:** `?strategy=cascade|promote|reject_if_nonempty` (обязательный параметр, без default — явное решение всегда лучше молчаливого поведения при деструктивной операции):
+
 - `cascade` — удаляет группу, все дочерние подгруппы и все вложенные вкладки (мягко, с возможностью восстановления 30 дней).
 - `promote` — дочерние группы и вкладки переезжают на уровень родителя удаляемой группы (или в Inbox, если удаляется корневая).
 - `reject_if_nonempty` — 409 ошибка, если у группы есть дочерние группы или вкладки; ничего не удаляется.
@@ -260,13 +341,24 @@ List-эндпоинты вместо общего success-envelope возвра�
 ### 3.1 `GET /tags` — справочник тегов
 
 **Ответ 200:**
+
 ```json
 {
   "success": true,
   "data": {
     "tags": [
-      { "name": "work", "description": "Рабочие задачи", "createdAt": "...", "tabCount": 8 },
-      { "name": "read-later", "description": null, "createdAt": "...", "tabCount": 23 }
+      {
+        "name": "work",
+        "description": "Рабочие задачи",
+        "createdAt": "...",
+        "tabCount": 8
+      },
+      {
+        "name": "read-later",
+        "description": null,
+        "createdAt": "...",
+        "tabCount": 23
+      }
     ]
   }
 }
@@ -275,6 +367,7 @@ List-эндпоинты вместо общего success-envelope возвра�
 ### 3.2 `GET /tags/export.md` — тот же справочник в Markdown
 
 **Ответ 200** (`Content-Type: text/markdown`):
+
 ```markdown
 # Tags
 
@@ -302,23 +395,30 @@ Upsert по имени (теги — свободные строки, имя = �
 
 **Query:**
 
-| Параметр | Тип | Описание |
-|---|---|---|
-| `q` | string, обязательный | Поисковый запрос |
-| `mode` | `semantic` \| `keyword` \| `hybrid` | default `hybrid` |
-| `limit` | int 1–50 | default 10 |
-| `groupId` | string | ограничить поиск группой (опционально) |
-| `tags` | string (CSV) | ограничить поиск тегами |
-| `minScore` | float 0–1 | default 0.3 — отсекать нерелевантные semantic-хиты |
+| Параметр   | Тип                                 | Описание                                           |
+| ---------- | ----------------------------------- | -------------------------------------------------- |
+| `q`        | string, обязательный                | Поисковый запрос                                   |
+| `mode`     | `semantic` \| `keyword` \| `hybrid` | default `hybrid`                                   |
+| `limit`    | int 1–50                            | default 10                                         |
+| `groupId`  | string                              | ограничить поиск группой (опционально)             |
+| `tags`     | string (CSV)                        | ограничить поиск тегами                            |
+| `minScore` | float 0–1                           | default 0.3 — отсекать нерелевантные semantic-хиты |
 
 **Ответ 200:**
+
 ```json
 {
   "success": true,
   "data": {
     "results": [
       {
-        "tab": { "id": "t-1001", "url": "...", "title": "...", "groupId": "g-2", "tags": ["read-later"] },
+        "tab": {
+          "id": "t-1001",
+          "url": "...",
+          "title": "...",
+          "groupId": "g-2",
+          "tags": ["read-later"]
+        },
         "score": 0.87,
         "matchType": "semantic",
         "matchedOn": "note"
@@ -328,6 +428,7 @@ Upsert по имени (теги — свободные строки, имя = �
   "meta": { "queryEmbeddingMs": 42, "searchMs": 8 }
 }
 ```
+
 `mode=hybrid` — объединяет semantic (Zvec, эмбеддинг `deepvk/USER-bge-m3`) и keyword (substring по title/url/note) с re-ranking по взвешенной сумме; `matchType` в каждом результате показывает, какой механизм его нашёл (`semantic` | `keyword` | `both`).
 
 ### 4.2 `POST /search/reindex`
@@ -341,6 +442,7 @@ Upsert по имени (теги — свободные строки, имя = �
 ### 5.1 `GET /export`
 
 **Query:**
+
 - `format`: `json` | `markdown` (обязательный)
 - `scope`: `all` | `group:{id}` | `tag:{name}` (default `all`)
 - `includeSubgroups`: bool (default `true`, актуально при `scope=group:{id}`)
@@ -358,6 +460,7 @@ Upsert по имени (теги — свободные строки, имя = �
 **Тело:** документ JSON (§5.1 PRD) либо Markdown-текст, определяется заголовком `Content-Type` (`application/json` или `text/markdown`).
 
 **Поведение:**
+
 1. Парсинг документа выбранным парсером версии (`schemaVersion` в JSON; для Markdown — единственная грамматика, без версионирования на этом уровне, т.к. текстовый формат не хранит `schemaVersion` явно — фиксируется в теле спеки MCP §6).
 2. Полная валидация — собираются все ошибки (§0.1).
 3. Если есть хотя бы одна `error` (не `warning`) — **транзакция не применяется**, возвращается `422` с полным списком проблем, хранилище не тронуто.
@@ -365,6 +468,7 @@ Upsert по имени (теги — свободные строки, имя = �
 5. При `mode=replace` — автоматически создаётся snapshot текущего состояния перед заменой (см. §6 Backups).
 
 **Ответ 200 (успех):**
+
 ```json
 {
   "success": true,
@@ -376,7 +480,11 @@ Upsert по имени (теги — свободные строки, имя = �
     "backupSnapshotId": null
   },
   "warnings": [
-    { "code": "W_ORPHAN_TAG", "path": "tabs[7].tags[0]", "message": "Тег 'archived' не найден — создан автоматически." }
+    {
+      "code": "W_ORPHAN_TAG",
+      "path": "tabs[7].tags[0]",
+      "message": "Тег 'archived' не найден — создан автоматически."
+    }
   ]
 }
 ```
@@ -384,6 +492,7 @@ Upsert по имени (теги — свободные строки, имя = �
 **Ответ 422 (провал валидации):** формат из §0.1 PRD, полный список ошибок с `path` (для JSON — JSONPath-подобный, для Markdown — `line:{N}`), `expected`, `received`, `code`, `message`, `suggestedFix`.
 
 Пример markdown-специфичной ошибки:
+
 ```json
 {
   "code": "E_MARKDOWN_PARSE_ERROR",
@@ -434,24 +543,25 @@ MCP-сервер — тонкий прокси-слой над Backend API: тр
 
 ## Обязательные (нужны с первого дня)
 
-| Tool | inputSchema (ключевые поля) | annotations | Зачем |
-|---|---|---|---|
-| `list_tabs` | `groupId?, tags?, search?, limit?, offset?, fields?` | readOnly, idempotent | Базовая навигация по хранилищу |
-| `search_tabs` | `query (required), mode?, limit?, groupId?` | readOnly, idempotent | Семантический поиск — основной способ агента «вспомнить», что было сохранено |
-| `get_tab` | `id (required)` | readOnly, idempotent | Точечное чтение одной вкладки перед изменением |
-| `save_tab` | `url (required), title?, note?, tags?, groupId?` | не readOnly, не destructive, не idempotent (создаёт новую сущность при повторе без dedupe) | Главная операция — агент сохраняет находку из веба |
-| `save_tabs_batch` | `tabs: array<{url, title?, ...}>` | не readOnly | Массовое сохранение (например, агент распарсил список ссылок из статьи) |
-| `update_tab` | `id (required), title?, note?, tags?, groupId?` | не readOnly, не destructive, idempotent | Правка метаданных без потери остального |
-| `delete_tab` | `id (required), hard?` | destructive | Удаление; `hard=false` по умолчанию — обратимо |
-| `move_tab` | `id (required), targetGroupId?, position?` | не readOnly, идempotent | Реорганизация без явного update всех полей |
-| `list_groups` | `flat?` | readOnly, idempotent | Агенту нужно знать структуру дерева групп перед тем, как решить, куда класть вкладку |
-| `create_group` | `name (required), parentId?, color?` | не readOnly | Агент может сам создать «Research/LLM papers», если такой ветки ещё нет |
-| `update_group` / `delete_group` | — | не readOnly / destructive | Реорганизация структуры по запросу пользователя |
-| `list_tags` | — | readOnly, idempotent | Агенту нужен словарь тегов, чтобы не плодить синонимы (`llm` vs `LLM` vs `machine-learning`) |
-| `tag_tab` / `untag_tab` | `tabId, tagName` | не readOnly | Точечное добавление/снятие тега без полного update |
-| `export_data` | `format (json\|markdown), scope?, fields?` | readOnly, idempotent | Агент выгружает бэкап или отдаёт человеку список для чата |
-| `import_data` | `mode (required), format, content` | destructive (при `mode=replace`) | Восстановление / массовая загрузка данных, которые агент сам сформировал |
-| `validate_import` | тот же вход, что `import_data` | readOnly, idempotent | Критично: агент может «прорепетировать» импорт и почитать ошибки без риска что-то сломать — прямое следствие требования к подробным ошибкам вместо тихого падения |
+| Tool                            | inputSchema (ключевые поля)                          | annotations                                                                                | Зачем                                                                                                                                                             |
+| ------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_tabs`                     | `groupId?, tags?, search?, limit?, offset?, fields?` | readOnly, idempotent                                                                       | Базовая навигация по хранилищу                                                                                                                                    |
+| `search_tabs`                   | `query (required), mode?, limit?, groupId?`          | readOnly, idempotent                                                                       | Семантический поиск — основной способ агента «вспомнить», что было сохранено                                                                                      |
+| `get_tab`                       | `id (required)`                                      | readOnly, idempotent                                                                       | Точечное чтение одной вкладки перед изменением                                                                                                                    |
+| `save_tab`                      | `url (required), title?, note?, tags?, groupId?`     | не readOnly, не destructive, не idempotent (создаёт новую сущность при повторе без dedupe) | Главная операция — агент сохраняет находку из веба                                                                                                                |
+| `save_tabs_batch`               | `tabs: array<{url, title?, ...}>`                    | не readOnly                                                                                | Массовое сохранение (например, агент распарсил список ссылок из статьи)                                                                                           |
+| `update_tab`                    | `id (required), title?, note?, tags?, groupId?`      | не readOnly, не destructive, idempotent                                                    | Правка метаданных без потери остального                                                                                                                           |
+| `delete_tab`                    | `id (required), hard?`                               | destructive                                                                                | Удаление; `hard=false` по умолчанию — обратимо                                                                                                                    |
+| `move_tab`                      | `id (required), targetGroupId?, position?`           | не readOnly, идempotent                                                                    | Реорганизация без явного update всех полей                                                                                                                        |
+| `reorder_tabs`                  | `tabIds (required), groupId?`                        | не readOnly, idempotent                                                                    | Атомарно меняет относительный порядок доступных вкладок одной группы или Unassigned                                                                               |
+| `list_groups`                   | `flat?`                                              | readOnly, idempotent                                                                       | Агенту нужно знать структуру дерева групп перед тем, как решить, куда класть вкладку                                                                              |
+| `create_group`                  | `name (required), parentId?, color?`                 | не readOnly                                                                                | Агент может сам создать «Research/LLM papers», если такой ветки ещё нет                                                                                           |
+| `update_group` / `delete_group` | —                                                    | не readOnly / destructive                                                                  | Реорганизация структуры по запросу пользователя                                                                                                                   |
+| `list_tags`                     | —                                                    | readOnly, idempotent                                                                       | Агенту нужен словарь тегов, чтобы не плодить синонимы (`llm` vs `LLM` vs `machine-learning`)                                                                      |
+| `tag_tab` / `untag_tab`         | `tabId, tagName`                                     | не readOnly                                                                                | Точечное добавление/снятие тега без полного update                                                                                                                |
+| `export_data`                   | `format (json\|markdown), scope?, fields?`           | readOnly, idempotent                                                                       | Агент выгружает бэкап или отдаёт человеку список для чата                                                                                                         |
+| `import_data`                   | `mode (required), format, content`                   | destructive (при `mode=replace`)                                                           | Восстановление / массовая загрузка данных, которые агент сам сформировал                                                                                          |
+| `validate_import`               | тот же вход, что `import_data`                       | readOnly, idempotent                                                                       | Критично: агент может «прорепетировать» импорт и почитать ошибки без риска что-то сломать — прямое следствие требования к подробным ошибкам вместо тихого падения |
 
 ## Желательные / вероятно понадобятся (не MVP, но продумать заранее)
 

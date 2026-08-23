@@ -242,6 +242,50 @@ def test_offset_pagination_projection_and_single_resource_contract(
     assert client.post("/api/v1/tabs/batch-delete", headers=headers, json={}).status_code == 405
 
 
+def test_group_tab_reorder_is_atomic_and_preserves_omitted_members(
+    client: TestClient, headers: dict[str, str]
+) -> None:
+    group = create_group(client, headers)
+    first = create_tab(client, headers, "https://example.com/first", str(group["id"]))
+    second = create_tab(client, headers, "https://example.com/second", str(group["id"]))
+    third = create_tab(client, headers, "https://example.com/third", str(group["id"]))
+
+    reordered = client.put(
+        "/api/v1/tabs/order",
+        headers=headers,
+        json={"groupId": group["id"], "tabIds": [third["id"], first["id"]]},
+    )
+    assert reordered.status_code == 200
+    assert reordered.json()["data"]["tabIds"] == [third["id"], first["id"]]
+    listed = client.get(f"/api/v1/groups/{group['id']}/tabs", headers=headers).json()["data"]
+    assert [tab["id"] for tab in listed] == [third["id"], first["id"], second["id"]]
+    assert [tab["position"] for tab in listed] == [0, 1, 2]
+
+    duplicate = client.put(
+        "/api/v1/tabs/order",
+        headers=headers,
+        json={"groupId": group["id"], "tabIds": [first["id"], first["id"]]},
+    )
+    assert duplicate.status_code == 422
+
+    outsider = create_tab(client, headers, "https://example.com/outsider")
+    rejected = client.put(
+        "/api/v1/tabs/order",
+        headers=headers,
+        json={"groupId": group["id"], "tabIds": [second["id"], outsider["id"]]},
+    )
+    assert rejected.status_code == 409
+    unchanged = client.get(f"/api/v1/groups/{group['id']}/tabs", headers=headers).json()["data"]
+    assert [tab["id"] for tab in unchanged] == [third["id"], first["id"], second["id"]]
+
+    unassigned = client.put(
+        "/api/v1/tabs/order",
+        headers=headers,
+        json={"groupId": None, "tabIds": [outsider["id"]]},
+    )
+    assert unassigned.status_code == 200
+
+
 def test_all_collection_endpoints_paginate_with_the_shared_shape(
     client: TestClient, headers: dict[str, str]
 ) -> None:

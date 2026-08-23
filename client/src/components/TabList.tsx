@@ -790,11 +790,16 @@ function ManualGroupMoveSelect({
 }) {
   const manualGroups = groups.filter(group => group.category === "manual");
   if (!manualGroups.length) return null;
+  const currentManualGroupId = manualGroups.some(
+    group => group.id === tab.groupId
+  )
+    ? tab.groupId
+    : "";
 
   return (
     <select
       aria-label={`Move ${tab.title}`}
-      value=""
+      value={currentManualGroupId ?? ""}
       onChange={event => onMove(tab.id, event.target.value)}
       className={`appearance-none bg-transparent font-mono text-[9px] uppercase tracking-[0.06em] text-[#8a8e85] outline-none hover:text-[#e95224] ${className}`}
     >

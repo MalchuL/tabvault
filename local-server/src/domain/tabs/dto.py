@@ -51,7 +51,7 @@ class TabCreateDTO(BaseModel):
         note (str | None): User-authored note stored with the Saved Tab.
         agent_review (str | None): Agent-authored review text stored with the Saved Tab.
         viewed (bool): Whether any equivalent occurrence has been viewed.
-        tags (list[str]): Tags associated with the Saved Tab.
+        tags (list[str]): Tags names associated with the Saved Tab.
         group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
         position (float | None): Stable display position within the current Group or Unassigned
             section.
@@ -114,7 +114,7 @@ class TabUpdateDTO(BaseModel):
         note (str | None): User-authored note stored with the Saved Tab.
         agent_review (str | None): Agent-authored review text stored with the Saved Tab.
         viewed (bool | None): Whether any equivalent occurrence has been viewed.
-        tags (list[str] | None): Tags associated with the Saved Tab.
+        tags (list[str] | None): Tags names associated with the Saved Tab.
         group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
         position (float | None): Stable display position within the current Group or Unassigned
             section.
@@ -156,6 +156,54 @@ class TabUpdateDTO(BaseModel):
         if value is None:
             return None
         return absolute_utc(value)
+
+
+class TabReorderDTO(BaseModel):
+    """Describe one ordered subset of active tabs in a single membership scope.
+
+    The client sends IDs from first to last for one persisted Group or for Unassigned. Tabs omitted
+    because they were concurrently created or hidden retain their relative order after the supplied
+    IDs, so a reorder never deletes or strands records that the caller did not load.
+
+    Attributes:
+        group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
+        tab_ids (list[str]): Unique active Saved Tab IDs in their desired relative order.
+    """
+
+    group_id: str | None = Field(default=None, max_length=128)
+    tab_ids: list[str]
+    model_config = model_config()
+
+    @field_validator("tab_ids")
+    @classmethod
+    def tab_ids_are_unique(cls, value: list[str]) -> list[str]:
+        """Reject ambiguous orders containing the same Saved Tab more than once.
+
+        Args:
+            value (list[str]): Caller-supplied IDs in the desired relative order.
+
+        Returns:
+            list[str]: The unchanged order when every identifier is unique.
+
+        Raises:
+            ValueError: At least one Saved Tab identifier occurs more than once.
+        """
+        if len(value) != len(set(value)):
+            raise ValueError("tabIds must not contain duplicates")
+        return value
+
+
+class TabReorderResultDTO(BaseModel):
+    """Confirm the ordered IDs accepted for one membership scope.
+
+    Attributes:
+        group_id (str | None): Group whose positions changed, or ``None`` for Unassigned.
+        tab_ids (list[str]): Caller-supplied IDs whose relative order was applied.
+    """
+
+    group_id: str | None
+    tab_ids: list[str]
+    model_config = model_config()
 
 
 class TabTagDTO(BaseModel):

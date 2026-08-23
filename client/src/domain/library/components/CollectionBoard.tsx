@@ -1,4 +1,5 @@
 import { FolderOpen, FolderPlus, Pencil, Share2, Trash2 } from "lucide-react";
+import { useState } from "react";
 import type { GroupId, VaultGroup, VaultTab } from "../types";
 import { categoryColor } from "../categoryColor";
 import { HideDurationMenu } from "./HideDurationMenu";
@@ -13,8 +14,16 @@ type CollectionBoardProps = {
   onBrowse: (groupId: GroupId) => void;
   onCreate: () => void;
   onHide: (groupId: GroupId, durationMs: number) => void;
+  query: string;
+  matchedTabIds: Set<string>;
 };
 
+/**
+ * Renders every active tab within its collection and emphasizes current search matches.
+ *
+ * @param props - Collection data and collection-level actions.
+ * @returns The responsive collection board.
+ */
 export function CollectionBoard({
   groups,
   tabs,
@@ -25,6 +34,8 @@ export function CollectionBoard({
   onBrowse,
   onCreate,
   onHide,
+  query,
+  matchedTabIds,
 }: CollectionBoardProps) {
   return (
     <div
@@ -91,31 +102,39 @@ export function CollectionBoard({
                 </button>
               </div>
             </div>
-            <button
-              onClick={() => onBrowse(group.id)}
-              className="mt-6 flex flex-1 items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e95224]"
-              aria-label={`Browse ${group.name}`}
-            >
-              {groupTabs.slice(0, 4).map(tab => (
-                <span
-                  key={tab.id}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#e2ddd2] bg-[#f8f5ed] text-[11px] font-bold text-[#536259]"
-                  title={tab.title}
-                >
-                  {tab.icon.slice(0, 2)}
-                </span>
-              ))}
-              {groupTabs.length > 4 ? (
-                <span className="flex h-9 min-w-9 items-center justify-center rounded-md border border-[#e2ddd2] bg-[#f8f5ed] px-2 font-mono text-[10px] text-[#667268]">
-                  +{groupTabs.length - 4}
-                </span>
-              ) : null}
+            <div className="mt-5 flex flex-1 flex-wrap content-start gap-2">
+              {groupTabs.map(tab => {
+                const searchActive = Boolean(query.trim());
+                const matched = matchedTabIds.has(tab.id);
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => onBrowse(group.id)}
+                    data-testid={`grouped-tab-${tab.id}`}
+                    data-search-state={
+                      searchActive ? (matched ? "match" : "dimmed") : "idle"
+                    }
+                    aria-label={tab.title}
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] ${
+                      searchActive
+                        ? matched
+                          ? "border-[#e95224] bg-[#fff7f1] shadow-[0_0_0_1px_rgba(233,82,36,0.12)]"
+                          : "border-transparent bg-[#f8f5ed]/45 opacity-35"
+                        : "border-transparent bg-[#f8f5ed]/70 hover:border-[#d8d2c5]"
+                    }`}
+                    title={tab.title}
+                  >
+                    <CollectionTabIcon tab={tab} />
+                  </button>
+                );
+              })}
               {!groupTabs.length ? (
                 <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#92958d]">
                   Empty collection
                 </span>
               ) : null}
-            </button>
+            </div>
             <div className="mt-5 flex items-center justify-between border-t border-[#e8e3d8] pt-3 font-mono text-[9px] uppercase tracking-[0.08em] text-[#858980]">
               <span>{groupTabs.length} tabs</span>
               <span style={{ color: categoryColor(group.category) }}>
@@ -150,5 +169,28 @@ export function CollectionBoard({
         </span>
       </button>
     </div>
+  );
+}
+
+function CollectionTabIcon({ tab }: { tab: VaultTab }) {
+  const [failed, setFailed] = useState(false);
+  if (failed)
+    return (
+      <span
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[9px] font-bold text-white"
+        style={{ backgroundColor: tab.color }}
+        aria-hidden="true"
+      >
+        {tab.icon.slice(0, 2)}
+      </span>
+    );
+  return (
+    <img
+      src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(tab.url)}&sz=64`}
+      alt=""
+      data-testid={`grouped-tab-icon-${tab.id}`}
+      className="h-6 w-6 shrink-0 rounded-md bg-[#ece7dc] object-cover"
+      onError={() => setFailed(true)}
+    />
   );
 }

@@ -212,6 +212,46 @@ class TabRepository(BaseRepository[Tab]):
         )
         return float(maximum if maximum is not None else -1) + 1
 
+    async def reorder_tabs(
+        self, group_id: str | None, tab_ids: list[str], updated_at: datetime
+    ) -> bool:
+        """Stage normalized positions for an ordered subset of one active tab scope.
+
+        Active rows are loaded in their current deterministic order. Requested rows move to the
+        front in the supplied order, while omitted rows are appended in their existing order. This
+        preserves tabs created or hidden concurrently. No commit occurs here; the service owns the
+        transaction and rolls the whole reorder back when validation fails.
+
+        Args:
+            group_id (str | None): Persisted Group identifier, or ``None`` for Unassigned.
+            tab_ids (list[str]): Unique Saved Tab IDs in their desired relative order.
+            updated_at (datetime): UTC timestamp applied consistently to every reordered row.
+
+        Returns:
+            bool: ``True`` after positions are staged, or ``False`` when any supplied ID is missing,
+                archived, or assigned to another Group and no row was changed.
+        """
+        condition = Tab.group_id.is_(None) if group_id is None else Tab.group_id == group_id
+        rows = list(
+            (
+                await self.session.scalars(
+                    select(Tab)
+                    .where(condition, Tab.archived.is_(False))
+                    .order_by(Tab.position, Tab.id)
+                )
+            ).all()
+        )
+        by_id = {tab.id: tab for tab in rows}
+        if any(tab_id not in by_id for tab_id in tab_ids):
+            return False
+        requested = set(tab_ids)
+        ordered = [by_id[tab_id] for tab_id in tab_ids]
+        ordered.extend(tab for tab in rows if tab.id not in requested)
+        for position, tab in enumerate(ordered):
+            tab.position = float(position)
+            tab.updated_at = updated_at
+        return True
+
     async def add_tab(self, tab: Tab) -> Tab:
         """Persist one Saved Tab occurrence.
 
