@@ -5,23 +5,32 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from api.routes.service_dependencies import get_group_service, get_tab_service
-from domain.tabs.dto import TabListDataDTO, TabListOptionsDTO
+from domain.tabs.dto import TabListOptionsDTO, TabListResponseDTO
 from domain.tabs.service import TabService
 from domain.tabs.visibility import TabVisibility
+from lib.pagination import MAX_LIST_PAGE_SIZE, ListOptions
 from lib.responses import SuccessResponseDTO, success
 
-from .dto import GroupCreateDTO, GroupDeleteResultDTO, GroupDTO, GroupListDataDTO, GroupUpdateDTO
+from .dto import (
+    GroupCreateDTO,
+    GroupDeleteResultDTO,
+    GroupDTO,
+    GroupListResponseDTO,
+    GroupUpdateDTO,
+)
 from .service import GroupService
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
 
-@router.get("", response_model=SuccessResponseDTO[GroupListDataDTO])
+@router.get("", response_model=GroupListResponseDTO)
 async def list_groups(
     service: Annotated[GroupService, Depends(get_group_service)],
     visibility: TabVisibility = "visible",
     category: str | None = None,
-) -> SuccessResponseDTO[GroupListDataDTO]:
+    limit: int = Query(MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+) -> GroupListResponseDTO:
     """List every flat Group newest first.
 
     This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
@@ -33,11 +42,13 @@ async def list_groups(
             service that implements the use case.
         visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
         category (str | None): Optional free-form Group category used to restrict results.
+        limit (int): Maximum number of matching records to return.
+        offset (int): Number of matching rows to skip before this page.
 
     Returns:
-        SuccessResponseDTO[GroupListDataDTO]: Result produced by the operation described above.
+        GroupListResponseDTO: Result produced by the operation described above.
     """
-    return success(GroupListDataDTO(groups=await service.list(visibility, category)))
+    return await service.list(visibility, category, ListOptions(limit=limit, offset=offset))
 
 
 @router.post("", status_code=201, response_model=SuccessResponseDTO[GroupDTO])
@@ -129,18 +140,18 @@ async def delete_group(
 
 @router.get(
     "/{group_id}/tabs",
-    response_model=SuccessResponseDTO[TabListDataDTO],
+    response_model=TabListResponseDTO,
     response_model_exclude_unset=True,
 )
 async def group_tabs(
     group_id: str,
     tabs: Annotated[TabService, Depends(get_tab_service)],
     groups: Annotated[GroupService, Depends(get_group_service)],
-    limit: int = Query(50, ge=1),
-    cursor: str | None = None,
+    limit: int = Query(MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
     fields: str = "full",
     visibility: TabVisibility = "visible",
-) -> SuccessResponseDTO[TabListDataDTO]:
+) -> TabListResponseDTO:
     """List active tabs assigned directly to one Group.
 
     This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
@@ -154,13 +165,12 @@ async def group_tabs(
         groups (Annotated[GroupService, Depends(get_group_service)]): Group service resolved for the
             current request.
         limit (int): Maximum number of matching records to return.
-        cursor (str | None): Opaque keyset cursor returned by an earlier page, or ``None`` for the
-            first page.
+        offset (int): Number of matching rows to skip before this page.
         fields (str): Requested response projection controlling which fields are serialized.
         visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
 
     Returns:
-        SuccessResponseDTO[TabListDataDTO]: Result produced by the operation described above.
+        TabListResponseDTO: Result produced by the operation described above.
     """
     await groups.get(group_id)
     result = await tabs.list(
@@ -168,11 +178,9 @@ async def group_tabs(
             group_id=group_id,
             sort_by="position",
             sort_dir="asc",
-            limit=limit,
-            requested_limit=limit,
-            cursor=cursor,
             fields=fields,
             visibility=visibility,
-        )
+        ),
+        ListOptions(limit=limit, offset=offset),
     )
-    return success(TabListDataDTO(tabs=result.tabs), meta=result.meta, warnings=result.warnings)
+    return result

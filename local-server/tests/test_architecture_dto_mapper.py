@@ -18,6 +18,7 @@ from domain.tabs.mapper import TabMapper
 from domain.tabs.repository import TabRepository
 from domain.tags.dto import TagUpsertDTO
 from domain.tags.mapper import TagMapper
+from lib.pagination import ListOptions, Page, PaginatedResponse
 from lib.responses import json_data, success
 from lib.time import utc_now
 from models import Base
@@ -41,6 +42,19 @@ def test_single_tab_dto_preserves_url_and_uses_camel_case_aliases() -> None:
     assert body.agent_review == ""
     assert body.viewed is False
     assert json_data(success(body))["data"]["groupId"] == "group"
+
+
+def test_shared_pagination_validates_and_maps_pages() -> None:
+    with pytest.raises(ValidationError):
+        ListOptions(limit=101)
+    page = Page(data=[1, 2], has_next=True, total=3).map(str)
+    response = PaginatedResponse.from_page(page)
+    assert response.model_dump(by_alias=True) == {
+        "data": ["1", "2"],
+        "hasNext": True,
+        "size": 2,
+        "total": 3,
+    }
 
 
 def test_flat_group_and_core_mapper_conversions() -> None:

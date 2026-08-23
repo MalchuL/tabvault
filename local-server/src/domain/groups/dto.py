@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from lib.dto_config import model_config
+from lib.pagination import PaginatedResponse
 
 
 class GroupCreateDTO(BaseModel):
@@ -91,18 +92,8 @@ class GroupDTO(BaseModel):
     model_config = model_config()
 
 
-class GroupListDataDTO(BaseModel):
-    """Expose Groups in the common API envelope.
-
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
-
-    Attributes:
-        groups (list[GroupDTO]): Typed groups value carried by this object.
-    """
-
-    groups: list[GroupDTO]
-    model_config = model_config()
+class GroupListResponseDTO(PaginatedResponse[GroupDTO]):
+    """Expose a paginated list of Groups."""
 
 
 class GroupDeleteResultDTO(BaseModel):

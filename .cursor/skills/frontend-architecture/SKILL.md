@@ -258,4 +258,55 @@ Details and Compose wiring: [runtime-and-docker.md](runtime-and-docker.md).
 - Using `NEXT_PUBLIC_*` for API base URLs so images need rebuild on URL change
 - Pointing browser clients at Docker-internal hosts (`backend:8000`)
 - Parsing axios `error.response` in UI instead of `ErrorResponse` / `getErrorMessage`
-- Reusing end-user JWT cookie flow for a separate ops/admin credential
+|- Reusing end-user JWT cookie flow for a separate ops/admin credential
+
+## Documentation Standards
+
+To maintain a consistent and searchable codebase, use the following documentation patterns.
+
+### JSDoc for Functions & Hooks
+Every exported function or React hook must have a JSDoc block describing its purpose, parameters, and return value. The summary should be dense and technical.
+
+```ts
+/**
+ * Purpose of the function/hook.
+ * 
+ * @param paramName - Technical description.
+ * @returns Technical description.
+ */
+export function useMyHook() { ... }
+```
+
+### Interface & Type Documentation
+Document complex interfaces, especially those representing domain models or API responses. Use JSDoc tags for property descriptions.
+
+```ts
+/** Represents a user in the system. */
+export interface User {
+  /** Unique ID. */
+  id: string;
+  /** Display name. */
+  name: string;
+}
+```
+
+### Component Documentation
+For UI components, document the props interface and any specific behavior.
+
+```ts
+/**
+ * Primary action button.
+ * 
+ * @example
+ * <Button variant="primary">Click Me</Button>
+ */
+export const Button = forwardRef<...>
+```
+
+### Code Comments
+Keep comments **abstract, minimal, and technical**. 
+
+- **DO NOT**: Narrate straightforward statements or restate names/types (e.g., `// Set loading to true`).
+- **DO**: Add focused inline comments around tricky algorithms, important edge cases, and non-obvious decisions. 
+- **GOAL**: Explain *why* the code takes that path and what invariant it preserves (e.g., `// Prevent re-renders by caching identity`).
+

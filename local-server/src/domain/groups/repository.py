@@ -8,6 +8,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from domain.tabs.visibility import hidden_tabs, visible_tabs
 from lib.base_repository import BaseRepository
+from lib.pagination import ListOptions, Page
 from models import Group, Tab, Tombstone
 
 
@@ -50,26 +51,66 @@ class GroupRepository(BaseRepository[Group]):
         """
         return await self.session.get(Group, group_id)
 
-    async def list_groups(self, category: str | None = None) -> list[Group]:
-        """List Groups newest first.
+    async def list_groups(
+        self,
+        now: datetime,
+        visibility: str,
+        category: str | None,
+        list_options: ListOptions,
+    ) -> Page[tuple[Group, int]]:
+        """List relevant Groups newest first using database pagination.
 
         This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
         session. It reads or stages database state without committing; the calling service owns the
         surrounding transaction.
 
         Args:
+            now (datetime): Current instant used for tab visibility predicates.
+            visibility (str): Visible or hidden Group scope.
             category (str | None): Optional free-form Group category used to restrict results.
+            list_options (ListOptions): Validated page size and row offset.
 
         Returns:
-            list[Group]: Result produced by the operation described above.
+            Page[tuple[Group, int]]: Group rows, relevant tab counts, and page metadata.
         """
-        query = select(Group)
+        visible_count = (
+            select(func.count(Tab.id))
+            .where(Tab.group_id == Group.id, visible_tabs(now))
+            .correlate(Group)
+            .scalar_subquery()
+        )
+        hidden_count = (
+            select(func.count(Tab.id))
+            .where(Tab.group_id == Group.id, hidden_tabs(now))
+            .correlate(Group)
+            .scalar_subquery()
+        )
+        filters = []
         if category is not None:
-            query = query.where(Group.category == category)
-        return list(
-            (
-                await self.session.scalars(query.order_by(Group.created_at.desc(), Group.id.desc()))
-            ).all()
+            filters.append(Group.category == category)
+        if visibility == "hidden":
+            filters.append(hidden_count > 0)
+            tab_count = hidden_count
+        else:
+            filters.append((visible_count > 0) | (hidden_count == 0))
+            tab_count = visible_count
+        total = int(
+            await self.session.scalar(select(func.count()).select_from(Group).where(*filters)) or 0
+        )
+        rows = (
+            await self.session.execute(
+                select(Group, tab_count.label("tab_count"))
+                .where(*filters)
+                .order_by(Group.created_at.desc(), Group.id.desc())
+                .limit(list_options.limit)
+                .offset(list_options.offset)
+            )
+        ).all()
+        data = [(group, int(count)) for group, count in rows]
+        return Page(
+            data=data,
+            has_next=list_options.offset + len(data) < total,
+            total=total,
         )
 
     async def tab_counts(self, now: datetime) -> tuple[dict[str, int], dict[str, int]]:

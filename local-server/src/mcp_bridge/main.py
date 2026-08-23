@@ -156,6 +156,12 @@ def _data(response: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _page_data(response: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read object rows from a paginated API response."""
+    value = response.get("data")
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
 def _is_hidden(tab: dict[str, Any]) -> bool:
     """Return whether an active tab is under a future visibility embargo.
 
@@ -216,10 +222,19 @@ def _visible_group(client: TabVaultApi, group_id: str) -> None:
     Raises:
         TabVaultApiError: Propagated when its documented validation or operation condition occurs.
     """
-    response = client.request("GET", "/groups", query={"visibility": "visible"})
-    groups = _data(response).get("groups", [])
-    if not any(isinstance(group, dict) and group.get("id") == group_id for group in groups):
-        raise TabVaultApiError("Group is not accessible through MCP")
+    offset = 0
+    while True:
+        response = client.request(
+            "GET",
+            "/groups",
+            query={"visibility": "visible", "limit": 100, "offset": offset},
+        )
+        groups = _page_data(response)
+        if any(group.get("id") == group_id for group in groups):
+            return
+        if not response.get("hasNext"):
+            raise TabVaultApiError("Group is not accessible through MCP")
+        offset += len(groups)
 
 
 READ = ToolAnnotations(
@@ -244,7 +259,7 @@ def list_tabs(
     tags: str = "",
     search: str | None = None,
     limit: int = 50,
-    cursor: str | None = None,
+    offset: int = 0,
     fields: str = "full",
 ) -> dict[str, Any]:
     """List active visible tabs, including Unassigned or one Group category.
@@ -259,8 +274,7 @@ def list_tabs(
         tags (str): Tags value consumed by this operation.
         search (str | None): Search value consumed by this operation.
         limit (int): Maximum number of matching records to return.
-        cursor (str | None): Opaque keyset cursor returned by an earlier page, or ``None`` for the
-            first page.
+        offset (int): Number of matching rows to skip before this page.
         fields (str): Requested response projection controlling which fields are serialized.
 
     Returns:
@@ -275,7 +289,7 @@ def list_tabs(
             "tags": tags,
             "search": search,
             "limit": limit,
-            "cursor": cursor,
+            "offset": offset,
             "fields": fields,
             "visibility": "visible",
         },
@@ -470,7 +484,7 @@ def move_tab(
 
 
 @mcp.tool(annotations=READ, structured_output=True)
-def list_groups(category: str | None = None) -> dict[str, Any]:
+def list_groups(category: str | None = None, limit: int = 100, offset: int = 0) -> dict[str, Any]:
     """List visible flat Groups, optionally restricted by category.
 
     This MCP-facing operation deliberately uses the public local HTTP API instead of database
@@ -479,11 +493,22 @@ def list_groups(category: str | None = None) -> dict[str, Any]:
 
     Args:
         category (str | None): Optional free-form Group category used to restrict results.
+        limit (int): Maximum number of matching records to return.
+        offset (int): Number of matching rows to skip before this page.
 
     Returns:
         dict[str, Any]: Result produced by the operation described above.
     """
-    return api().request("GET", "/groups", query={"visibility": "visible", "category": category})
+    return api().request(
+        "GET",
+        "/groups",
+        query={
+            "visibility": "visible",
+            "category": category,
+            "limit": limit,
+            "offset": offset,
+        },
+    )
 
 
 @mcp.tool(annotations=WRITE, structured_output=True)
@@ -575,23 +600,27 @@ def delete_group(id: str) -> dict[str, Any]:
         f"/groups/{id}/tabs",
         query={"visibility": "hidden", "fields": "minimal", "limit": 1},
     )
-    if _data(hidden).get("tabs"):
+    if _page_data(hidden):
         raise TabVaultApiError("Group is not accessible through MCP")
     return client.request("DELETE", f"/groups/{id}")
 
 
 @mcp.tool(annotations=READ, structured_output=True)
-def list_tags() -> dict[str, Any]:
+def list_tags(limit: int = 100, offset: int = 0) -> dict[str, Any]:
     """List known tags and their descriptions.
 
     This MCP-facing operation deliberately uses the public local HTTP API instead of database
     access, so agent actions observe the same visibility, validation, and transaction rules as other
     clients.
 
+    Args:
+        limit (int): Maximum number of matching records to return.
+        offset (int): Number of matching rows to skip before this page.
+
     Returns:
         dict[str, Any]: Result produced by the operation described above.
     """
-    return api().request("GET", "/tags")
+    return api().request("GET", "/tags", query={"limit": limit, "offset": offset})
 
 
 @mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)

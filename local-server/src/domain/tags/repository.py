@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.tabs.visibility import visible_tabs
 from lib.base_repository import BaseRepository
+from lib.pagination import ListOptions, Page
 from models import Tab, Tag, tab_tags
 
 
@@ -51,7 +52,9 @@ class TagRepository(BaseRepository[Tag]):
             select(Tag).where(func.lower(Tag.name) == name.lower())
         )
 
-    async def list_with_counts(self, now: datetime) -> list[tuple[Tag, int]]:
+    async def list_with_counts(
+        self, now: datetime, list_options: ListOptions | None = None
+    ) -> Page[tuple[Tag, int]]:
         """List tags with visible active-tab counts.
 
         This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
@@ -60,18 +63,25 @@ class TagRepository(BaseRepository[Tag]):
 
         Args:
             now (datetime): Current absolute UTC instant used for consistent visibility decisions.
+            list_options (ListOptions | None): Optional database page; omitted for full exports.
 
         Returns:
-            list[tuple[Tag, int]]: Result produced by the operation described above.
+            Page[tuple[Tag, int]]: Tag rows, usage counts, and pagination metadata.
         """
-        rows = await self.session.execute(
+        total = int(await self.session.scalar(select(func.count()).select_from(Tag)) or 0)
+        query = (
             select(Tag, func.count(Tab.id))
             .outerjoin(tab_tags, tab_tags.c.tag_name == Tag.name)
             .outerjoin(Tab, and_(Tab.id == tab_tags.c.tab_id, visible_tabs(now)))
             .group_by(Tag.name)
             .order_by(func.lower(Tag.name))
         )
-        return [(tag, int(count)) for tag, count in rows.all()]
+        if list_options is not None:
+            query = query.limit(list_options.limit).offset(list_options.offset)
+        rows = await self.session.execute(query)
+        data = [(tag, int(count)) for tag, count in rows.all()]
+        offset = list_options.offset if list_options is not None else 0
+        return Page(data=data, has_next=offset + len(data) < total, total=total)
 
     async def count_visible_tabs(self, name: str, now: datetime) -> int:
         """Count visible active tabs attached to a tag.

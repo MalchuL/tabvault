@@ -57,21 +57,17 @@ def test_flat_open_category_groups_and_unassigned_tabs(
     session_tab = create_tab(client, headers, "https://example.com/session", str(session["id"]))
     assert tab["groupId"] is None
 
-    groups = client.get("/api/v1/groups", headers=headers).json()["data"]["groups"]
+    groups = client.get("/api/v1/groups", headers=headers).json()["data"]
     assert {group["category"] for group in groups} == {"session", "anything"}
     assert all("parentId" not in group and "archived" not in group for group in groups)
     assert {group["id"] for group in groups} == {session["id"], custom["id"]}
     assert [
         group["id"]
-        for group in client.get("/api/v1/groups?category=session", headers=headers).json()["data"][
-            "groups"
-        ]
+        for group in client.get("/api/v1/groups?category=session", headers=headers).json()["data"]
     ] == [session["id"]]
     assert [
         item["id"]
-        for item in client.get("/api/v1/tabs?category=session", headers=headers).json()["data"][
-            "tabs"
-        ]
+        for item in client.get("/api/v1/tabs?category=session", headers=headers).json()["data"]
     ] == [session_tab["id"]]
     assert (
         client.post(
@@ -91,7 +87,7 @@ def test_each_create_is_a_distinct_occurrence_and_url_is_exact(
     second = create_tab(client, headers, url)
     assert first["id"] != second["id"]
     assert first["url"] == second["url"] == url
-    listed = client.get("/api/v1/tabs", headers=headers).json()["data"]["tabs"]
+    listed = client.get("/api/v1/tabs", headers=headers).json()["data"]
     assert len([tab for tab in listed if tab["url"] == url]) == 2
 
 
@@ -216,7 +212,7 @@ def test_tags_archive_and_hard_delete(client: TestClient, headers: dict[str, str
     assert client.get(f"/api/v1/tabs/{tab['id']}", headers=headers).status_code == 404
 
 
-def test_cursor_projection_and_single_resource_contract(
+def test_offset_pagination_projection_and_single_resource_contract(
     client: TestClient, headers: dict[str, str]
 ) -> None:
     for index in range(4):
@@ -224,15 +220,19 @@ def test_cursor_projection_and_single_resource_contract(
     first = client.get(
         "/api/v1/tabs?limit=2&sortBy=createdAt&fields=minimal", headers=headers
     ).json()
-    assert len(first["data"]["tabs"]) == 2
-    assert "note" not in first["data"]["tabs"][0]
+    assert first["size"] == 2
+    assert first["total"] == 4
+    assert first["hasNext"] is True
+    assert "note" not in first["data"][0]
     second = client.get(
-        f"/api/v1/tabs?limit=2&sortBy=createdAt&fields=minimal&cursor={first['meta']['nextCursor']}",
+        "/api/v1/tabs?limit=2&offset=2&sortBy=createdAt&fields=minimal",
         headers=headers,
     ).json()
-    assert {item["id"] for item in first["data"]["tabs"]}.isdisjoint(
-        item["id"] for item in second["data"]["tabs"]
-    )
+    assert second["size"] == 2
+    assert second["hasNext"] is False
+    assert {item["id"] for item in first["data"]}.isdisjoint(item["id"] for item in second["data"])
+    assert client.get("/api/v1/tabs?limit=101", headers=headers).status_code == 422
+    assert client.get("/api/v1/tabs?offset=-1", headers=headers).status_code == 422
     assert (
         client.post(
             "/api/v1/tabs", headers=headers, json={"tabs": [{"url": "https://example.com"}]}
@@ -240,6 +240,33 @@ def test_cursor_projection_and_single_resource_contract(
         == 422
     )
     assert client.post("/api/v1/tabs/batch-delete", headers=headers, json={}).status_code == 405
+
+
+def test_all_collection_endpoints_paginate_with_the_shared_shape(
+    client: TestClient, headers: dict[str, str]
+) -> None:
+    for index in range(3):
+        create_group(client, headers, f"Group {index}")
+        create_tab(client, headers, f"https://example.com/page/{index}")
+        client.put(f"/api/v1/tags/tag-{index}", headers=headers, json={})
+
+    for path in ("/api/v1/groups", "/api/v1/tabs", "/api/v1/tags"):
+        first = client.get(f"{path}?limit=2", headers=headers)
+        second = client.get(f"{path}?limit=2&offset=2", headers=headers)
+        assert first.status_code == second.status_code == 200
+        assert set(first.json()) == {"data", "hasNext", "size", "total"}
+        assert first.json()["size"] == 2
+        assert first.json()["total"] == 3
+        assert first.json()["hasNext"] is True
+        assert second.json()["size"] == 1
+        assert second.json()["hasNext"] is False
+        assert {item.get("id", item.get("name")) for item in first.json()["data"]}.isdisjoint(
+            item.get("id", item.get("name")) for item in second.json()["data"]
+        )
+
+    for path in ("/api/v1/groups", "/api/v1/tags"):
+        assert client.get(f"{path}?limit=101", headers=headers).status_code == 422
+        assert client.get(f"{path}?offset=-1", headers=headers).status_code == 422
 
 
 def test_tab_filters_errors_and_group_scoped_listing(
@@ -268,12 +295,11 @@ def test_tab_filters_errors_and_group_scoped_listing(
     filtered = client.get(
         "/api/v1/tabs?tags=beta&tagsAll=beta&search=changed&sortBy=title&sortDir=desc",
         headers=headers,
-    ).json()["data"]["tabs"]
+    ).json()["data"]
     assert [item["id"] for item in filtered] == [first["id"]]
     scoped = client.get(f"/api/v1/groups/{group['id']}/tabs", headers=headers).json()
-    assert [item["id"] for item in scoped["data"]["tabs"]] == [first["id"]]
+    assert [item["id"] for item in scoped["data"]] == [first["id"]]
     assert client.get("/api/v1/groups/missing/tabs", headers=headers).status_code == 404
-    assert client.get("/api/v1/tabs?cursor=broken", headers=headers).status_code == 422
     assert client.delete("/api/v1/tabs/missing", headers=headers).status_code == 404
     assert (
         client.post(
@@ -314,7 +340,7 @@ def test_tag_catalog_markdown_detach_delete_and_missing(
         "/api/v1/tags/docs", headers=headers, json={"description": "Documentation"}
     )
     assert updated.json()["data"]["name"] == "Docs"
-    listing = client.get("/api/v1/tags", headers=headers).json()["data"]["tags"]
+    listing = client.get("/api/v1/tags", headers=headers).json()["data"]
     assert listing[0]["tabCount"] == 1
     assert "Docs" in client.get("/api/v1/tags/export.md", headers=headers).text
     assert client.delete("/api/v1/tags/docs", headers=headers).status_code == 409
@@ -464,34 +490,25 @@ def test_visibility_policy_is_shared_by_lists_groups_search_counts_and_export(
     )
     client.patch(f"/api/v1/tabs/{archived['id']}", headers=headers, json={"archived": True})
 
-    visible_ids = {
-        tab["id"] for tab in client.get("/api/v1/tabs", headers=headers).json()["data"]["tabs"]
-    }
+    visible_ids = {tab["id"] for tab in client.get("/api/v1/tabs", headers=headers).json()["data"]}
     hidden_ids = {
         tab["id"]
-        for tab in client.get("/api/v1/tabs?visibility=hidden", headers=headers).json()["data"][
-            "tabs"
-        ]
+        for tab in client.get("/api/v1/tabs?visibility=hidden", headers=headers).json()["data"]
     }
     archived_ids = {
         tab["id"]
-        for tab in client.get("/api/v1/tabs?visibility=archived", headers=headers).json()["data"][
-            "tabs"
-        ]
+        for tab in client.get("/api/v1/tabs?visibility=archived", headers=headers).json()["data"]
     }
     assert {visible["id"], elapsed["id"]} <= visible_ids
     assert {hidden_mixed["id"], hidden_only["id"]} == hidden_ids
     assert archived["id"] in archived_ids and archived["id"] not in hidden_ids
 
     visible_groups = {
-        group["id"]
-        for group in client.get("/api/v1/groups", headers=headers).json()["data"]["groups"]
+        group["id"] for group in client.get("/api/v1/groups", headers=headers).json()["data"]
     }
     hidden_groups = {
         group["id"]
-        for group in client.get("/api/v1/groups?visibility=hidden", headers=headers).json()["data"][
-            "groups"
-        ]
+        for group in client.get("/api/v1/groups?visibility=hidden", headers=headers).json()["data"]
     }
     assert mixed_group["id"] in visible_groups
     assert empty_group["id"] in visible_groups
@@ -500,20 +517,17 @@ def test_visibility_policy_is_shared_by_lists_groups_search_counts_and_export(
     assert (
         client.get(
             f"/api/v1/groups/{mixed_group['id']}/tabs?visibility=hidden", headers=headers
-        ).json()["data"]["tabs"][0]["id"]
+        ).json()["data"][0]["id"]
         == hidden_mixed["id"]
     )
-    assert (
-        client.get("/api/v1/groups?visibility=archived", headers=headers).json()["data"]["groups"]
-        == []
-    )
+    assert client.get("/api/v1/groups?visibility=archived", headers=headers).json()["data"] == []
 
     search = client.get("/api/v1/search?q=keyword&mode=keyword", headers=headers).json()
     assert {item["tab"]["id"] for item in search["data"]["results"]} == {
         visible["id"],
         elapsed["id"],
     }
-    tags = client.get("/api/v1/tags", headers=headers).json()["data"]["tags"]
+    tags = client.get("/api/v1/tags", headers=headers).json()["data"]
     assert next(tag for tag in tags if tag["name"] == "visibility")["tabCount"] == 2
     assert client.get("/api/v1/health", headers=headers).json()["storage"]["tabs"] == 2
 

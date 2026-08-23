@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, Field, field_validator
 
 from lib.dto_config import model_config
-from lib.responses import WarningDTO
+from lib.pagination import PaginatedResponse
 from lib.time import absolute_utc
 
 from .visibility import TabVisibility
@@ -73,7 +73,7 @@ class TabCreateDTO(BaseModel):
 
 
 class TabListOptionsDTO(BaseModel):
-    """Collect filters and cursor options for a Saved Tab list.
+    """Collect filters and projection options for a Saved Tab list.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
     DTO configuration serializes public field names in camelCase and rejects unknown input fields.
@@ -86,9 +86,6 @@ class TabListOptionsDTO(BaseModel):
         search (str | None): Typed search value carried by this object.
         sort_by (TabSortBy): Typed sort by value carried by this object.
         sort_dir (SortDirection): Typed sort dir value carried by this object.
-        limit (int): Typed limit value carried by this object.
-        requested_limit (int): Typed requested limit value carried by this object.
-        cursor (str | None): Typed cursor value carried by this object.
         fields (str): Typed fields value carried by this object.
         visibility (TabVisibility): Typed visibility value carried by this object.
     """
@@ -100,9 +97,6 @@ class TabListOptionsDTO(BaseModel):
     search: str | None = None
     sort_by: TabSortBy = "position"
     sort_dir: SortDirection = "asc"
-    limit: int = Field(default=50, ge=1)
-    requested_limit: int = Field(default=50, ge=1)
-    cursor: str | None = None
     fields: str = "full"
     visibility: TabVisibility = "visible"
     model_config = model_config()
@@ -293,54 +287,8 @@ class TabCreateMetaDTO(BaseModel):
     model_config = model_config()
 
 
-class TabListMetaDTO(BaseModel):
-    """Describe cursor pagination.
-
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
-
-    Attributes:
-        next_cursor (str | None): Typed next cursor value carried by this object.
-        has_more (bool): Whether the result has more.
-        total_count (int): Number of total records represented by this object.
-    """
-
-    next_cursor: str | None
-    has_more: bool
-    total_count: int
-    model_config = model_config()
-
-
-class TabListResultDTO(BaseModel):
-    """Contain a projected page and metadata.
-
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
-
-    Attributes:
-        tabs (list[TabDTO | TabProjectionDTO]): Typed tabs value carried by this object.
-        meta (TabListMetaDTO): Optional endpoint-specific metadata.
-        warnings (list[WarningDTO]): Structured non-fatal issues.
-    """
-
-    tabs: list[TabDTO | TabProjectionDTO]
-    meta: TabListMetaDTO
-    warnings: list[WarningDTO]
-    model_config = model_config()
-
-
-class TabListDataDTO(BaseModel):
-    """Expose Saved Tabs in the common API envelope.
-
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
-
-    Attributes:
-        tabs (list[TabDTO | TabProjectionDTO]): Typed tabs value carried by this object.
-    """
-
-    tabs: list[TabDTO | TabProjectionDTO]
-    model_config = model_config()
+class TabListResponseDTO(PaginatedResponse[TabDTO | TabProjectionDTO]):
+    """Expose a paginated list of Saved Tabs."""
 
 
 class TabDeleteResultDTO(BaseModel):

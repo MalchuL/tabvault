@@ -81,6 +81,83 @@ Controllers return **DTOs** (or `PaginatedResponse`), never ORM instances. Servi
 
 Full code recipes: [layers-dto-pagination.md](layers-dto-pagination.md).
 
+## Docstrings
+
+Every class, method, and function in production backend code must have a detailed
+docstring, including private helpers, nested helpers, dependency providers, protocol
+methods, validators, workers, clients, and Alembic functions. Test functions may rely on
+descriptive test names unless their fixtures or helpers have non-obvious behavior.
+
+Use the style demonstrated by `lib/cursor.py`:
+
+- Start with a short imperative summary for a function or method, or a role-oriented
+  summary for a class. End it with a period.
+- Follow the summary with a concrete explanation of purpose and context. Describe where
+  the definition sits in the request or background-work flow, why it exists, important
+  invariants, and observable side effects. For database code, state who owns commits and
+  rollbacks. For pagination, security, synchronization, or concurrency code, explain the
+  relevant boundary rather than merely naming the mechanism.
+- Document every argument except `self` and `cls` under `Args` using
+  `name (Type): description`. Include the complete declared type, including unions,
+  generics, aliases, and `None`, then explain what the caller supplies and any important
+  constraints or sentinel values. Document dependency-only parameters such as `_` too.
+- Add `Returns` for every non-`None` result using `Type: description`. Include the exact
+  return type and describe its domain meaning. Use the same typed format under `Yields`
+  for generators and async generators.
+- Add `Raises` for explicitly raised domain/validation exceptions and important
+  exceptions deliberately propagated across the boundary. State the exact condition for
+  each exception.
+- Add `Attributes` to DTOs, dataclasses, settings, ORM models, result containers, and
+  other state-bearing classes using `name (Type): description`. Explain domain meaning,
+  nullability or sentinel semantics, units, and lifecycle where relevant.
+- Keep documentation consistent with the actual implementation. Update the docstring in
+  the same change when behavior, arguments, return values, exceptions, side effects, or
+  transaction ownership changes.
+- Wrap prose to the project's Python line length. Refer explicitly to related helpers,
+  such as `encode_cursor()`, when they make the flow easier to follow.
+
+Do not use one-line docstrings for production definitions. Avoid generic filler such as
+“process the value,” “result produced by this operation,” or a paragraph copied across
+unrelated methods. The detailed paragraph and each field description must teach the
+reader something that cannot be learned from the definition name and type annotation
+alone.
+
+```python
+class ExampleService:
+    """Orchestrate Example use cases and own their transaction boundaries.
+
+    The service applies domain rules between the HTTP controller and repository. It
+    returns DTOs rather than ORM rows and commits all writes required by one use case as
+    a single transaction.
+
+    Attributes:
+        db (AsyncSession): Request-scoped session used to commit or roll back the use
+            case.
+        repository (ExampleRepository): Persistence adapter that stages Example changes
+            without committing.
+    """
+
+    async def update(self, example_id: UUID, data: ExampleUpdateDTO) -> ExampleDTO:
+        """Apply explicitly supplied fields to one Example.
+
+        Loads the existing row, maps only fields present in the PATCH payload, and commits
+        the mutation before converting the refreshed row to its public DTO.
+
+        Args:
+            example_id (UUID): Stable identifier of the Example to update.
+            data (ExampleUpdateDTO): Validated PATCH fields; omitted fields retain their
+                stored values.
+
+        Returns:
+            ExampleDTO: The updated Example after the transaction commits.
+
+        Raises:
+            ExampleNotAccessibleError: The row does not exist or is not visible to the
+                caller.
+            EmptyExampleUpdateError: The payload contains no editable fields.
+        """
+```
+
 ## Routes and app factory
 
 1. Domain router declares its own `prefix` and `tags` (`APIRouter(prefix="/examples", …)`).
@@ -266,6 +343,7 @@ See [satellites-and-docker.md](satellites-and-docker.md).
 - [ ] RBAC in the service; commits in the service (Advanced Alchemy auto_commit=False)
 - [ ] Alembic revision if schema changes; tests under tests/domain/<context>/
 - [ ] Satellite work via clients/ + Protocol; NoOp when URL unset
+- [ ] Detailed docstrings for every added or changed production class, method, and function
 ```
 
 More code: [layers-dto-pagination.md](layers-dto-pagination.md) · satellites: [satellites-and-docker.md](satellites-and-docker.md)
@@ -284,3 +362,4 @@ More code: [layers-dto-pagination.md](layers-dto-pagination.md) · satellites: [
 - Browser-facing secrets or admin keys logged in plaintext
 - Requiring satellites to be up for the main API to import/boot
 - Soft-delete columns invented without an existing product convention
+- One-line, type-only, or boilerplate docstrings that do not explain domain behavior

@@ -77,9 +77,9 @@ def test_mcp_functions_forward_v2_single_resource_shapes(monkeypatch) -> None:
         def request(self, *args, **kwargs):
             calls.append((args, kwargs))
             if args[0:2] == ("GET", "/groups"):
-                return {"success": True, "data": {"groups": [{"id": "group"}]}}
+                return {"data": [{"id": "group"}], "hasNext": False, "size": 1, "total": 1}
             if args[0] == "GET" and args[1].endswith("/tabs"):
-                return {"success": True, "data": {"tabs": []}}
+                return {"data": [], "hasNext": False, "size": 0, "total": 0}
             if args[0] == "GET" and args[1].startswith("/tabs/"):
                 return {
                     "success": True,
@@ -114,6 +114,7 @@ def test_mcp_functions_forward_v2_single_resource_shapes(monkeypatch) -> None:
     tab_lists = [call for call in calls if call[0][0:2] == ("GET", "/tabs")]
     assert tab_lists[0][1]["query"]["groupId"] == "unassigned"
     assert tab_lists[0][1]["query"]["visibility"] == "visible"
+    assert tab_lists[0][1]["query"]["offset"] == 0
     assert tab_lists[1][1]["query"]["category"] == "session"
     create = next(call for call in calls if call[0][0:2] == ("POST", "/tabs"))
     assert create[0][2]["url"] == "https://example.com"
@@ -167,7 +168,7 @@ def test_mcp_cannot_target_hidden_group_or_delete_group_with_hidden_members(monk
                     "data": {"id": "tab", "archived": False, "hiddenUntil": None},
                 }
             assert (method, path) == ("GET", "/groups")
-            return {"success": True, "data": {"groups": []}}
+            return {"data": [], "hasNext": False, "size": 0, "total": 0}
 
     monkeypatch.setattr(bridge, "api", lambda: HiddenGroupApi())
     for operation in (
@@ -185,8 +186,8 @@ def test_mcp_cannot_target_hidden_group_or_delete_group_with_hidden_members(monk
         def request(self, method, path, *_args, **_kwargs):
             calls.append((method, path))
             if path == "/groups":
-                return {"success": True, "data": {"groups": [{"id": "mixed"}]}}
-            return {"success": True, "data": {"tabs": [{"id": "hidden"}]}}
+                return {"data": [{"id": "mixed"}], "hasNext": False, "size": 1, "total": 1}
+            return {"data": [{"id": "hidden"}], "hasNext": False, "size": 1, "total": 1}
 
     monkeypatch.setattr(bridge, "api", lambda: MixedGroupApi())
     with pytest.raises(bridge.TabVaultApiError, match="not accessible"):

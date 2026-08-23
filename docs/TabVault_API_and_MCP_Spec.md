@@ -45,14 +45,18 @@
 }
 ```
 
+List-эндпоинты вместо общего success-envelope возвращают единый page-envelope из §0.3.
+
 ### 0.3 Пагинация
 
-Курсорная пагинация для всех list-эндпоинтов — устойчива при удалениях/добавлениях между страницами, стандарт для 2026 REST API [web:54][web:60]:
+Все list-эндпоинты используют DB-side offset pagination:
 
-- Запрос: `?limit=50&cursor=<opaque_string>`
-- `limit`: по умолчанию 50, максимум 200 (жёсткий серверный кап, клиентский `limit` выше игнорируется и заменяется на 200 с warning'ом).
-- Ответ включает `meta.nextCursor` (`null`, если конец списка) и `meta.hasMore: boolean`.
-- Курсор — opaque base64 строка (encode `{sortKey, id}`), не сырой ID из БД.
+- Запрос: `?limit=100&offset=0`.
+- `limit`: от 1 до 100, по умолчанию 100; большее значение отклоняется с `422`.
+- `offset`: неотрицательное число строк, по умолчанию 0.
+- Ответ: `{ "data": [...], "hasNext": boolean, "size": int, "total": int }`.
+- `size` — фактическое число записей текущей страницы; `total` — точное число записей,
+  соответствующих фильтрам на момент запроса.
 
 ### 0.4 Частичные поля (`fields`)
 
@@ -85,35 +89,33 @@
 | `search` | string | нет | Текстовый поиск по title/url/note (substring, не семантический) |
 | `sortBy` | `position` \| `createdAt` \| `updatedAt` \| `title` | нет (default `position`) | Поле сортировки |
 | `sortDir` | `asc` \| `desc` | нет (default `asc`) | Направление |
-| `limit` | int 1–200 | нет (default 50) | Размер страницы |
-| `cursor` | string | нет | Курсор пагинации |
+| `limit` | int 1–100 | нет (default 100) | Размер страницы |
+| `offset` | int ≥ 0 | нет (default 0) | Число пропускаемых записей |
 | `fields` | string | нет (default `full`) | См. §0.4 |
 | `includeArchived` | bool | нет (default `false`) | Включать архивированные вкладки |
 
 **Ответ 200:**
 ```json
 {
-  "success": true,
-  "data": {
-    "tabs": [
-      {
-        "id": "t-1001",
-        "url": "https://arxiv.org/abs/2508.01234",
-        "title": "Flow Matching for Generative Modeling",
-        "favicon": "https://arxiv.org/favicon.ico",
-        "note": "Перечитать раздел про ODE solvers",
-        "tags": ["read-later"],
-        "groupId": "g-2",
-        "position": 0,
-        "createdAt": "2026-08-02T09:00:00Z",
-        "updatedAt": "2026-08-02T09:00:00Z"
-      }
-    ]
-  },
-  "meta": { "nextCursor": "eyJwb3NpdGlvbiI6MSwiaWQiOiJ0LTEwMDIifQ==", "hasMore": true, "totalCount": 143 }
+  "data": [
+    {
+      "id": "t-1001",
+      "url": "https://arxiv.org/abs/2508.01234",
+      "title": "Flow Matching for Generative Modeling",
+      "favicon": "https://arxiv.org/favicon.ico",
+      "note": "Перечитать раздел про ODE solvers",
+      "tags": ["read-later"],
+      "groupId": "g-2",
+      "position": 0,
+      "createdAt": "2026-08-02T09:00:00Z",
+      "updatedAt": "2026-08-02T09:00:00Z"
+    }
+  ],
+  "hasNext": true,
+  "size": 1,
+  "total": 143
 }
 ```
-`totalCount` — приблизительный (кешированный счётчик), не гарантирует точность на момент запроса при высокой конкурентности — это ожидаемо и не является багом.
 
 ### 1.2 `GET /tabs/{id}` — одна вкладка
 
@@ -434,7 +436,7 @@ MCP-сервер — тонкий прокси-слой над Backend API: тр
 
 | Tool | inputSchema (ключевые поля) | annotations | Зачем |
 |---|---|---|---|
-| `list_tabs` | `groupId?, tags?, search?, limit?, cursor?, fields?` | readOnly, idempotent | Базовая навигация по хранилищу |
+| `list_tabs` | `groupId?, tags?, search?, limit?, offset?, fields?` | readOnly, idempotent | Базовая навигация по хранилищу |
 | `search_tabs` | `query (required), mode?, limit?, groupId?` | readOnly, idempotent | Семантический поиск — основной способ агента «вспомнить», что было сохранено |
 | `get_tab` | `id (required)` | readOnly, idempotent | Точечное чтение одной вкладки перед изменением |
 | `save_tab` | `url (required), title?, note?, tags?, groupId?` | не readOnly, не destructive, не idempotent (создаёт новую сущность при повторе без dedupe) | Главная операция — агент сохраняет находку из веба |

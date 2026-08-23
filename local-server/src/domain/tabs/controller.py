@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query, Request
 
 from api.routes.service_dependencies import get_tab_service
+from lib.pagination import MAX_LIST_PAGE_SIZE, ListOptions
 from lib.responses import SuccessResponseDTO, success
 
 from .dto import (
@@ -14,8 +15,8 @@ from .dto import (
     TabCreateMetaDTO,
     TabDeleteResultDTO,
     TabDTO,
-    TabListDataDTO,
     TabListOptionsDTO,
+    TabListResponseDTO,
     TabTagDTO,
     TabUpdateDTO,
 )
@@ -25,9 +26,7 @@ from .visibility import TabVisibility
 router = APIRouter(prefix="/tabs", tags=["tabs"])
 
 
-@router.get(
-    "", response_model=SuccessResponseDTO[TabListDataDTO], response_model_exclude_unset=True
-)
+@router.get("", response_model=TabListResponseDTO, response_model_exclude_unset=True)
 async def list_tabs(
     service: Annotated[TabService, Depends(get_tab_service)],
     group_id: str = Query("all", alias="groupId"),
@@ -39,12 +38,12 @@ async def list_tabs(
         "position", alias="sortBy"
     ),
     sort_dir: Literal["asc", "desc"] = Query("asc", alias="sortDir"),
-    limit: int = Query(50, ge=1),
-    cursor: str | None = None,
+    limit: int = Query(MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
     fields: str = "full",
     visibility: TabVisibility = "visible",
-) -> SuccessResponseDTO[TabListDataDTO]:
-    """List Saved Tabs using filters and cursor pagination.
+) -> TabListResponseDTO:
+    """List Saved Tabs using filters and offset pagination.
 
     This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
     delegates domain work to an injected service, and returns the shared typed response envelope.
@@ -62,13 +61,12 @@ async def list_tabs(
             this operation.
         sort_dir (Literal["asc", "desc"]): Directory used to store sort data.
         limit (int): Maximum number of matching records to return.
-        cursor (str | None): Opaque keyset cursor returned by an earlier page, or ``None`` for the
-            first page.
+        offset (int): Number of matching rows to skip before this page.
         fields (str): Requested response projection controlling which fields are serialized.
         visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
 
     Returns:
-        SuccessResponseDTO[TabListDataDTO]: Result produced by the operation described above.
+        TabListResponseDTO: Result produced by the operation described above.
     """
     result = await service.list(
         TabListOptionsDTO(
@@ -79,14 +77,12 @@ async def list_tabs(
             search=search,
             sort_by=sort_by,
             sort_dir=sort_dir,
-            limit=limit,
-            requested_limit=limit,
-            cursor=cursor,
             fields=fields,
             visibility=visibility,
-        )
+        ),
+        ListOptions(limit=limit, offset=offset),
     )
-    return success(TabListDataDTO(tabs=result.tabs), meta=result.meta, warnings=result.warnings)
+    return result
 
 
 @router.post("", status_code=201, response_model=SuccessResponseDTO[TabDTO])

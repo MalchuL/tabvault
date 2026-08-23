@@ -7,7 +7,7 @@ import builtins
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.cursor import decode_cursor, encode_cursor
+from lib.pagination import ListOptions
 from lib.responses import WarningDTO
 from lib.time import utc_now
 from models import Tag
@@ -17,16 +17,14 @@ from .dto import (
     TabDeleteResultDTO,
     TabDTO,
     TabJobDTO,
-    TabListMetaDTO,
     TabListOptionsDTO,
-    TabListResultDTO,
+    TabListResponseDTO,
     TabUpdateDTO,
 )
 from .error import (
     ActiveTabDeleteError,
     DuplicateTabIdError,
     EmptyUpdateError,
-    InvalidCursorError,
     InvalidGroupError,
     TabNotFoundError,
 )
@@ -72,8 +70,10 @@ class TabService:
         """
         return await self.repository.resolve_tags(names)
 
-    async def list(self, options: TabListOptionsDTO) -> TabListResultDTO:
-        """List Saved Tabs using validated filters and cursor pagination.
+    async def list(
+        self, options: TabListOptionsDTO, list_options: ListOptions
+    ) -> TabListResponseDTO:
+        """List Saved Tabs using validated filters and database pagination.
 
         This application-layer operation coordinates domain rules and persistence, then maps loaded
         ORM state into transport DTOs. Callers do not need to know how records are queried or
@@ -81,21 +81,13 @@ class TabService:
 
         Args:
             options (TabListOptionsDTO): Options value consumed by this operation.
+            list_options (ListOptions): Validated page size and row offset.
 
         Returns:
-            TabListResultDTO: Result produced by the operation described above.
-
-        Raises:
-            InvalidCursorError: Propagated when its documented validation or operation condition
-                occurs.
+            TabListResponseDTO: Projected rows and pagination metadata.
         """
-        limit = min(max(options.limit, 1), 200)
         now = utc_now()
-        try:
-            cursor = decode_cursor(options.cursor, options.sort_by) if options.cursor else None
-        except ValueError as error:
-            raise InvalidCursorError(str(error)) from error
-        rows, total = await self.repository.list_tabs(
+        page = await self.repository.list_tabs(
             group_id=options.group_id,
             category=options.category,
             tags_any=options.tags_any,
@@ -103,36 +95,12 @@ class TabService:
             search=options.search,
             sort_by=options.sort_by,
             sort_dir=options.sort_dir,
-            limit=limit,
-            cursor=cursor,
+            list_options=list_options,
             visibility=options.visibility,
             now=now,
         )
-        has_more = len(rows) > limit
-        rows = rows[:limit]
-        next_cursor = None
-        if has_more and rows:
-            last = rows[-1]
-            value = {
-                "position": last.position,
-                "createdAt": last.created_at.isoformat(),
-                "updatedAt": last.updated_at.isoformat(),
-                "title": last.title.lower(),
-            }[options.sort_by]
-            next_cursor = encode_cursor(options.sort_by, value, last.id)
-        warnings = []
-        if options.requested_limit > 200:
-            warnings.append(
-                WarningDTO(
-                    code="W_LIMIT_CAPPED",
-                    path="query.limit",
-                    message="limit was capped at 200",
-                )
-            )
-        return TabListResultDTO(
-            tabs=[self.mapper.to_projection(row, options.fields) for row in rows],
-            meta=TabListMetaDTO(next_cursor=next_cursor, has_more=has_more, total_count=total),
-            warnings=warnings,
+        return TabListResponseDTO.from_page(
+            page.map(lambda row: self.mapper.to_projection(row, options.fields))
         )
 
     async def get(self, tab_id: str) -> TabDTO:

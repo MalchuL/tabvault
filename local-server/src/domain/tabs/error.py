@@ -69,15 +69,3 @@ class EmptyUpdateError(TabError):
     code = "E_EMPTY_UPDATE"
     status_code = 422
     path = "body"
-
-
-class InvalidCursorError(TabError):
-    """Indicate that a pagination cursor is invalid.
-
-    Services raise this framework-independent domain exception so controllers or global handlers can
-    choose the HTTP representation without coupling business logic to FastAPI.
-    """
-
-    code = "E_INVALID_CURSOR"
-    status_code = 422
-    path = "query.cursor"

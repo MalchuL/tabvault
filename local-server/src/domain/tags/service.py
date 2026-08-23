@@ -2,9 +2,10 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.pagination import ListOptions
 from lib.time import utc_now
 
-from .dto import TagDeleteResultDTO, TagDTO, TagUpsertDTO
+from .dto import TagDeleteResultDTO, TagDTO, TagListResponseDTO, TagUpsertDTO
 from .error import TagInUseError, TagNotFoundError
 from .mapper import TagMapper
 from .repository import TagRepository
@@ -33,7 +34,7 @@ class TagService:
         self.repository = repository
         self.mapper = TagMapper()
 
-    async def list(self) -> list[TagDTO]:
+    async def list(self, list_options: ListOptions) -> TagListResponseDTO:
         """List tags with usage counts.
 
         This application-layer operation coordinates domain rules and persistence, then maps loaded
@@ -41,12 +42,12 @@ class TagService:
         related data is assembled.
 
         Returns:
-            list[TagDTO]: Result produced by the operation described above.
+            TagListResponseDTO: Result produced by the operation described above.
         """
-        return [
-            self.mapper.to_dto(tag, count)
-            for tag, count in await self.repository.list_with_counts(utc_now())
-        ]
+        page = await self.repository.list_with_counts(utc_now(), list_options)
+        return TagListResponseDTO.from_page(
+            page.map(lambda item: self.mapper.to_dto(item[0], item[1]))
+        )
 
     async def upsert(self, name: str, dto: TagUpsertDTO) -> TagDTO:
         """Create or update a tag.
@@ -112,7 +113,7 @@ class TagService:
         Returns:
             str: Result produced by the operation described above.
         """
-        rows = await self.repository.list_with_counts(utc_now())
+        rows = (await self.repository.list_with_counts(utc_now())).data
         lines = ["# Tags", ""]
         lines.extend(
             f"- **{tag.name}** — {tag.description or '_(без описания)_'}" for tag, _ in rows

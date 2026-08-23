@@ -3,9 +3,16 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.tabs.visibility import TabVisibility
+from lib.pagination import ListOptions, Page
 from lib.time import utc_now
 
-from .dto import GroupCreateDTO, GroupDeleteResultDTO, GroupDTO, GroupUpdateDTO
+from .dto import (
+    GroupCreateDTO,
+    GroupDeleteResultDTO,
+    GroupDTO,
+    GroupListResponseDTO,
+    GroupUpdateDTO,
+)
 from .error import EmptyGroupUpdateError, GroupNotFoundError
 from .mapper import GroupMapper
 from .repository import GroupRepository
@@ -36,8 +43,11 @@ class GroupService:
         self.mapper = GroupMapper()
 
     async def list(
-        self, visibility: TabVisibility = "visible", category: str | None = None
-    ) -> list[GroupDTO]:
+        self,
+        visibility: TabVisibility,
+        category: str | None,
+        list_options: ListOptions,
+    ) -> GroupListResponseDTO:
         """List Groups relevant to one mutually exclusive visibility page.
 
         This application-layer operation coordinates domain rules and persistence, then maps loaded
@@ -47,25 +57,17 @@ class GroupService:
         Args:
             visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
             category (str | None): Optional free-form Group category used to restrict results.
+            list_options (ListOptions): Validated page size and row offset.
 
         Returns:
-            list[GroupDTO]: Result produced by the operation described above.
+            GroupListResponseDTO: Result produced by the operation described above.
         """
-        groups = await self.repository.list_groups(category)
         if visibility == "archived":
-            return []
-        visible, hidden = await self.repository.tab_counts(utc_now())
-        if visibility == "hidden":
-            return [
-                self.mapper.to_dto(group, hidden[group.id])
-                for group in groups
-                if hidden.get(group.id, 0) > 0
-            ]
-        return [
-            self.mapper.to_dto(group, visible.get(group.id, 0))
-            for group in groups
-            if visible.get(group.id, 0) > 0 or hidden.get(group.id, 0) == 0
-        ]
+            return GroupListResponseDTO.from_page(Page(data=[], has_next=False, total=0))
+        page = await self.repository.list_groups(utc_now(), visibility, category, list_options)
+        return GroupListResponseDTO.from_page(
+            page.map(lambda item: self.mapper.to_dto(item[0], item[1]))
+        )
 
     async def get(self, group_id: str) -> GroupDTO:
         """Return one Group or fail without hierarchy semantics.

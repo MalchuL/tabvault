@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from lib.dto_config import model_config
+from lib.pagination import PaginatedResponse
 
 
 class TagUpsertDTO(BaseModel):
@@ -43,18 +44,8 @@ class TagDTO(BaseModel):
     model_config = model_config()
 
 
-class TagListDataDTO(BaseModel):
-    """Expose tags in an API data envelope.
-
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
-
-    Attributes:
-        tags (list[TagDTO]): Tags associated with the Saved Tab.
-    """
-
-    tags: list[TagDTO]
-    model_config = model_config()
+class TagListResponseDTO(PaginatedResponse[TagDTO]):
+    """Expose a paginated list of tags and their usage counts."""
 
 
 class TagDeleteResultDTO(BaseModel):

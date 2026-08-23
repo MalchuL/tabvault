@@ -5,12 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, asc, delete, desc, func, or_, select
+from sqlalchemy import asc, delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from lib.base_repository import BaseRepository
-from lib.cursor import Cursor
+from lib.pagination import ListOptions, Page
 from lib.time import utc_now
 from models import Group, Job, Tab, Tag, Tombstone
 
@@ -69,12 +69,11 @@ class TabRepository(BaseRepository[Tab]):
         search: str | None,
         sort_by: TabSortBy,
         sort_dir: SortDirection,
-        limit: int,
-        cursor: Cursor | None,
+        list_options: ListOptions,
         visibility: TabVisibility,
         now: datetime,
-    ) -> tuple[list[Tab], int]:
-        """List filtered Saved Tabs using stable cursor pagination.
+    ) -> Page[Tab]:
+        """List and count filtered Saved Tabs using database pagination.
 
         This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
         session. It reads or stages database state without committing; the calling service owns the
@@ -89,14 +88,12 @@ class TabRepository(BaseRepository[Tab]):
             search (str | None): Search value consumed by this operation.
             sort_by (TabSortBy): Sort by value consumed by this operation.
             sort_dir (SortDirection): Directory used to store sort data.
-            limit (int): Maximum number of matching records to return.
-            cursor (Cursor | None): Opaque keyset cursor returned by an earlier page, or ``None``
-                for the first page.
+            list_options (ListOptions): Validated page size and row offset.
             visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
             now (datetime): Current absolute UTC instant used for consistent visibility decisions.
 
         Returns:
-            tuple[list[Tab], int]: Result produced by the operation described above.
+            Page[Tab]: Matching rows and pagination metadata.
         """
         sort_column = {
             "position": Tab.position,
@@ -129,36 +126,13 @@ class TabRepository(BaseRepository[Tab]):
             filters.append(
                 Tab.tags.any(func.lower(Tag.name).in_([name.lower() for name in tags_any]))
             )
-        total = int(await self.session.scalar(select(func.count(Tab.id)).where(*filters)) or 0)
-        if cursor:
-            cursor_value = cursor.value
-            if sort_by in {"createdAt", "updatedAt"} and isinstance(cursor_value, str):
-                cursor_value = datetime.fromisoformat(cursor_value.replace("Z", "+00:00"))
-            compare = (
-                sort_column > cursor_value if sort_dir == "asc" else sort_column < cursor_value
-            )
-            filters.append(
-                or_(
-                    compare,
-                    and_(
-                        sort_column == cursor_value,
-                        Tab.id > cursor.id if sort_dir == "asc" else Tab.id < cursor.id,
-                    ),
-                )
-            )
         ordering = asc if sort_dir == "asc" else desc
-        rows = list(
-            (
-                await self.session.scalars(
-                    select(Tab)
-                    .where(*filters)
-                    .options(selectinload(Tab.tags))
-                    .order_by(ordering(sort_column), ordering(Tab.id))
-                    .limit(limit + 1)
-                )
-            ).unique()
+        return await self.list_page(
+            *filters,
+            list_options=list_options,
+            load=selectinload(Tab.tags),
+            order_by=[ordering(sort_column), ordering(Tab.id)],
         )
-        return rows, total
 
     async def active_group_exists(self, group_id: str | None) -> bool:
         """Return whether a nullable Group target is valid.
