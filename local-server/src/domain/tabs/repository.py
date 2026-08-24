@@ -269,6 +269,18 @@ class TabRepository(BaseRepository[Tab]):
         await self.session.flush()
         return tab
 
+    async def add_tabs(self, tabs: list[Tab]) -> None:
+        """Stage and flush multiple Saved Tab occurrences together.
+
+        Browser capture uses this specialized operation to let SQLAlchemy batch inserts while the
+        service retains the surrounding transaction boundary.
+
+        Args:
+            tabs (list[Tab]): Saved Tab rows to persist in request order.
+        """
+        self.session.add_all(tabs)
+        await self.session.flush()
+
     async def add_preview_job(self, tab_id: str) -> Job:
         """Create a preview-capture job for a Saved Tab.
 
@@ -286,6 +298,20 @@ class TabRepository(BaseRepository[Tab]):
         self.session.add(job)
         await self.session.flush()
         return job
+
+    async def add_preview_jobs(self, tab_ids: list[str]) -> list[Job]:
+        """Stage and flush one preview-capture job per Saved Tab together.
+
+        Args:
+            tab_ids (list[str]): Persisted Saved Tab identifiers in request order.
+
+        Returns:
+            list[Job]: Preview jobs in the same order as ``tab_ids``.
+        """
+        jobs = [Job(kind="preview_capture", target_id=tab_id) for tab_id in tab_ids]
+        self.session.add_all(jobs)
+        await self.session.flush()
+        return jobs
 
     async def apply_changes(self, tab: Tab, changes: dict[str, object]) -> None:
         """Apply mapped field values to a Saved Tab.

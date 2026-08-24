@@ -5,3 +5,5 @@ existing record with the same URL. Intentional duplicate reduction is a separate
 workflow. An optional in-process idempotency cache scopes keys to the authenticated client and
 create endpoint, retains at most 10,000 entries for ten minutes, coalesces concurrent matching
 requests, and rejects key reuse with a different payload. Cache loss on restart is accepted.
+The specialized browser-capture batch applies the same occurrence rule independently to every
+array entry.

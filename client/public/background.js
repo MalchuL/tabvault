@@ -115,29 +115,30 @@ async function syncQuickCapture(group, tabs) {
     }
   );
   if (!groupResponse.ok) return false;
-  const requests = tabs.map(tab =>
-    fetch(`${baseUrl.replace(/\/+$/, "")}/api/v1/tabs`, {
+  if (!tabs.length) return true;
+  const tabsResponse = await fetch(
+    `${baseUrl.replace(/\/+$/, "")}/api/v1/tabs/batch`,
+    {
       method: "POST",
       headers: {
         ...headers,
-        "Idempotency-Key": tab.id,
+        "Idempotency-Key": group.id,
       },
       body: JSON.stringify({
-        id: tab.id,
-        url: tab.url,
-        title: tab.title,
-        note: tab.note,
-        agentReview: tab.agentReview,
-        viewed: tab.viewed,
-        tags: tab.tags,
-        groupId: group.id,
+        tabs: tabs.map(tab => ({
+          id: tab.id,
+          url: tab.url,
+          title: tab.title,
+          note: tab.note,
+          agentReview: tab.agentReview,
+          viewed: tab.viewed,
+          tags: tab.tags,
+          groupId: group.id,
+        })),
       }),
-    })
+    }
   );
-  const results = await Promise.allSettled(requests);
-  const serverSynced = results.every(
-    result => result.status === "fulfilled" && result.value.ok
-  );
+  const serverSynced = tabsResponse.ok;
   await chrome.storage.local.set({
     [SYNC_STATUS_KEY]: {
       state: serverSynced ? "synced" : "pending",
@@ -162,44 +163,27 @@ async function saveAndCloseTabs(sourceTabs) {
     );
 
   const group = buildSessionGroup();
-  let persistedVault = {
+  const savedTabs = validTabs.map(sourceTab => ({
+    ...buildSavedTab(sourceTab),
+    groupId: group.id,
+  }));
+  const persistedVault = {
     ...vault,
     vaultGroups: [group, ...vault.vaultGroups],
-    tabOrders: { ...vault.tabOrders, [orderKey(group.id)]: [] },
+    tabs: [...savedTabs, ...vault.tabs],
+    tabOrders: {
+      ...vault.tabOrders,
+      [orderKey(group.id)]: savedTabs.map(tab => tab.id),
+    },
   };
   await chrome.storage.local.set({ [VAULT_STORAGE_KEY]: persistedVault });
 
-  const savedTabs = [];
-  let closedCount = 0;
-  let failedCount = 0;
-  for (const sourceTab of validTabs) {
-    const nextTab = { ...buildSavedTab(sourceTab), groupId: group.id };
-    const nextVault = {
-      ...persistedVault,
-      tabs: [nextTab, ...persistedVault.tabs],
-      tabOrders: {
-        ...persistedVault.tabOrders,
-        [orderKey(group.id)]: [
-          nextTab.id,
-          ...(persistedVault.tabOrders[orderKey(group.id)] || []),
-        ],
-      },
-    };
-    try {
-      await chrome.storage.local.set({ [VAULT_STORAGE_KEY]: nextVault });
-      persistedVault = nextVault;
-      savedTabs.push(nextTab);
-    } catch {
-      failedCount += 1;
-      continue;
-    }
-    try {
-      await chrome.tabs.remove(sourceTab.id);
-      closedCount += 1;
-    } catch {
-      // The Saved Tab is durable even if Chrome refuses to close its source tab.
-    }
-  }
+  const closeResults = await Promise.allSettled(
+    validTabs.map(sourceTab => chrome.tabs.remove(sourceTab.id))
+  );
+  const closedCount = closeResults.filter(
+    result => result.status === "fulfilled"
+  ).length;
 
   const serverSynced = await syncQuickCapture(group, savedTabs).catch(
     () => false
@@ -227,7 +211,7 @@ async function saveAndCloseTabs(sourceTabs) {
     savedCount: savedTabs.length,
     closedCount,
     skippedCount,
-    failedCount,
+    failedCount: 0,
     serverSynced,
   };
 }

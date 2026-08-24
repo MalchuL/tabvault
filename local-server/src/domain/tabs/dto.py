@@ -72,6 +72,22 @@ class TabCreateDTO(BaseModel):
     _url_is_http = field_validator("url")(_validate_saved_url)
 
 
+class TabBatchCreateDTO(BaseModel):
+    """Describe an atomic batch of distinct Saved Tab occurrences.
+
+    Browser capture uses this command to persist one Session's tabs in a single transaction while
+    preserving a separate identity and preview job for every occurrence. Validation rejects empty
+    and unbounded batches before the service opens a transaction.
+
+    Attributes:
+        tabs (list[TabCreateDTO]): One to one thousand occurrences to create atomically, in display
+            order.
+    """
+
+    tabs: list[TabCreateDTO] = Field(min_length=1, max_length=1000)
+    model_config = model_config()
+
+
 class TabListOptionsDTO(BaseModel):
     """Collect filters and projection options for a Saved Tab list.
 
@@ -332,6 +348,20 @@ class TabCreateMetaDTO(BaseModel):
     """
 
     job: TabJobDTO
+    model_config = model_config()
+
+
+class TabBatchCreateMetaDTO(BaseModel):
+    """Expose preview jobs queued by one atomic batch creation.
+
+    The job order matches the returned Saved Tab order so clients can correlate asynchronous
+    preview work without issuing per-tab creation requests.
+
+    Attributes:
+        jobs (list[TabJobDTO]): Preview jobs created in the same transaction as the Saved Tabs.
+    """
+
+    jobs: list[TabJobDTO]
     model_config = model_config()
 
 

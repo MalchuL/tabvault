@@ -84,9 +84,10 @@ page-specific actions such as Archive, Restore, Unhide, and Prolong.
 ## Tab API
 
 `POST /tabs` creates exactly one new Saved Tab and returns `201`. It does not search by URL or expose
-`force`, dedupe, skip, merge, create-anyway, or batch behavior.
+`force`, dedupe, skip, merge, or create-anyway behavior. `POST /tabs/batch` is the specialized,
+atomic browser-capture command: it creates every supplied occurrence or creates none.
 
-The endpoint accepts an optional `Idempotency-Key`:
+Both creation endpoints accept an optional `Idempotency-Key`:
 
 - Scope it to the authenticated client and create endpoint.
 - Retain at most 10,000 entries for 10 minutes in process memory.
@@ -95,9 +96,10 @@ The endpoint accepts an optional `Idempotency-Key`:
 - Concurrent matching requests create only one record.
 - Losing the cache on restart is acceptable.
 
-Routine create, update, hide, archive, restore, and delete endpoints operate on one resource. Clients
-issue several requests for multi-item actions and report partial failures. Specialized Group delete
-and schema-v2 import/replace commands may remain transactional.
+Routine agent and UI create, update, hide, archive, restore, and delete endpoints operate on one
+resource. Clients issue several requests for other multi-item actions and report partial failures.
+Browser capture, Group delete, reorder, and schema-v2 import/replace are specialized transactional
+commands.
 
 ## Quick Clean
 
@@ -151,8 +153,10 @@ partial failure.
 - Each capture action creates one new Session Group before saving tabs.
 - Each eligible browser tab creates a distinct Saved Tab occurrence in that Group.
 - A Saved Tab keeps one ID across browser-local and server storage.
-- Close a source browser tab only after its Saved Tab is persisted in browser-local storage.
-- Leave locally failed tabs open; one failure does not stop successful tabs from closing.
+- Persist the Session Group and all eligible Saved Tabs in one browser-local storage write.
+- Close source browser tabs only after that atomic browser-local write succeeds; if it fails, leave
+  every source tab open.
+- Synchronize the captured Saved Tabs through one atomic backend batch request.
 - Server synchronization retries later and does not determine whether the source tab closes.
 - Keep an empty Session Group until explicitly deleted, including when all saves fail.
 
@@ -181,7 +185,7 @@ Do not silently clear, partially load, or automatically adapt incompatible brows
 2. Visibility and archive policies reused by UI-facing APIs, search, counts, export, and MCP.
 3. MCP category/Unassigned queries and strict hidden/archive exclusion.
 4. Browser schema guard, raw dump/clear recovery page, v2 persistence, and synchronization.
-5. Extension Session Group capture with individual occurrence saves and local-success closing.
+5. Extension Session Group capture with atomic local/backend tab batches and local-success closing.
 6. Shared All Tabs/Hidden/Archive component, Unassigned presentation, category colors, and controls.
 7. Client Quick Clean and Advanced Deduplicator with resumable fixed plans.
 8. Fresh-database, timing-boundary, partial-failure, MCP visibility, sync, and capture tests.

@@ -11,6 +11,8 @@ from lib.pagination import MAX_LIST_PAGE_SIZE, ListOptions
 from lib.responses import SuccessResponseDTO, success
 
 from .dto import (
+    TabBatchCreateDTO,
+    TabBatchCreateMetaDTO,
     TabCreateDTO,
     TabCreateMetaDTO,
     TabDeleteResultDTO,
@@ -132,6 +134,32 @@ async def create_tab(
     tab, job = await service.create(body)
     request.app.state.worker.wake()
     return success(tab, meta=TabCreateMetaDTO(job=job))
+
+
+@router.post("/batch", status_code=201, response_model=SuccessResponseDTO[list[TabDTO]])
+async def create_tabs_batch(
+    body: TabBatchCreateDTO,
+    request: Request,
+    service: Annotated[TabService, Depends(get_tab_service)],
+) -> SuccessResponseDTO[list[TabDTO]]:
+    """Create multiple Saved Tab occurrences atomically.
+
+    This specialized browser-capture boundary validates a bounded camelCase batch, delegates one
+    transaction to the Saved Tab service, and wakes the preview worker only after the transaction
+    commits. The ordinary ``POST /tabs`` endpoint remains the single-occurrence command.
+
+    Args:
+        body (TabBatchCreateDTO): One Session's occurrences in desired display order.
+        request (Request): Incoming request whose application state owns the preview worker.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped Saved Tab service
+            that owns the atomic transaction.
+
+    Returns:
+        SuccessResponseDTO[list[TabDTO]]: Created occurrences with preview-job metadata.
+    """
+    tabs, jobs = await service.create_batch(body)
+    request.app.state.worker.wake()
+    return success(tabs, meta=TabBatchCreateMetaDTO(jobs=jobs))
 
 
 @router.get("/{tab_id}", response_model=SuccessResponseDTO[TabDTO])

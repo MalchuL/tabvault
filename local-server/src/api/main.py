@@ -145,9 +145,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["Content-Disposition"],
     )
-    idempotency_cache: OrderedDict[tuple[str, str], tuple[float, str, int, dict[str, object]]] = (
-        OrderedDict()
-    )
+    idempotency_cache: OrderedDict[
+        tuple[str, str, str], tuple[float, str, int, dict[str, object]]
+    ] = OrderedDict()
     idempotency_lock = asyncio.Lock()
 
     @app.middleware("http")
@@ -162,7 +162,11 @@ def create_app() -> FastAPI:
             call_next (object): Next ASGI handler in the middleware chain.
         """
         key = request.headers.get("idempotency-key")
-        if request.method != "POST" or request.url.path != f"{settings.api_prefix}/tabs" or not key:
+        idempotent_paths = {
+            f"{settings.api_prefix}/tabs",
+            f"{settings.api_prefix}/tabs/batch",
+        }
+        if request.method != "POST" or request.url.path not in idempotent_paths or not key:
             return await call_next(request)
         body = await request.body()
         digest = hashlib.sha256(
@@ -175,7 +179,7 @@ def create_app() -> FastAPI:
                 ]
             )
         ).hexdigest()
-        cache_key = (request.headers.get("x-api-key", ""), key)
+        cache_key = (request.headers.get("x-api-key", ""), request.url.path, key)
         # ponytail: one process-wide lock is enough for the local server; shard if throughput matters.
         # TODO Move to another approach or remove this middleware entirely.
         async with idempotency_lock:

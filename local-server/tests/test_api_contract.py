@@ -91,6 +91,49 @@ def test_each_create_is_a_distinct_occurrence_and_url_is_exact(
     assert len([tab for tab in listed if tab["url"] == url]) == 2
 
 
+def test_batch_create_is_atomic_and_preserves_distinct_occurrences(
+    client: TestClient, headers: dict[str, str]
+) -> None:
+    group = create_group(client, headers, "Captured", "session")
+    url = "https://example.com/exact?x=1#part"
+    request_headers = {**headers, "Idempotency-Key": str(uuid.uuid4())}
+    body = {
+        "tabs": [
+            {"id": "batch-one", "url": url, "title": "First", "groupId": group["id"]},
+            {"id": "batch-two", "url": url, "title": "Second", "groupId": group["id"]},
+        ]
+    }
+    response = client.post(
+        "/api/v1/tabs/batch",
+        headers=request_headers,
+        json=body,
+    )
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert [tab["id"] for tab in payload["data"]] == ["batch-one", "batch-two"]
+    assert [tab["position"] for tab in payload["data"]] == [0.0, 1.0]
+    assert [job["tabId"] for job in payload["meta"]["jobs"]] == [
+        "batch-one",
+        "batch-two",
+    ]
+    replay = client.post("/api/v1/tabs/batch", headers=request_headers, json=body)
+    assert replay.status_code == 201
+    assert replay.json() == payload
+
+    rejected = client.post(
+        "/api/v1/tabs/batch",
+        headers=headers,
+        json={
+            "tabs": [
+                {"id": "batch-rollback", "url": "https://example.com/valid"},
+                {"id": "batch-rollback", "url": "https://example.com/duplicate"},
+            ]
+        },
+    )
+    assert rejected.status_code == 409
+    assert client.get("/api/v1/tabs/batch-rollback", headers=headers).status_code == 404
+
+
 def test_tab_create_idempotency_is_memory_scoped_to_post_tabs(
     client: TestClient, headers: dict[str, str]
 ) -> None:

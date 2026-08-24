@@ -145,9 +145,14 @@ List-эндпоинты вместо общего success-envelope возвра�
 }
 ```
 
-### 1.3 `POST /tabs` — создать одну или несколько вкладок
+### 1.3 `POST /tabs` и `POST /tabs/batch` — создать вкладки
 
-**Тело запроса:**
+`POST /tabs` создаёт ровно одно новое сохранённое вхождение. Совпадение URL не ищется и не вызывает
+skip, merge или move.
+
+`POST /tabs/batch` — специализированная атомарная команда для захвата браузерной сессии.
+
+**Тело batch-запроса:**
 
 ```json
 {
@@ -155,52 +160,40 @@ List-эндпоинты вместо общего success-envelope возвра�
     {
       "url": "https://example.com",
       "title": "Example Domain",
-      "favicon": "https://example.com/favicon.ico",
-      "note": null,
+      "id": "client-generated-id",
+      "note": "",
+      "agentReview": "",
+      "viewed": false,
       "tags": ["work"],
       "groupId": null,
       "position": null
     }
-  ],
-  "dedupe": true,
-  "dedupeStrategy": "skip"
+  ]
 }
 ```
 
 Правила:
 
-- `url` — обязательное, единственное строго обязательное поле. `title` — если не передан, сервер попытается извлечь из `<title>` страницы асинхронно (best-effort, не блокирует создание); до этого `title` = url.
-- `groupId: null` → попадает в Inbox.
-- `position: null` → добавляется в конец списка (группы/Inbox).
-- `id` **не передаётся клиентом** — генерируется сервером (UUID v4). Исключение — `upload`-импорт (§5.2), где id может быть сохранён явно для upsert.
-- `dedupe` (default `true`) — включает проверку по нормализованному URL.
-- `dedupeStrategy`: `"skip"` (пропустить дубликат, вернуть существующий в ответе с флагом `wasDuplicate: true`), `"merge"` (объединить теги и обновить note/title, если новые непустые), `"createAnyway"` (форс-создание дубликата).
+- `url` обязателен и сохраняется без нормализации.
+- `groupId: null` означает Unassigned; Inbox не существует.
+- `position: null` добавляет вхождение в конец соответствующей группы или Unassigned.
+- Клиент может передать `id`, чтобы сохранить одну идентичность между браузером и backend.
+- Каждая запись массива создаёт отдельный Saved Tab, даже при полном совпадении URL и метаданных.
+- Размер batch: от 1 до 1000 записей.
+- Весь batch выполняется в одной транзакции: ошибка одного элемента откатывает все элементы.
 
 **Ответ 201:**
 
 ```json
 {
   "success": true,
-  "data": {
-    "created": [
-      {
-        "id": "t-2001",
-        "url": "...",
-        "wasDuplicate": false /* ...остальные поля */
-      }
-    ],
-    "skipped": [
-      {
-        "url": "https://existing.com",
-        "existingId": "t-1050",
-        "reason": "duplicate_url"
-      }
-    ]
-  }
+  "data": [{ "id": "client-generated-id", "url": "https://example.com" }],
+  "meta": { "jobs": [{ "tabId": "client-generated-id", "jobId": "..." }] }
 }
 ```
 
-**Ошибки 422** — по каждому невалидному элементу массива (см. общий формат §0.1), с `path: "body.tabs[N].<field>"`. Валидные элементы в том же запросе **всё равно создаются** (partial success), если явно не передан `?atomic=true` (тогда весь batch либо целиком проходит, либо целиком отвергается).
+Оба endpoint поддерживают `Idempotency-Key`. Повтор с тем же ключом и телом возвращает исходный
+ответ из лёгкого in-memory cache; повтор с другим телом возвращает `409`.
 
 ### 1.4 `PATCH /tabs/{id}` — частичное обновление
 

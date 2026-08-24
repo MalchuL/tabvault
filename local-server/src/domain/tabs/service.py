@@ -10,9 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.pagination import ListOptions
 from lib.responses import WarningDTO
 from lib.time import utc_now
-from models import Tag
+from models import Tab, Tag
 
 from .dto import (
+    TabBatchCreateDTO,
     TabCreateDTO,
     TabDeleteResultDTO,
     TabDTO,
@@ -199,6 +200,66 @@ class TabService:
             await self.db.rollback()
             raise
         return self.mapper.to_dto(tab), TabJobDTO(tab_id=tab.id, job_id=job.id)
+
+    async def create_batch(
+        self, dto: TabBatchCreateDTO
+    ) -> tuple[builtins.list[TabDTO], builtins.list[TabJobDTO]]:
+        """Create distinct Saved Tab occurrences in one transaction.
+
+        The service validates every referenced Group before staging rows, assigns monotonically
+        increasing default positions per membership scope, and creates one preview job per tab. A
+        duplicate ID or any persistence failure rolls back the complete batch.
+
+        Args:
+            dto (TabBatchCreateDTO): Validated occurrences supplied in desired display order.
+
+        Returns:
+            tuple[builtins.list[TabDTO], builtins.list[TabJobDTO]]: Created tabs and their preview
+                jobs in request order.
+
+        Raises:
+            DuplicateTabIdError: A supplied ID already exists or is repeated in the batch.
+            InvalidGroupError: At least one requested non-null Group does not exist.
+        """
+        group_ids = {tab.group_id for tab in dto.tabs}
+        for group_id in group_ids:
+            if not await self.repository.active_group_exists(group_id):
+                raise InvalidGroupError(f"Group {group_id!r} does not exist")
+
+        next_positions: dict[str | None, float] = {}
+        tabs: builtins.list[Tab] = []
+        try:
+            for item in dto.tabs:
+                if item.position is None:
+                    if item.group_id not in next_positions:
+                        next_positions[item.group_id] = await self.repository.next_position(
+                            item.group_id
+                        )
+                    position = next_positions[item.group_id]
+                    next_positions[item.group_id] = position + 1
+                else:
+                    position = item.position
+                tab = self.mapper.from_create_dto(
+                    item,
+                    group_id=item.group_id,
+                    position=position,
+                    tags=await self._tags(item.tags),
+                )
+                tabs.append(tab)
+            await self.repository.add_tabs(tabs)
+            persisted_jobs = await self.repository.add_preview_jobs([tab.id for tab in tabs])
+            await self.db.commit()
+        except IntegrityError as error:
+            await self.db.rollback()
+            raise DuplicateTabIdError("A Saved Tab ID in the batch already exists") from error
+        except Exception:
+            await self.db.rollback()
+            raise
+        jobs = [
+            TabJobDTO(tab_id=tab.id, job_id=job.id)
+            for tab, job in zip(tabs, persisted_jobs, strict=True)
+        ]
+        return [self.mapper.to_dto(tab) for tab in tabs], jobs
 
     async def update(self, tab_id: str, dto: TabUpdateDTO) -> TabDTO:
         """Patch one Saved Tab while preserving archive invariants.
