@@ -69,11 +69,12 @@ Saved tabs use [dnd-kit](https://dndkit.com/) sortable sensors. Drag from the ha
 The MCP bridge uses the official Python `mcp` package and proxies typed tools to the REST API.
 
 ```bash
-cd local-server
+cd mcp
 TABVAULT_SERVER_URL=http://127.0.0.1:47821 TABVAULT_API_KEY=admin uv run tabvault-mcp
 ```
 
-Point an MCP client at `uv --directory /absolute/path/to/local-server run tabvault-mcp` and set `TABVAULT_SERVER_URL` plus `TABVAULT_API_KEY`.
+Point an MCP client at `uv --directory /absolute/path/to/tabvault/mcp run tabvault-mcp` and set
+`TABVAULT_SERVER_URL` plus `TABVAULT_API_KEY`.
 
 ## Development checks
 
@@ -81,6 +82,9 @@ Point an MCP client at `uv --directory /absolute/path/to/local-server run tabvau
 make check
 ```
 
-The root command runs web/extension validation and the API package’s uv-managed Ruff, mypy, pytest, and 90% branch-coverage checks. Run `pnpm format`, `pnpm lint:fix`, or `make -C local-server format` to apply formatting. Run `pnpm test:e2e` for browser reordering coverage.
+The root command runs web/extension validation plus the API and MCP package quality gates. The MCP
+gate runs Ruff, strict Pyright, and pytest with a 90% coverage floor. Run `pnpm format`,
+`pnpm lint:fix`, `make -C local-server format`, or `make -C mcp format` to apply formatting. Run
+`pnpm test:e2e` for browser reordering coverage.
 
 The API, web app, extension, and MCP bridge remain separate deployable processes by design. They share one authenticated API contract while browser storage remains a deliberate resilient fallback, not a localhost restriction.

@@ -1,4 +1,4 @@
-.PHONY: check frontend-check api-check
+.PHONY: check frontend-check api-check mcp-check
 
 frontend-check:
 	pnpm validate && pnpm test:extension
@@ -6,4 +6,7 @@ frontend-check:
 api-check:
 	$(MAKE) -C local-server check
 
-check: frontend-check api-check
+mcp-check:
+	$(MAKE) -C mcp check
+
+check: frontend-check api-check mcp-check

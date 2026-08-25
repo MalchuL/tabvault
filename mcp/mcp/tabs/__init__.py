@@ -1,1 +1,0 @@
-"""Tab operations for MCP."""

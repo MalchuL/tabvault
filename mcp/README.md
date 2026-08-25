@@ -1,82 +1,43 @@
 # TabVault MCP Bridge
 
-This is the MCP (Model Control Protocol) bridge for TabVault, which allows external tools to interact with your tab library through the MCP protocol.
+The standalone Python MCP service proxies agent tools to TabVault's authenticated REST API through
+one asynchronous typed client. It never opens SQLite directly, so API validation, visibility, and
+transaction rules remain the source of truth.
 
-## Features
-
-- **URL-based operations**: Access tabs by URL instead of IDs
-- **Batch updates**: Update all tabs with the same URL at once
-- **MCP-compliant**: Follows the standard MCP protocol for tool discovery and execution
-- **Domain-driven design**: Clean separation of concerns following DDD principles
-
-## Installation
+## Install and run
 
 ```bash
 cd mcp
-pip install -e .
+uv sync
+TABVAULT_SERVER_URL=http://127.0.0.1:47821 \
+TABVAULT_API_KEY=change-me \
+uv run tabvault-mcp
 ```
 
-Or using uv:
+Point an MCP host at `uv --directory /absolute/path/to/tabvault/mcp run tabvault-mcp` with the same
+two environment variables. The URL defaults to `http://127.0.0.1:47821`; the API key has no default.
 
-```bash
-cd mcp
-uv pip install -e .
-```
+## Tools
 
-## Usage
+The service exposes 20 annotated tools:
 
-### Environment Variables
+- Tabs: `list_tabs`, `search_tabs`, `get_tab`, `save_tab`, `update_tab`, `delete_tab`, `move_tab`,
+  and `reorder_tabs`.
+- Exact URL operations: `get_tab_by_url`, `list_tabs_by_url`, `update_tabs_by_url`,
+  `tag_tabs_by_url`, and `untag_tabs_by_url`.
+- Groups: `list_groups`, `create_group`, `update_group`, and `delete_group`.
+- Tags: `list_tags`, `tag_tab`, and `untag_tab`.
 
-Set these environment variables before running the MCP server:
-
-```bash
-export TABVAULT_SERVER_URL=http://localhost:47821
-export TABVAULT_API_KEY=admin
-```
-
-### Running the Server
-
-```bash
-tabvault-mcp
-```
-
-## Available Tools
-
-### Tab Operations
-
-- `get_tab_by_url(url)`: Get tab by URL
-- `list_tabs_by_url(url)`: List all tabs with matching URL  
-- `update_tabs_by_url(url, ...)` : Update all tabs with matching URL
-- `create_tab(...)`: Create a new tab
-- `tag_tabs_by_url(url, tag_name)`: Add tag to all tabs with matching URL
-- `untag_tabs_by_url(url, tag_name)`: Remove tag from all tabs with matching URL
-- `list_tabs(...)`: List tabs with optional filtering
-
-### Group Operations
-
-- `get_group_by_name(name)`: Get group by name
-- `list_groups()`: List all groups
-- `create_group(name, category)`: Create a new group
+URL bulk mutations are best effort. Their result contains `matched`, successful updated objects in
+`data`, and failures as `{tabId, message}` entries in `errors`. MCP cannot read or mutate hidden or
+archived content.
 
 ## Development
 
-Install development dependencies:
-
 ```bash
 cd mcp
-pip install -e ".[dev]"
+uv sync
+make check
 ```
 
-Run tests:
-
-```bash
-cd mcp
-pytest
-```
-
-Format code:
-
-```bash
-cd mcp
-ruff format .
-```
+The check runs Ruff formatting and linting, strict Pyright, and pytest with a 90% coverage floor.

@@ -1,1 +1,0 @@
-"""Official MCP bridge package."""

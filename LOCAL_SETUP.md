@@ -45,7 +45,7 @@ semantic search returns `503 E_SEMANTIC_UNAVAILABLE`.
 ## Official MCP bridge
 
 ```bash
-cd local-server
+cd mcp
 TABVAULT_SERVER_URL=http://127.0.0.1:47821 \
 TABVAULT_API_KEY=admin \
 uv run tabvault-mcp
@@ -60,5 +60,6 @@ The bridge uses the official Python `mcp` package and forwards `/api/v1` REST ca
 make check
 ```
 
-The root check validates the frontend/extension and the uv-managed backend. Backend pytest enforces
-90% branch coverage. Build the standalone server image with `make -C local-server docker-build`.
+The root check validates the frontend/extension plus the uv-managed backend and MCP service. The
+MCP package runs Ruff, strict Pyright, and pytest with a 90% coverage floor. Build the standalone
+server image with `make -C local-server docker-build`.
