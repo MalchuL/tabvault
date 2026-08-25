@@ -7,14 +7,14 @@ import pytest
 from factories import NOW, group, tab, tag
 from pydantic import ValidationError
 
-from mcp_bridge.client import (
+from mcp_tabvault.client import (
     DEFAULT_SERVER_URL,
     MCPClient,
     MCPClientError,
     close_client,
     get_client,
 )
-from mcp_bridge.client.dto import (
+from mcp_tabvault.client.dto import (
     GroupCreateDTO,
     GroupListQueryDTO,
     GroupTabsQueryDTO,

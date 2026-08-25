@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from mcp_bridge.domain.groups import tools as group_tools
-from mcp_bridge.domain.tabs import tools as tab_tools
-from mcp_bridge.domain.tags import tools as tag_tools
-from mcp_bridge.server import mcp
+from mcp_tabvault.domain.groups import tools as group_tools
+from mcp_tabvault.domain.tabs import tools as tab_tools
+from mcp_tabvault.domain.tags import tools as tag_tools
+from mcp_tabvault.server import mcp
 
 TOOL_MODULES = (group_tools, tab_tools, tag_tools)
 

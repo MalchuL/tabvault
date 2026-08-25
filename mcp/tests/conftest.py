@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mcp_bridge.client import get_client
+from mcp_tabvault.client import get_client
 
 
 @pytest.fixture

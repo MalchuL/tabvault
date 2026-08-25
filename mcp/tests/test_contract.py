@@ -8,15 +8,15 @@ from typing import Any, get_args, get_origin, get_type_hints
 import pytest
 from factories import tab
 
-from mcp_bridge import main
-from mcp_bridge.client import MCPClient
-from mcp_bridge.client.dto import TabByUrlResultDTO
-from mcp_bridge.domain.groups import tools as group_tools
-from mcp_bridge.domain.groups import utils as group_utils
-from mcp_bridge.domain.tabs import tools as tab_tools
-from mcp_bridge.domain.tabs import utils as tab_utils
-from mcp_bridge.domain.tags import tools as tag_tools
-from mcp_bridge.server import lifespan, mcp
+from mcp_tabvault import main
+from mcp_tabvault.client import MCPClient
+from mcp_tabvault.client.dto import TabByUrlResultDTO
+from mcp_tabvault.domain.groups import tools as group_tools
+from mcp_tabvault.domain.groups import utils as group_utils
+from mcp_tabvault.domain.tabs import tools as tab_tools
+from mcp_tabvault.domain.tabs import utils as tab_utils
+from mcp_tabvault.domain.tags import tools as tag_tools
+from mcp_tabvault.server import lifespan, mcp
 
 TOOLS = {
     "list_tabs",
@@ -115,12 +115,12 @@ async def test_server_lifespan_creates_and_closes_singleton(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[str] = []
-    monkeypatch.setattr("mcp_bridge.server.get_client", lambda: calls.append("create"))
+    monkeypatch.setattr("mcp_tabvault.server.get_client", lambda: calls.append("create"))
 
     async def close() -> None:
         calls.append("close")
 
-    monkeypatch.setattr("mcp_bridge.server.close_client", close)
+    monkeypatch.setattr("mcp_tabvault.server.close_client", close)
     async with lifespan(mcp):
         assert calls == ["create"]
     assert calls == ["create", "close"]

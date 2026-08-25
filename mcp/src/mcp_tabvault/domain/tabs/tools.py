@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from mcp_bridge.client import get_client
-from mcp_bridge.client.dto import (
+from mcp_tabvault.client import get_client
+from mcp_tabvault.client.dto import (
     SearchMode,
     SearchQueryDTO,
     SearchResponseDTO,
@@ -21,7 +21,7 @@ from mcp_bridge.client.dto import (
     TabUpdateDTO,
     UrlBulkResultDTO,
 )
-from mcp_bridge.server import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, mcp
+from mcp_tabvault.server import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, mcp
 
 from . import utils
 

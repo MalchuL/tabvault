@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from mcp_bridge.client.dto import GroupDTO, TabDTO, TagDTO
+from mcp_tabvault.client.dto import GroupDTO, TabDTO, TagDTO
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 

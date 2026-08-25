@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from mcp_bridge.client import MCPClientError, get_client
-from mcp_bridge.client.dto import (
+from mcp_tabvault.client import MCPClientError, get_client
+from mcp_tabvault.client.dto import (
     GroupListQueryDTO,
 )
 

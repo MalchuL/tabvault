@@ -6,8 +6,8 @@ from typing import Any
 import pytest
 from factories import group, tab
 
-from mcp_bridge.client import MCPClientError
-from mcp_bridge.client.dto import (
+from mcp_tabvault.client import MCPClientError
+from mcp_tabvault.client.dto import (
     GroupListResponseDTO,
     PaginatedResponseDTO,
     TabDTO,
@@ -15,8 +15,8 @@ from mcp_bridge.client.dto import (
     TabResponseDTO,
     TabUpdateDTO,
 )
-from mcp_bridge.domain.groups import utils as groups
-from mcp_bridge.domain.tabs import utils as tabs
+from mcp_tabvault.domain.groups import utils as groups
+from mcp_tabvault.domain.tabs import utils as tabs
 
 
 class QueueClient:

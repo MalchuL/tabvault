@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-from mcp_bridge.client import close_client, get_client
+from mcp_tabvault.client import close_client, get_client
 
 READ = ToolAnnotations(
     read_only_hint=True,

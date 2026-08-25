@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from factories import NOW, group, tab, tag
 
-from mcp_bridge.client import MCPClient
-from mcp_bridge.client.dto import (
+from mcp_tabvault.client import MCPClient
+from mcp_tabvault.client.dto import (
     GroupDeleteResponseDTO,
     GroupDeleteResultDTO,
     GroupListResponseDTO,
@@ -23,9 +23,9 @@ from mcp_bridge.client.dto import (
     TabResponseDTO,
     TagListResponseDTO,
 )
-from mcp_bridge.domain.groups import tools as group_tools
-from mcp_bridge.domain.tabs import tools as tab_tools
-from mcp_bridge.domain.tags import tools as tag_tools
+from mcp_tabvault.domain.groups import tools as group_tools
+from mcp_tabvault.domain.tabs import tools as tab_tools
+from mcp_tabvault.domain.tags import tools as tag_tools
 
 
 @pytest.mark.anyio
@@ -93,7 +93,7 @@ async def test_every_tool_builds_typed_inputs_and_returns_dtos(
 
     mock_client._request = mock_request
 
-    monkeypatch.setattr("mcp_bridge.client.get_client", lambda: mock_client)
+    monkeypatch.setattr("mcp_tabvault.client.get_client", lambda: mock_client)
 
     await tab_tools.list_tabs(groupId="unassigned")
     await tab_tools.search_tabs("query", groupId="group")
@@ -106,7 +106,7 @@ async def test_every_tool_builds_typed_inputs_and_returns_dtos(
 
     for call in requests_made:
         if call[0] == "GET" and call[1] == "tabs":
-            from mcp_bridge.client.dto import TabListQueryDTO
+            from mcp_tabvault.client.dto import TabListQueryDTO
 
             TabListQueryDTO(group_id="unassigned")
             break

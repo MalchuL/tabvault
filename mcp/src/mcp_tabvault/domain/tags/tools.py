@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from mcp_bridge.client import get_client
-from mcp_bridge.client.dto import TabResponseDTO, TabTagDTO, TagListQueryDTO, TagListResponseDTO
-from mcp_bridge.server import IDEMPOTENT_WRITE, READ, mcp
+from mcp_tabvault.client import get_client
+from mcp_tabvault.client.dto import TabResponseDTO, TabTagDTO, TagListQueryDTO, TagListResponseDTO
+from mcp_tabvault.server import IDEMPOTENT_WRITE, READ, mcp
 
 
 @mcp.tool(annotations=READ, structured_output=True)
