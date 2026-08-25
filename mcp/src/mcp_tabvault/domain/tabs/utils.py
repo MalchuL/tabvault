@@ -17,7 +17,7 @@ from mcp_tabvault.client.dto import (
 BulkOperation = Callable[[TabDTO], Awaitable[TabResponseDTO]]
 
 
-def _is_hidden(tab: TabDTO) -> bool:
+def is_hidden(tab: TabDTO) -> bool:
     """Return whether a Saved Tab has a future visibility deadline.
 
     Args:
@@ -47,12 +47,12 @@ async def require_visible_tab(tab_id: str) -> TabResponseDTO:
         MCPClientError: The Saved Tab is archived or currently hidden.
     """
     response = await get_client().get_tab(tab_id)
-    if response.data.archived or _is_hidden(response.data):
+    if response.data.archived or is_hidden(response.data):
         raise MCPClientError("Saved Tab is not accessible through MCP")
     return response
 
 
-async def _matching_tabs(url: str) -> list[TabDTO]:
+async def matching_tabs(url: str) -> list[TabDTO]:
     """Collect every active visible Saved Tab with one exact stored URL.
 
     Args:
@@ -81,16 +81,16 @@ async def _matching_tabs(url: str) -> list[TabDTO]:
         for item in response.data:
             if not isinstance(item, TabDTO):
                 raise MCPClientError("TabVault API returned an incomplete Saved Tab")
-            if item.url == url and not item.archived and not _is_hidden(item):
+            if item.url == url and not item.archived and not is_hidden(item):
                 matches.append(item)
         if not response.has_next:
             return matches
-        if not response.data:
-            raise MCPClientError("TabVault API returned an invalid empty Saved Tab page")
-        offset += len(response.data)
+        if response.size <= 0:
+            raise MCPClientError("TabVault API returned an invalid Saved Tab page size")
+        offset += response.size
 
 
-async def _best_effort(tabs: list[TabDTO], operation: BulkOperation) -> UrlBulkResultDTO:
+async def best_effort(tabs: list[TabDTO], operation: BulkOperation) -> UrlBulkResultDTO:
     """Apply one non-transactional operation to every matched Saved Tab.
 
     Args:

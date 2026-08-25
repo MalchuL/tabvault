@@ -10,7 +10,7 @@ from factories import tab
 
 from mcp_tabvault import main
 from mcp_tabvault.client import MCPClient
-from mcp_tabvault.client.dto import TabByUrlResultDTO
+from mcp_tabvault.client.dto import TabDTO
 from mcp_tabvault.domain.groups import tools as group_tools
 from mcp_tabvault.domain.groups import utils as group_utils
 from mcp_tabvault.domain.tabs import tools as tab_tools
@@ -69,10 +69,10 @@ async def test_all_tools_have_typed_schemas_and_safety_annotations() -> None:
 async def test_mcp_v2_converts_returned_dto_to_structured_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def result(_url: str) -> list[TabByUrlResultDTO]:
+    async def result(_url: str) -> list[TabDTO]:
         return [tab()]
 
-    monkeypatch.setattr(tab_tools, "_matching_tabs", result)
+    monkeypatch.setattr(tab_tools.utils, "matching_tabs", result)
     response = await main.mcp.call_tool("get_tab_by_url", {"url": "https://exact"})
     assert response.structured_content is not None
     assert response.structured_content["result"]["id"] == "tab"

@@ -67,6 +67,6 @@ async def delete_group(id: str) -> GroupDeleteResponseDTO:
     hidden = await get_client().list_group_tabs(
         id, GroupTabsQueryDTO(visibility="hidden", fields="minimal", limit=1)
     )
-    if hidden.data:
+    if hidden.size > 0:
         raise RuntimeError("Group is not accessible through MCP")
     return await get_client().delete_group(id)

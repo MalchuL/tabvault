@@ -44,17 +44,19 @@ class QueueClient:
         return await self._next("list_tabs", query)
 
 
-def page(*items: TabDTO, has_next: bool = False) -> TabListResponseDTO:
-    return PaginatedResponseDTO[TabDTO | Any](data=list(items), has_next=has_next)
+def page(*items: TabDTO, has_next: bool = False, size: int | None = None) -> TabListResponseDTO:
+    return PaginatedResponseDTO[TabDTO | Any](
+        data=list(items), has_next=has_next, size=len(items) if size is None else size
+    )
 
 
 @pytest.mark.anyio
 async def test_visible_group_policy_pagination(monkeypatch: pytest.MonkeyPatch) -> None:
     future = datetime.now(UTC) + timedelta(days=1)
     past = (datetime.now(UTC) - timedelta(days=1)).replace(tzinfo=None)
-    assert tabs._is_hidden(tab(hidden_until=future))
-    assert not tabs._is_hidden(tab(hidden_until=past))
-    assert not tabs._is_hidden(tab())
+    assert tabs.is_hidden(tab(hidden_until=future))
+    assert not tabs.is_hidden(tab(hidden_until=past))
+    assert not tabs.is_hidden(tab())
 
     client = QueueClient(
         [
@@ -72,13 +74,13 @@ async def test_visible_group_policy_pagination(monkeypatch: pytest.MonkeyPatch) 
 
     group_client = QueueClient(
         [
-            GroupListResponseDTO(data=[group("other")], has_next=True),
+            GroupListResponseDTO(data=[group("other")], has_next=True, size=7),
             GroupListResponseDTO(data=[group("wanted")]),
         ]
     )
     monkeypatch.setattr(groups, "get_client", lambda: group_client)
     await groups.require_visible_group("wanted")
-    assert group_client.calls[1][1][0].offset == 1
+    assert group_client.calls[1][1][0].offset == 7
 
 
 @pytest.mark.anyio
@@ -104,7 +106,12 @@ async def test_url_lookup_paginates_and_filters_exact_visible_matches(
     future = datetime.now(UTC) + timedelta(days=1)
     client = QueueClient(
         [
-            page(tab("first"), tab("partial", "https://exact/path"), has_next=True),
+            page(
+                tab("first"),
+                tab("partial", "https://exact/path"),
+                has_next=True,
+                size=9,
+            ),
             page(
                 tab("second"),
                 tab("archived", archived=True),
@@ -113,18 +120,18 @@ async def test_url_lookup_paginates_and_filters_exact_visible_matches(
         ]
     )
     monkeypatch.setattr(tabs, "get_client", lambda: client)
-    result = await tabs._matching_tabs("https://exact")
+    result = await tabs.matching_tabs("https://exact")
     assert [item.id for item in result] == ["first", "second"]
-    assert client.calls[1][1][0].offset == 2
+    assert client.calls[1][1][0].offset == 9
 
     missing = QueueClient([page()])
     monkeypatch.setattr(tabs, "get_client", lambda: missing)
-    assert await tabs._matching_tabs("https://missing") == []
+    assert await tabs.matching_tabs("https://missing") == []
 
-    invalid = QueueClient([page(has_next=True)])
+    invalid = QueueClient([page(tab(), has_next=True, size=0)])
     monkeypatch.setattr(tabs, "get_client", lambda: invalid)
-    with pytest.raises(RuntimeError, match="invalid empty"):
-        await tabs._matching_tabs("https://exact")
+    with pytest.raises(MCPClientError, match="invalid Saved Tab page size"):
+        await tabs.matching_tabs("https://exact")
 
 
 @pytest.mark.anyio
@@ -139,8 +146,8 @@ async def test_url_bulk_update_is_best_effort(monkeypatch: pytest.MonkeyPatch) -
     )
     monkeypatch.setattr(tabs, "get_client", lambda: client)
 
-    matching_tabs = await tabs._matching_tabs("https://exact")
-    bulk_result = await tabs._best_effort(
+    matching_tabs = await tabs.matching_tabs("https://exact")
+    bulk_result = await tabs.best_effort(
         matching_tabs, lambda tab: client.update_tab(tab.id, TabUpdateDTO(url="https://new"))
     )
 

@@ -11,6 +11,7 @@ from mcp_tabvault.client.dto import (
     TabCreateDTO,
     TabCreateResponseDTO,
     TabDeleteResponseDTO,
+    TabDTO,
     TabListQueryDTO,
     TabListResponseDTO,
     TabReorderDTO,
@@ -21,6 +22,7 @@ from mcp_tabvault.client.dto import (
     TabUpdateDTO,
     UrlBulkResultDTO,
 )
+from mcp_tabvault.domain.groups import utils as group_utils
 from mcp_tabvault.server import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, mcp
 
 from . import utils
@@ -172,48 +174,10 @@ async def reorder_tabs(tabIds: list[str], groupId: str | None = None) -> TabReor
     return await get_client().reorder_tabs(TabReorderDTO(tab_ids=tabIds, group_id=groupId))
 
 
-async def _matching_tabs(url: str) -> list[TabResponseDTO]:
-    """Collect every active visible Saved Tab with one exact stored URL.
-
-    Args:
-        url (str): Stored URL to match case-sensitively.
-
-    Returns:
-        list[TabResponseDTO]: Complete exact matches in ordinary API order.
-
-    Raises:
-        MCPClientError: Pagination is invalid or a full projection is not returned.
-    """
-    client = get_client()
-    offset = 0
-    matches: list[TabResponseDTO] = []
-    while True:
-        response = await client.list_tabs(
-            TabListQueryDTO(
-                group_id="all",
-                search=url,
-                limit=100,
-                offset=offset,
-                fields="full",
-                visibility="visible",
-            )
-        )
-        for item in response.data:
-            if not isinstance(item, TabResponseDTO):
-                raise RuntimeError("TabVault API returned an incomplete Saved Tab")
-            if item.data.url == url and not item.data.archived and not utils._is_hidden(item.data):
-                matches.append(item)
-        if not response.has_next:
-            return matches
-        if not response.data:
-            raise RuntimeError("TabVault API returned an invalid empty Saved Tab page")
-        offset += len(response.data)
-
-
 @mcp.tool(annotations=READ, structured_output=True)
 async def get_tab_by_url(url: str) -> TabByUrlResultDTO:
     """Return the first active visible Saved Tab with an exact stored URL."""
-    matches = await _matching_tabs(url)
+    matches = await utils.matching_tabs(url)
     result = matches[0] if matches else None
     return TabByUrlResultDTO(result=result)
 
@@ -221,7 +185,7 @@ async def get_tab_by_url(url: str) -> TabByUrlResultDTO:
 @mcp.tool(annotations=READ, structured_output=True)
 async def list_tabs_by_url(url: str) -> TabsByUrlResultDTO:
     """List every active visible Saved Tab with an exact stored URL."""
-    matches = await _matching_tabs(url)
+    matches = await utils.matching_tabs(url)
     return TabsByUrlResultDTO(result=matches)
 
 
@@ -239,10 +203,9 @@ async def update_tabs_by_url(
     targetGroupId: str | None = None,
 ) -> UrlBulkResultDTO:
     """Best-effort update every active visible exact URL match."""
-    if targetGroupId is not None:
-        destination = None if targetGroupId == "unassigned" else targetGroupId
-        if destination is not None:
-            await utils.require_visible_group(destination)
+    destination = None if targetGroupId == "unassigned" else targetGroupId
+    if targetGroupId is not None and destination is not None:
+        await group_utils.require_visible_group(destination)
     body = _update_dto(
         url=newUrl,
         title=title,
@@ -257,36 +220,36 @@ async def update_tabs_by_url(
         raise ValueError("At least one tab field or targetGroupId is required")
 
     client = get_client()
-    matching = await _matching_tabs(url)
+    matching = await utils.matching_tabs(url)
 
-    async def update_one(tab: TabResponseDTO) -> TabResponseDTO:
+    async def update_one(tab: TabDTO) -> TabResponseDTO:
         tab_body = body
-        if destination is not None:
+        if targetGroupId is not None:
             tab_body = body.model_copy(update={"group_id": destination})
-        return await client.update_tab(tab.data.id, tab_body)
+        return await client.update_tab(tab.id, tab_body)
 
-    return await utils._best_effort(matching, update_one)
+    return await utils.best_effort(matching, update_one)
 
 
 @mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)
 async def tag_tabs_by_url(url: str, tagName: str) -> UrlBulkResultDTO:
     """Best-effort attach one tag to every active visible exact URL match."""
     client = get_client()
-    matching = await _matching_tabs(url)
+    matching = await utils.matching_tabs(url)
 
-    async def tag_one(tab: TabResponseDTO) -> TabResponseDTO:
-        return await client.tag_tab(tab.data.id, TabTagDTO(tag_name=tagName))
+    async def tag_one(tab: TabDTO) -> TabResponseDTO:
+        return await client.tag_tab(tab.id, TabTagDTO(tag_name=tagName))
 
-    return await utils._best_effort(matching, tag_one)
+    return await utils.best_effort(matching, tag_one)
 
 
 @mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)
 async def untag_tabs_by_url(url: str, tagName: str) -> UrlBulkResultDTO:
     """Best-effort detach one tag from every active visible exact URL match."""
     client = get_client()
-    matching = await _matching_tabs(url)
+    matching = await utils.matching_tabs(url)
 
-    async def untag_one(tab: TabResponseDTO) -> TabResponseDTO:
-        return await client.untag_tab(tab.data.id, tagName)
+    async def untag_one(tab: TabDTO) -> TabResponseDTO:
+        return await client.untag_tab(tab.id, tagName)
 
-    return await utils._best_effort(matching, untag_one)
+    return await utils.best_effort(matching, untag_one)

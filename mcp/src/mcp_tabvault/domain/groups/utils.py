@@ -27,6 +27,6 @@ async def require_visible_group(group_id: str) -> None:
             return
         if not response.has_next:
             raise MCPClientError("Group is not accessible through MCP")
-        if not response.data:
-            raise MCPClientError("TabVault API returned an invalid empty Group page")
-        offset += len(response.data)
+        if response.size <= 0:
+            raise MCPClientError("TabVault API returned an invalid Group page size")
+        offset += response.size
