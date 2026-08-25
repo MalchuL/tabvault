@@ -30,44 +30,6 @@ uv run pytest
 `uv run pytest` enforces 90% branch coverage. `make check` also runs Ruff formatting/linting and
 mypy.
 
-## MCP
-
-The `tabvault-mcp` command uses the official Python `mcp` package and talks to FastAPI over REST;
-it never accesses SQLite directly.
-
-```bash
-TABVAULT_SERVER_URL=http://127.0.0.1:47821 \
-TABVAULT_API_KEY=change-me \
-uv run tabvault-mcp
-```
-
-Example MCP host configuration:
-
-```json
-{
-  "mcpServers": {
-    "tabvault": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/local-server",
-        "run",
-        "tabvault-mcp"
-      ],
-      "env": {
-        "TABVAULT_SERVER_URL": "http://127.0.0.1:47821",
-        "TABVAULT_API_KEY": "change-me"
-      }
-    }
-  }
-}
-```
-
-The mandatory tools are tab list/search/get/save/batch/update/delete/move, group list/create/update/
-delete, tag list/tag/untag, export/import, and import validation. Every tool declares typed input
-and output schemas plus all four MCP safety annotations.
-
-## Container
 
 ```bash
 docker build -t tabvault-local-server local-server

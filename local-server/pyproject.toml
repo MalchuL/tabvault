@@ -13,7 +13,6 @@ dependencies = [
   "alembic>=1.16",
   "fastapi>=0.110",
   "httpx>=0.28",
-  "mcp[cli]>=2.0.0",
   "nh3>=0.3",
   "pydantic-settings>=2.10",
   "readability-lxml>=0.8.4",
@@ -35,7 +34,6 @@ torch = { index = "pytorch-cpu" }
 
 [project.scripts]
 tabvault-server = "api.main:main"
-tabvault-mcp = "mcp_bridge.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
