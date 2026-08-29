@@ -94,6 +94,7 @@ import {
   ChevronRight,
   Command,
   Eye,
+  EyeOff,
   LayoutList,
   LayoutDashboard,
   Plus,
@@ -225,6 +226,7 @@ export default function Home() {
     DEFAULT_TABVAULT_SERVER_URL
   );
   const [pendingApiKey, setPendingApiKey] = useState(DEFAULT_TABVAULT_API_KEY);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showTagManager, setShowTagManager] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -2410,13 +2412,29 @@ export default function Home() {
                   <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
                     API key
                   </span>
-                  <input
-                    value={pendingApiKey}
-                    onChange={event => setPendingApiKey(event.target.value)}
-                    type="password"
-                    placeholder="admin"
-                    className="mt-1 w-full border-b border-[#cfc9bc] bg-[#f9f7f1] px-2 py-1.5 font-mono text-[10px] outline-none focus:border-[#e95224]"
-                  />
+                  <div className="relative mt-1">
+                    <input
+                      value={pendingApiKey}
+                      onChange={event => setPendingApiKey(event.target.value)}
+                      type={showApiKey ? "text" : "password"}
+                      placeholder="admin"
+                      autoComplete="off"
+                      className="w-full border-b border-[#cfc9bc] bg-[#f9f7f1] py-1.5 pl-2 pr-8 font-mono text-[10px] outline-none focus:border-[#e95224]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(visible => !visible)}
+                      aria-label={showApiKey ? "Hide API key" : "Show API key"}
+                      aria-pressed={showApiKey}
+                      className="absolute inset-y-0 right-0 flex items-center px-1.5 text-[#858980] hover:text-[#18261f]"
+                    >
+                      {showApiKey ? (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
                 </label>
                 <button
                   onClick={() => void saveConnectionSettings()}

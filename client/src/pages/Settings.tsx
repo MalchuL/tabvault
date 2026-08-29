@@ -10,6 +10,8 @@ import {
   BrainCircuit,
   CheckCircle2,
   Eraser,
+  Eye,
+  EyeOff,
   RefreshCw,
   Server,
   ShieldCheck,
@@ -61,6 +63,7 @@ export default function Settings() {
     "browser" | "server" | "both" | null
   >(null);
   const [isClearing, setIsClearing] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
 
   const refresh = async (url = serverUrl, key = apiKey, announce = true) => {
     try {
@@ -322,12 +325,28 @@ export default function Settings() {
               <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
                 API key
               </span>
-              <input
-                value={apiKey}
-                onChange={event => setApiKey(event.target.value)}
-                type="password"
-                className="mt-1.5 w-full border-b border-[#cfc9bc] bg-[#f9f7f1] px-2 py-2 font-mono text-[11px] outline-none focus:border-[#e95224]"
-              />
+              <div className="relative mt-1.5">
+                <input
+                  value={apiKey}
+                  onChange={event => setApiKey(event.target.value)}
+                  type={showApiKey ? "text" : "password"}
+                  autoComplete="off"
+                  className="w-full border-b border-[#cfc9bc] bg-[#f9f7f1] py-2 pl-2 pr-9 font-mono text-[11px] outline-none focus:border-[#e95224]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey(visible => !visible)}
+                  aria-label={showApiKey ? "Hide API key" : "Show API key"}
+                  aria-pressed={showApiKey}
+                  className="absolute inset-y-0 right-0 flex items-center px-2 text-[#858980] hover:text-[#18261f]"
+                >
+                  {showApiKey ? (
+                    <EyeOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Eye className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
             </label>
             <div className="mt-5 flex gap-3">
               <button
