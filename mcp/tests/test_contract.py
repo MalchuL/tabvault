@@ -11,10 +11,15 @@ from factories import tab
 from mcp_tabvault import main
 from mcp_tabvault.client import MCPClient
 from mcp_tabvault.client.dto import TabDTO
+from mcp_tabvault.domain.groups import prompts as group_prompts
+from mcp_tabvault.domain.groups import resources as group_resources
 from mcp_tabvault.domain.groups import tools as group_tools
 from mcp_tabvault.domain.groups import utils as group_utils
+from mcp_tabvault.domain.tabs import prompts as tab_prompts
+from mcp_tabvault.domain.tabs import resources as tab_resources
 from mcp_tabvault.domain.tabs import tools as tab_tools
 from mcp_tabvault.domain.tabs import utils as tab_utils
+from mcp_tabvault.domain.tags import resources as tag_resources
 from mcp_tabvault.domain.tags import tools as tag_tools
 from mcp_tabvault.server import lifespan, mcp
 
@@ -95,8 +100,13 @@ def public_functions(module: types.ModuleType) -> list[Callable[..., Any]]:
 
 def test_public_layers_never_annotate_dictionary_returns() -> None:
     functions = [
+        *public_functions(group_prompts),
+        *public_functions(group_resources),
         *public_functions(group_utils),
+        *public_functions(tab_prompts),
+        *public_functions(tab_resources),
         *public_functions(tab_utils),
+        *public_functions(tag_resources),
         *public_functions(group_tools),
         *public_functions(tab_tools),
         *public_functions(tag_tools),

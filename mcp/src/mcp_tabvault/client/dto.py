@@ -13,6 +13,8 @@ MetaT = TypeVar("MetaT")
 ItemT = TypeVar("ItemT")
 SearchMode: TypeAlias = Literal["semantic", "keyword", "hybrid"]
 TabVisibility: TypeAlias = Literal["visible", "hidden", "archived"]
+TabSortBy: TypeAlias = Literal["position", "createdAt", "updatedAt", "title"]
+SortDirection: TypeAlias = Literal["asc", "desc"]
 
 
 class DTO(BaseModel):
@@ -72,6 +74,8 @@ class TabListQueryDTO(DTO):
     category: str | None = None
     tags: str = ""
     search: str | None = None
+    sort_by: TabSortBy = "position"
+    sort_dir: SortDirection = "asc"
     limit: int = Field(default=50, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
     fields: str = "full"

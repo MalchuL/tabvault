@@ -32,6 +32,17 @@ URL bulk mutations are best effort. Their result contains `matched`, successful 
 `data`, and failures as `{tabId, message}` entries in `errors`. MCP cannot read or mutate hidden or
 archived content.
 
+## Resources and prompts
+
+Compact read-only context is available at `tabvault://groups`, `tabvault://tags`,
+`tabvault://recent{?limit}`, `tabvault://unassigned{?limit}`, and
+`tabvault://tabs/{tabId}`. The server also exposes the user-selected prompts
+`organize_unassigned`, `research_digest`, and `weekly_tab_review`.
+
+These names follow TabVault's domain model: Unassigned is not an Inbox, Saved URLs remain unchanged,
+and repeated URLs are separate save occurrences. Prompts propose a plan before any mutation and use
+single-record tools after approval.
+
 ## Development
 
 ```bash
