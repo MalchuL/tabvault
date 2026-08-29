@@ -64,6 +64,7 @@ export default function Settings() {
   >(null);
   const [isClearing, setIsClearing] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  const isBackendMode = storageMode === "backend";
 
   const refresh = async (url = serverUrl, key = apiKey, announce = true) => {
     try {
@@ -96,6 +97,11 @@ export default function Settings() {
       setApiKey(key);
       setStorageMode(mode);
       setRefreshInterval(interval);
+      if (mode !== "backend") {
+        setOnline(false);
+        setIndexStatus(null);
+        return;
+      }
       try {
         const health = await checkLocalServer(url, key);
         setOnline(health.status === "ok");
@@ -110,9 +116,15 @@ export default function Settings() {
   const saveConnection = async () => {
     setIsSaving(true);
     try {
+      await writeStorageMode(storageMode);
+      if (storageMode !== "backend") {
+        setOnline(false);
+        setIndexStatus(null);
+        toast.success("Storage settings saved");
+        return;
+      }
       await writeLocalServerUrl(serverUrl);
       await writeApiKey(apiKey);
-      await writeStorageMode(storageMode);
       await refresh(serverUrl, apiKey, false);
       toast.success("Connection settings saved");
     } finally {
@@ -259,29 +271,35 @@ export default function Settings() {
             Settings
           </h1>
           <p className="mt-3 max-w-xl text-[13px] leading-6 text-[#697068]">
-            Configure the server and background preferences. Review library
-            readiness and maintenance in Dashboard.
+            {isBackendMode
+              ? "Configure the server and background preferences. Review library readiness and maintenance in Dashboard."
+              : "Links stay in this browser. Switch to Backend preferred to connect a TabVault server."}
           </p>
         </section>
 
         <div className="mt-10 grid gap-5 lg:grid-cols-2">
-          <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
+          <section
+            className={`border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]${isBackendMode ? "" : " lg:col-span-2"}`}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
-                  <Server className="h-3.5 w-3.5" /> API connection
+                  <Server className="h-3.5 w-3.5" />{" "}
+                  {isBackendMode ? "API connection" : "Storage"}
                 </p>
                 <h2 className="mt-2 text-[16px] font-bold">
-                  {storageMode === "backend"
+                  {isBackendMode
                     ? online
                       ? "Backend preferred"
                       : "Backend preferred · local fallback"
                     : "Local only"}
                 </h2>
               </div>
-              <span
-                className={`mt-1 h-2.5 w-2.5 rounded-full ${online ? "bg-[#6e9870]" : "bg-[#c95f46]"}`}
-              />
+              {isBackendMode && (
+                <span
+                  className={`mt-1 h-2.5 w-2.5 rounded-full ${online ? "bg-[#6e9870]" : "bg-[#c95f46]"}`}
+                />
+              )}
             </div>
             <fieldset className="mt-5 border-t border-[#e8e3d8] pt-4">
               <legend className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
@@ -297,7 +315,16 @@ export default function Settings() {
                   <button
                     key={mode}
                     type="button"
-                    onClick={() => setStorageMode(mode)}
+                    onClick={() => {
+                      setStorageMode(mode);
+                      if (
+                        mode === "local" &&
+                        pendingClear &&
+                        pendingClear !== "browser"
+                      ) {
+                        setPendingClear(null);
+                      }
+                    }}
                     aria-pressed={storageMode === mode}
                     className={`border px-2 py-2 text-left font-mono text-[8px] uppercase tracking-[0.06em] ${storageMode === mode ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#697068] hover:bg-[#f9f7f1]"}`}
                   >
@@ -306,178 +333,188 @@ export default function Settings() {
                 ))}
               </div>
               <p className="mt-2 text-[11px] leading-5 text-[#767b73]">
-                {storageMode === "backend"
+                {isBackendMode
                   ? "Changes are saved locally first, then pushed when this server is reachable."
                   : "Links stay only in this browser or extension profile."}
               </p>
             </fieldset>
-            <label className="mt-5 block">
-              <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
-                API endpoint
-              </span>
-              <input
-                value={serverUrl}
-                onChange={event => setServerUrl(event.target.value)}
-                className="mt-1.5 w-full border-b border-[#cfc9bc] bg-[#f9f7f1] px-2 py-2 font-mono text-[11px] outline-none focus:border-[#e95224]"
-              />
-            </label>
-            <label className="mt-4 block">
-              <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
-                API key
-              </span>
-              <div className="relative mt-1.5">
-                <input
-                  value={apiKey}
-                  onChange={event => setApiKey(event.target.value)}
-                  type={showApiKey ? "text" : "password"}
-                  autoComplete="off"
-                  className="w-full border-b border-[#cfc9bc] bg-[#f9f7f1] py-2 pl-2 pr-9 font-mono text-[11px] outline-none focus:border-[#e95224]"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey(visible => !visible)}
-                  aria-label={showApiKey ? "Hide API key" : "Show API key"}
-                  aria-pressed={showApiKey}
-                  className="absolute inset-y-0 right-0 flex items-center px-2 text-[#858980] hover:text-[#18261f]"
-                >
-                  {showApiKey ? (
-                    <EyeOff className="h-3.5 w-3.5" />
-                  ) : (
-                    <Eye className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              </div>
-            </label>
+            {isBackendMode && (
+              <>
+                <label className="mt-5 block">
+                  <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
+                    API endpoint
+                  </span>
+                  <input
+                    value={serverUrl}
+                    onChange={event => setServerUrl(event.target.value)}
+                    className="mt-1.5 w-full border-b border-[#cfc9bc] bg-[#f9f7f1] px-2 py-2 font-mono text-[11px] outline-none focus:border-[#e95224]"
+                  />
+                </label>
+                <label className="mt-4 block">
+                  <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
+                    API key
+                  </span>
+                  <div className="relative mt-1.5">
+                    <input
+                      value={apiKey}
+                      onChange={event => setApiKey(event.target.value)}
+                      type={showApiKey ? "text" : "password"}
+                      autoComplete="off"
+                      className="w-full border-b border-[#cfc9bc] bg-[#f9f7f1] py-2 pl-2 pr-9 font-mono text-[11px] outline-none focus:border-[#e95224]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(visible => !visible)}
+                      aria-label={showApiKey ? "Hide API key" : "Show API key"}
+                      aria-pressed={showApiKey}
+                      className="absolute inset-y-0 right-0 flex items-center px-2 text-[#858980] hover:text-[#18261f]"
+                    >
+                      {showApiKey ? (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
+                </label>
+              </>
+            )}
             <div className="mt-5 flex gap-3">
               <button
                 onClick={() => void saveConnection()}
                 disabled={isSaving}
                 className="rounded bg-[#e95224] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-white hover:bg-[#d94a1e] disabled:bg-[#c8c1b6]"
               >
-                {isSaving ? "Saving…" : "Save & check"}
+                {isSaving ? "Saving…" : isBackendMode ? "Save & check" : "Save"}
               </button>
-              <button
-                onClick={() => void refresh()}
-                className="font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:text-[#e95224]"
-              >
-                Check now
-              </button>
-            </div>
-          </section>
-
-          <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
-            <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
-              <BrainCircuit className="h-3.5 w-3.5" /> Semantic mode
-            </p>
-            <h2 className="mt-2 text-[16px] font-bold">
-              {indexStatus?.status === "ready"
-                ? "Meaning-based search is enabled"
-                : "Keyword search is active"}
-            </h2>
-            <p className="mt-4 text-[12px] leading-5 text-[#697068]">
-              Semantic search uses a local embedding model when the configured
-              server has a ready index. Otherwise, TabVault searches titles,
-              notes, and tags.
-            </p>
-            <button
-              onClick={() => setLocation("/dashboard")}
-              className="mt-5 inline-flex items-center gap-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-[#536057] hover:text-[#e95224]"
-            >
-              Review index status →
-            </button>
-          </section>
-
-          <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
-            <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
-              <ShieldCheck className="h-3.5 w-3.5" /> Index health
-            </p>
-            <h2 className="mt-2 text-[16px] font-bold">
-              {indexStatus?.healthCheck?.enabled
-                ? `Every ${Math.round(indexStatus.healthCheck.intervalSeconds / 60)} minutes`
-                : "Manual checks"}
-            </h2>
-            <div className="mt-5 grid grid-cols-4 gap-2">
-              {[
-                [0, "Off"],
-                [900, "15m"],
-                [3600, "1h"],
-                [14400, "4h"],
-              ].map(([seconds, label]) => (
+              {isBackendMode && (
                 <button
-                  key={String(seconds)}
-                  onClick={() => void scheduleHealthCheck(Number(seconds))}
-                  className={`border px-2 py-2 font-mono text-[9px] uppercase ${indexStatus?.healthCheck?.intervalSeconds === seconds || (!seconds && !indexStatus?.healthCheck?.enabled) ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
+                  onClick={() => void refresh()}
+                  className="font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:text-[#e95224]"
                 >
-                  {label}
+                  Check now
                 </button>
-              ))}
+              )}
             </div>
-            <p className="mt-5 text-[11px] leading-5 text-[#767b73]">
-              Run a manual check and view recovery steps in Dashboard.
-            </p>
           </section>
 
-          <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
-            <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
-              <BellRing className="h-3.5 w-3.5" /> Local alerts
-            </p>
-            <h2 className="mt-2 text-[16px] font-bold">
-              {indexStatus?.healthCheck?.notifyOnNeedsAttention
-                ? "Notify on attention"
-                : "Quiet mode"}
-            </h2>
-            <label
-              className={`mt-5 flex items-center gap-3 border-t border-[#e8e3d8] pt-4 text-[12px] ${indexStatus?.healthCheck?.enabled ? "text-[#4d5c51]" : "text-[#989b94]"}`}
-            >
-              <input
-                type="checkbox"
-                checked={Boolean(
-                  indexStatus?.healthCheck?.notifyOnNeedsAttention
-                )}
-                disabled={!online || !indexStatus?.healthCheck?.enabled}
-                onChange={event => void updateAlerts(event.target.checked)}
-                className="h-4 w-4 accent-[#e95224]"
-              />
-              Alert when a scheduled check needs attention
-            </label>
-            <p className="mt-3 text-[11px] leading-5 text-[#767b73]">
-              Alerts stay local to the configured TabVault service and browser
-              context.
-            </p>
-          </section>
-
-          <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
-            <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
-              <RefreshCw className="h-3.5 w-3.5" /> Library refresh
-            </p>
-            <h2 className="mt-2 text-[16px] font-bold">
-              {refreshInterval
-                ? `Every ${refreshInterval >= 3600 ? `${refreshInterval / 3600} hour` : `${refreshInterval / 60} min`}`
-                : "Manual refresh"}
-            </h2>
-            <p className="mt-4 text-[12px] leading-5 text-[#697068]">
-              Pull the server library and merge it with tabs and collections
-              already stored in this browser or extension.
-            </p>
-            <div className="mt-5 grid grid-cols-5 gap-2">
-              {LIBRARY_REFRESH_INTERVALS.map(({ seconds, label }) => (
+          {isBackendMode && (
+            <>
+              <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
+                <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
+                  <BrainCircuit className="h-3.5 w-3.5" /> Semantic mode
+                </p>
+                <h2 className="mt-2 text-[16px] font-bold">
+                  {indexStatus?.status === "ready"
+                    ? "Meaning-based search is enabled"
+                    : "Keyword search is active"}
+                </h2>
+                <p className="mt-4 text-[12px] leading-5 text-[#697068]">
+                  Semantic search uses a local embedding model when the
+                  configured server has a ready index. Otherwise, TabVault
+                  searches titles, notes, and tags.
+                </p>
                 <button
-                  key={String(seconds)}
-                  onClick={() => void saveRefreshInterval(seconds)}
-                  className={`border px-2 py-2 font-mono text-[9px] uppercase ${refreshInterval === seconds || (!seconds && !refreshInterval) ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
+                  onClick={() => setLocation("/dashboard")}
+                  className="mt-5 inline-flex items-center gap-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-[#536057] hover:text-[#e95224]"
                 >
-                  {label}
+                  Review index status →
                 </button>
-              ))}
-            </div>
-            <button
-              onClick={() => void refreshLibrary()}
-              disabled={isRefreshingLibrary || !online}
-              className="mt-5 rounded bg-[#e95224] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-white hover:bg-[#d94a1e] disabled:bg-[#c8c1b6]"
-            >
-              {isRefreshingLibrary ? "Refreshing…" : "Refresh library now"}
-            </button>
-          </section>
+              </section>
+
+              <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
+                <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
+                  <ShieldCheck className="h-3.5 w-3.5" /> Index health
+                </p>
+                <h2 className="mt-2 text-[16px] font-bold">
+                  {indexStatus?.healthCheck?.enabled
+                    ? `Every ${Math.round(indexStatus.healthCheck.intervalSeconds / 60)} minutes`
+                    : "Manual checks"}
+                </h2>
+                <div className="mt-5 grid grid-cols-4 gap-2">
+                  {[
+                    [0, "Off"],
+                    [900, "15m"],
+                    [3600, "1h"],
+                    [14400, "4h"],
+                  ].map(([seconds, label]) => (
+                    <button
+                      key={String(seconds)}
+                      onClick={() => void scheduleHealthCheck(Number(seconds))}
+                      className={`border px-2 py-2 font-mono text-[9px] uppercase ${indexStatus?.healthCheck?.intervalSeconds === seconds || (!seconds && !indexStatus?.healthCheck?.enabled) ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-5 text-[11px] leading-5 text-[#767b73]">
+                  Run a manual check and view recovery steps in Dashboard.
+                </p>
+              </section>
+
+              <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
+                <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
+                  <BellRing className="h-3.5 w-3.5" /> Local alerts
+                </p>
+                <h2 className="mt-2 text-[16px] font-bold">
+                  {indexStatus?.healthCheck?.notifyOnNeedsAttention
+                    ? "Notify on attention"
+                    : "Quiet mode"}
+                </h2>
+                <label
+                  className={`mt-5 flex items-center gap-3 border-t border-[#e8e3d8] pt-4 text-[12px] ${indexStatus?.healthCheck?.enabled ? "text-[#4d5c51]" : "text-[#989b94]"}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={Boolean(
+                      indexStatus?.healthCheck?.notifyOnNeedsAttention
+                    )}
+                    disabled={!online || !indexStatus?.healthCheck?.enabled}
+                    onChange={event => void updateAlerts(event.target.checked)}
+                    className="h-4 w-4 accent-[#e95224]"
+                  />
+                  Alert when a scheduled check needs attention
+                </label>
+                <p className="mt-3 text-[11px] leading-5 text-[#767b73]">
+                  Alerts stay local to the configured TabVault service and
+                  browser context.
+                </p>
+              </section>
+
+              <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
+                <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
+                  <RefreshCw className="h-3.5 w-3.5" /> Library refresh
+                </p>
+                <h2 className="mt-2 text-[16px] font-bold">
+                  {refreshInterval
+                    ? `Every ${refreshInterval >= 3600 ? `${refreshInterval / 3600} hour` : `${refreshInterval / 60} min`}`
+                    : "Manual refresh"}
+                </h2>
+                <p className="mt-4 text-[12px] leading-5 text-[#697068]">
+                  Pull the server library and merge it with tabs and collections
+                  already stored in this browser or extension.
+                </p>
+                <div className="mt-5 grid grid-cols-5 gap-2">
+                  {LIBRARY_REFRESH_INTERVALS.map(({ seconds, label }) => (
+                    <button
+                      key={String(seconds)}
+                      onClick={() => void saveRefreshInterval(seconds)}
+                      className={`border px-2 py-2 font-mono text-[9px] uppercase ${refreshInterval === seconds || (!seconds && !refreshInterval) ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => void refreshLibrary()}
+                  disabled={isRefreshingLibrary || !online}
+                  className="mt-5 rounded bg-[#e95224] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-white hover:bg-[#d94a1e] disabled:bg-[#c8c1b6]"
+                >
+                  {isRefreshingLibrary ? "Refreshing…" : "Refresh library now"}
+                </button>
+              </section>
+            </>
+          )}
 
           <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)] lg:col-span-2">
             <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
@@ -487,11 +524,9 @@ export default function Settings() {
               Remove saved tabs and collections
             </h2>
             <p className="mt-4 max-w-2xl text-[12px] leading-5 text-[#697068]">
-              Clearing the browser library empties this profile. Refreshing
-              later can restore the server copy. Clearing the server writes an
-              empty library after a backup; this browser can upload its copy
-              again on the next sync. Use Clear both to wipe both copies.
-              Connection settings are kept.
+              {isBackendMode
+                ? "Clearing the browser library empties this profile. Refreshing later can restore the server copy. Clearing the server writes an empty library after a backup; this browser can upload its copy again on the next sync. Use Clear both to wipe both copies. Connection settings are kept."
+                : "Clearing the browser library empties this profile. Storage settings are kept."}
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
               <button
@@ -500,18 +535,22 @@ export default function Settings() {
               >
                 <Eraser className="h-3.5 w-3.5" /> Clear browser library
               </button>
-              <button
-                onClick={() => setPendingClear("server")}
-                className="inline-flex items-center gap-1.5 border border-[#ded9cd] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#c95f46] hover:text-[#c95f46]"
-              >
-                <Server className="h-3.5 w-3.5" /> Clear server library
-              </button>
-              <button
-                onClick={() => setPendingClear("both")}
-                className="inline-flex items-center gap-1.5 border border-[#c95f46] bg-[#fff0ea] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[#c84b26] hover:bg-[#ffe4d8]"
-              >
-                <Trash2 className="h-3.5 w-3.5" /> Clear both
-              </button>
+              {isBackendMode && (
+                <>
+                  <button
+                    onClick={() => setPendingClear("server")}
+                    className="inline-flex items-center gap-1.5 border border-[#ded9cd] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#c95f46] hover:text-[#c95f46]"
+                  >
+                    <Server className="h-3.5 w-3.5" /> Clear server library
+                  </button>
+                  <button
+                    onClick={() => setPendingClear("both")}
+                    className="inline-flex items-center gap-1.5 border border-[#c95f46] bg-[#fff0ea] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[#c84b26] hover:bg-[#ffe4d8]"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Clear both
+                  </button>
+                </>
+              )}
             </div>
             {pendingClear && (
               <div className="mt-5 border border-[#e8cfc4] bg-[#fff7f3] p-4">
@@ -549,8 +588,10 @@ export default function Settings() {
         </div>
 
         <div className="mt-8 flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.1em] text-[#718076]">
-          <CheckCircle2 className="h-3.5 w-3.5 text-[#6e9870]" /> Browser
-          storage remains available when the server is offline.
+          <CheckCircle2 className="h-3.5 w-3.5 text-[#6e9870]" />{" "}
+          {isBackendMode
+            ? "Browser storage remains available when the server is offline."
+            : "This library stays in this browser until you enable a backend."}
         </div>
       </div>
     </main>

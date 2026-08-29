@@ -311,7 +311,7 @@ test("Advanced Deduplicator previews and applies an exact-URL fixed plan", async
   page,
 }) => {
   await openSchemaV2Library(page);
-  await page.getByRole("button", { name: "Advanced" }).click();
+  await page.getByRole("button", { name: "Advanced Dedup" }).click();
   await expect(
     page.getByRole("heading", { name: "Advanced Deduplicator" })
   ).toBeVisible();

@@ -2826,7 +2826,7 @@ export default function Home() {
                           onClick={() => setLocation("/deduplicate")}
                           className="rounded border border-[#d9d3c6] bg-[#fffdf8] px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#e95224] hover:text-[#e95224]"
                         >
-                          Advanced
+                          Advanced Dedup
                         </button>
                       </>
                     )}
