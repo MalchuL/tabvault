@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from domain.tabs.visibility import exportable_tabs, visible_tabs
+from lib.time import utc_now
 from models import (
     Asset,
     Backup,
@@ -18,6 +19,7 @@ from models import (
     HealthSchedule,
     Job,
     Preview,
+    PropertySchema,
     Tab,
     Tag,
     Tombstone,
@@ -430,6 +432,32 @@ class SystemRepository:
             tab_query = tab_query.where(exportable_tabs(now))
         tabs = list((await self.session.scalars(tab_query)).unique())
         return tags, groups, tabs
+
+    async def get_property_schema(self) -> PropertySchema | None:
+        """Load the singleton property schema used by portable transfer documents.
+
+        Returns:
+            PropertySchema | None: Persisted schema or ``None`` before initialization.
+        """
+        return await self.session.get(PropertySchema, 1)
+
+    async def replace_property_schema(self, properties: dict[str, Any]) -> PropertySchema:
+        """Stage a complete singleton property schema replacement during import.
+
+        Args:
+            properties (dict[str, object]): Validated definitions keyed by property name.
+
+        Returns:
+            PropertySchema: Newly created or updated persistence row.
+        """
+        schema = await self.get_property_schema()
+        if schema is None:
+            schema = PropertySchema(id=1, properties=properties)
+            self.session.add(schema)
+        else:
+            schema.properties = properties
+            schema.updated_at = utc_now()
+        return schema
 
     async def current_ids(self) -> tuple[set[str], set[str], set[str]]:
         """Load current tab IDs, group IDs, and casefolded tag names.

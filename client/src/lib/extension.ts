@@ -7,6 +7,7 @@ import {
   emptyBrowserVault,
   fromServerDocument,
   isPersistedVault,
+  migratePersistedVault,
   toServerDocument,
   type PersistedVault,
 } from "./library";
@@ -54,7 +55,8 @@ declare global {
   }
 }
 
-export const TABVAULT_STORAGE_KEY = "tabvault-v2";
+export const TABVAULT_STORAGE_KEY = "tabvault-v3";
+export const PREVIOUS_TABVAULT_STORAGE_KEY = "tabvault-v2";
 export const LEGACY_TABVAULT_STORAGE_KEY = "tabvault-v1";
 export const TABVAULT_SERVER_URL_KEY = "tabvault-local-server-url";
 export const TABVAULT_API_KEY_KEY = "tabvault-api-key";
@@ -85,12 +87,122 @@ export type LocalServerTab = {
   title: string;
   note?: string | null;
   agentReview?: string | null;
-  viewed?: boolean;
+  customProperties?: Record<string, unknown>;
   tags: string[];
   groupId?: string | null;
   position?: number;
   updatedAt?: string;
 };
+
+export type PropertyDefinition = {
+  description: string;
+  type: "int" | "float" | "string" | "boolean" | "json";
+  default: unknown;
+};
+
+export type PropertySchema = Record<string, PropertyDefinition>;
+
+const VIEWED_DEFINITION: PropertyDefinition = {
+  description: "",
+  type: "boolean",
+  default: false,
+};
+
+async function ensureViewedProperty(url: string, apiKey: string) {
+  const baseUrl = url.replace(/\/+$/, "");
+  const headers = apiHeaders(apiKey);
+  const response = await fetch(`${baseUrl}/api/v1/property-schema`, {
+    headers,
+  });
+  if (!response.ok)
+    throw new Error("Local server could not read the property schema");
+  const payload = (await response.json()) as {
+    data?: { properties?: PropertySchema };
+  };
+  const viewed = payload.data?.properties?.viewed;
+  if (
+    viewed?.type === "boolean" &&
+    viewed.default === false &&
+    viewed.description === ""
+  )
+    return;
+  const update = await fetch(`${baseUrl}/api/v1/property-schema`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ name: "viewed", ...VIEWED_DEFINITION }),
+  });
+  if (!update.ok)
+    throw new Error("Local server could not register the viewed property");
+}
+
+async function propertySchemaRequest<T>(
+  path: string,
+  init: RequestInit = {}
+): Promise<T> {
+  const url = await readLocalServerUrl();
+  const apiKey = await readApiKey();
+  const response = await fetch(
+    `${url.replace(/\/+$/, "")}/api/v1/property-schema${path}`,
+    { ...init, headers: apiHeaders(apiKey) }
+  );
+  if (!response.ok)
+    throw new Error(`Property schema request failed (${response.status})`);
+  const payload = (await response.json()) as { data: T };
+  return payload.data;
+}
+
+export async function getPropertySchema(): Promise<PropertySchema> {
+  const data = await propertySchemaRequest<{ properties: PropertySchema }>("");
+  const viewed = data.properties.viewed;
+  if (
+    viewed?.type !== "boolean" ||
+    viewed.default !== false ||
+    viewed.description !== ""
+  )
+    return upsertPropertyDefinition("viewed", VIEWED_DEFINITION);
+  return data.properties;
+}
+
+export async function upsertPropertyDefinition(
+  name: string,
+  definition: PropertyDefinition
+): Promise<PropertySchema> {
+  const data = await propertySchemaRequest<{ properties: PropertySchema }>("", {
+    method: "POST",
+    body: JSON.stringify({ name, ...definition }),
+  });
+  return data.properties;
+}
+
+export async function deletePropertyDefinition(
+  name: string
+): Promise<PropertySchema> {
+  const data = await propertySchemaRequest<{ properties: PropertySchema }>(
+    `/${encodeURIComponent(name)}`,
+    { method: "DELETE" }
+  );
+  return data.properties;
+}
+
+export async function validatePropertyValues() {
+  return propertySchemaRequest<{
+    valid: boolean;
+    summary: {
+      tabsScanned: number;
+      invalidValues: number;
+      undeclaredValues: number;
+    };
+  }>("/validation");
+}
+
+export async function repairPropertyValues() {
+  return propertySchemaRequest<{
+    tabsScanned: number;
+    converted: number;
+    removed: number;
+    unchanged: number;
+  }>("/repair", { method: "POST" });
+}
 
 export type LocalSearchResponse = {
   mode: "semantic" | "text_fallback";
@@ -244,32 +356,39 @@ export async function inspectBrowserVault(): Promise<BrowserVaultInspection> {
   if (window.chrome?.storage?.local) {
     const stored = await window.chrome.storage.local.get([
       TABVAULT_STORAGE_KEY,
+      PREVIOUS_TABVAULT_STORAGE_KEY,
       LEGACY_TABVAULT_STORAGE_KEY,
     ]);
     const storageKey =
       stored[TABVAULT_STORAGE_KEY] !== undefined
         ? TABVAULT_STORAGE_KEY
-        : stored[LEGACY_TABVAULT_STORAGE_KEY] !== undefined
-          ? LEGACY_TABVAULT_STORAGE_KEY
-          : null;
+        : stored[PREVIOUS_TABVAULT_STORAGE_KEY] !== undefined
+          ? PREVIOUS_TABVAULT_STORAGE_KEY
+          : stored[LEGACY_TABVAULT_STORAGE_KEY] !== undefined
+            ? LEGACY_TABVAULT_STORAGE_KEY
+            : null;
     if (!storageKey) return { status: "empty" };
     const raw = stored[storageKey];
-    return isPersistedVault(raw)
-      ? { status: "compatible", vault: raw }
+    const migrated = migratePersistedVault(raw);
+    return migrated
+      ? { status: "compatible", vault: migrated }
       : { status: "incompatible", raw, storageKey };
   }
   const storageKey =
     window.localStorage.getItem(TABVAULT_STORAGE_KEY) !== null
       ? TABVAULT_STORAGE_KEY
-      : window.localStorage.getItem(LEGACY_TABVAULT_STORAGE_KEY) !== null
-        ? LEGACY_TABVAULT_STORAGE_KEY
-        : null;
+      : window.localStorage.getItem(PREVIOUS_TABVAULT_STORAGE_KEY) !== null
+        ? PREVIOUS_TABVAULT_STORAGE_KEY
+        : window.localStorage.getItem(LEGACY_TABVAULT_STORAGE_KEY) !== null
+          ? LEGACY_TABVAULT_STORAGE_KEY
+          : null;
   if (!storageKey) return { status: "empty" };
   const raw = window.localStorage.getItem(storageKey) ?? "";
   try {
     const value: unknown = JSON.parse(raw);
-    return isPersistedVault(value)
-      ? { status: "compatible", vault: value }
+    const migrated = migratePersistedVault(value);
+    return migrated
+      ? { status: "compatible", vault: migrated }
       : { status: "incompatible", raw, storageKey };
   } catch {
     return { status: "incompatible", raw, storageKey };
@@ -279,13 +398,13 @@ export async function inspectBrowserVault(): Promise<BrowserVaultInspection> {
 export async function readExtensionVault() {
   const inspection = await inspectBrowserVault();
   if (inspection.status === "incompatible")
-    throw new Error("Browser library is not schema v2");
+    throw new Error("Browser library is not schema v3");
   return inspection.status === "compatible" ? inspection.vault : undefined;
 }
 
 export async function writeExtensionVault(vault: PersistedVault) {
   if (!isPersistedVault(vault))
-    throw new Error("Refusing to persist an invalid schema-v2 vault");
+    throw new Error("Refusing to persist an invalid schema-v3 vault");
   if (window.chrome?.storage?.local)
     await window.chrome.storage.local.set({ [TABVAULT_STORAGE_KEY]: vault });
   else window.localStorage.setItem(TABVAULT_STORAGE_KEY, JSON.stringify(vault));
@@ -477,6 +596,7 @@ export async function checkLocalServer(
   });
   if (!response.ok)
     throw new Error("Local server did not return a healthy status");
+  await ensureViewedProperty(url, apiKey);
   const payload = (await response.json()) as {
     status: string;
     schemaVersion: number;
@@ -628,10 +748,12 @@ export async function clearBrowserLibrary() {
   if (window.chrome?.storage?.local) {
     await window.chrome.storage.local.remove([
       TABVAULT_STORAGE_KEY,
+      PREVIOUS_TABVAULT_STORAGE_KEY,
       LEGACY_TABVAULT_STORAGE_KEY,
     ]);
   } else {
     window.localStorage.removeItem(TABVAULT_STORAGE_KEY);
+    window.localStorage.removeItem(PREVIOUS_TABVAULT_STORAGE_KEY);
     window.localStorage.removeItem(LEGACY_TABVAULT_STORAGE_KEY);
   }
   await writeExtensionVault(emptyBrowserVault());
@@ -659,7 +781,11 @@ export async function saveTabToLocalServer(
   const response = await fetch(`${url.replace(/\/+$/, "")}/api/v1/tabs`, {
     method: "POST",
     headers: apiHeaders(apiKey),
-    body: JSON.stringify(tab),
+    body: JSON.stringify({
+      ...tab,
+      viewed: undefined,
+      customProperties: { viewed: tab.viewed ?? false },
+    }),
   });
   if (!response.ok) throw new Error("TabVault local server rejected the tab");
   return response.json() as Promise<{
@@ -815,12 +941,21 @@ export async function updateTabOnLocalServer(
   updates: Record<string, unknown>,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
+  const payload = { ...updates };
+  if (typeof payload.viewed === "boolean") {
+    payload.customProperties = {
+      ...((payload.customProperties as Record<string, unknown> | undefined) ??
+        {}),
+      viewed: payload.viewed,
+    };
+    delete payload.viewed;
+  }
   const response = await fetch(
     `${url.replace(/\/+$/, "")}/api/v1/tabs/${encodeURIComponent(id)}`,
     {
       method: "PATCH",
       headers: apiHeaders(apiKey),
-      body: JSON.stringify(updates),
+      body: JSON.stringify(payload),
     }
   );
   if (!response.ok)

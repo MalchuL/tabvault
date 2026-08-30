@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tabvault.local/schema/v3.tabvault.schema.json",
+  "title": "TabVault export schema v3",
+  "type": "object",
+  "required": ["schemaVersion", "propertySchema", "tags", "groups", "tabs"],
+  "properties": {
+    "schemaVersion": { "const": 3 },
+    "exportedAt": { "type": ["string", "null"], "format": "date-time" },
+    "propertySchema": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type", "default"],
+        "properties": {
+          "description": { "type": "string" },
+          "type": { "enum": ["int", "float", "string", "boolean", "json"] },
+          "default": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "tags": { "type": "array", "items": { "$ref": "#/$defs/tag" } },
+    "groups": { "type": "array", "items": { "$ref": "#/$defs/group" } },
+    "tabs": { "type": "array", "items": { "$ref": "#/$defs/tab" } }
+  },
+  "$defs": {
+    "tag": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": ["string", "null"] },
+        "createdAt": { "type": ["string", "null"], "format": "date-time" },
+        "updatedAt": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "group": {
+      "type": "object",
+      "required": ["id", "name", "category"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "description": { "type": ["string", "null"] },
+        "color": { "type": ["string", "null"] },
+        "position": { "type": "number" },
+        "createdAt": { "type": ["string", "null"], "format": "date-time" },
+        "updatedAt": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "tab": {
+      "type": "object",
+      "required": ["id", "url", "title", "customProperties"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "format": "uri" },
+        "title": { "type": "string", "minLength": 1 },
+        "favicon": { "type": ["string", "null"] },
+        "note": { "type": ["string", "null"] },
+        "agentReview": { "type": ["string", "null"] },
+        "customProperties": { "type": "object" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "groupId": { "type": ["string", "null"] },
+        "position": { "type": "number" },
+        "archived": { "type": "boolean" },
+        "archivedAt": { "type": ["string", "null"], "format": "date-time" },
+        "hiddenUntil": { "type": ["string", "null"], "format": "date-time" },
+        "createdAt": { "type": ["string", "null"], "format": "date-time" },
+        "updatedAt": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

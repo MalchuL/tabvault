@@ -22,6 +22,12 @@ def client(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setattr(JobWorker, "start", no_worker)
     monkeypatch.setattr(JobWorker, "stop", no_worker)
     with TestClient(create_app()) as value:
+        response = value.post(
+            "/api/v1/property-schema",
+            headers={"X-API-Key": "test-key"},
+            json={"name": "viewed", "type": "boolean", "default": False},
+        )
+        assert response.status_code == 200
         yield value
     get_settings.cache_clear()
 

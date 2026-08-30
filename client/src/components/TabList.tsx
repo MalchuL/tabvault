@@ -40,6 +40,7 @@ export type TabListItem = {
   note: string;
   agentReview: string;
   viewed: boolean;
+  customProperties: Record<string, unknown>;
   tags: string[];
   color: string;
   icon: string;

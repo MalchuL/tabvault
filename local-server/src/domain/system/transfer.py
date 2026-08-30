@@ -45,7 +45,37 @@ def empty_document() -> dict[str, Any]:
     Returns:
         dict[str, Any]: Result produced by the operation described above.
     """
-    return {"schemaVersion": 2, "exportedAt": iso(utc_now()), "tags": [], "groups": [], "tabs": []}
+    return {
+        "schemaVersion": 3,
+        "exportedAt": iso(utc_now()),
+        "propertySchema": {"viewed": {"description": "", "type": "boolean", "default": False}},
+        "tags": [],
+        "groups": [],
+        "tabs": [],
+    }
+
+
+def migrate_v2_document(document: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade one portable v2 document to schema-driven v3 in memory.
+
+    Args:
+        document (dict[str, Any]): Parsed document that may use portable schema v2.
+
+    Returns:
+        dict[str, Any]: Deep-copied v3 document, or an unchanged-version copy when migration does
+            not apply.
+    """
+    migrated = copy.deepcopy(document)
+    if migrated.get("schemaVersion") != 2:
+        return migrated
+    migrated["schemaVersion"] = 3
+    migrated["propertySchema"] = {
+        "viewed": {"description": "", "type": "boolean", "default": False}
+    }
+    for tab in migrated.get("tabs", []):
+        if isinstance(tab, dict):
+            tab["customProperties"] = {"viewed": bool(tab.pop("viewed", False))}
+    return migrated
 
 
 def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
@@ -74,12 +104,13 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
                 422,
             )
         ], warnings
-    if document.get("schemaVersion") != 2:
+    document = migrate_v2_document(document)
+    if document.get("schemaVersion") != 3:
         errors.append(
             issue(
                 "E_UNKNOWN_SCHEMA_VERSION",
                 "$.schemaVersion",
-                "2",
+                "3",
                 document.get("schemaVersion"),
                 "Unsupported schema version.",
                 422,
@@ -280,7 +311,7 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
                 "title": link.group(1),
                 "note": "",
                 "agentReview": "",
-                "viewed": False,
+                "customProperties": {"viewed": False},
                 "tags": [],
                 "groupId": active_group,
                 "position": len(document["tabs"]),
@@ -297,7 +328,7 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
             elif key == "agentReview":
                 active_tab["agentReview"] = value
             elif key == "viewed":
-                active_tab["viewed"] = value.lower() == "true"
+                active_tab["customProperties"]["viewed"] = value.lower() == "true"
         elif metadata and active_group_record is not None:
             key, value = metadata.groups()
             if key == "description":
@@ -359,8 +390,10 @@ class TransferService:
             include_hidden=include_hidden,
             now=utc_now() if not include_hidden else None,
         )
+        schema = await self.repository.get_property_schema()
         return TransferDocumentDTO(
             exported_at=utc_now(),
+            property_schema=dict(schema.properties or {}) if schema is not None else {},
             tags=[self.mapper.tag_to_transfer(tag) for tag in tags],
             groups=[self.mapper.group_to_transfer(group) for group in groups],
             tabs=[self.mapper.tab_to_transfer(tab) for tab in tabs],
@@ -428,6 +461,7 @@ class TransferService:
         if fields == "minimal":
             content = MinimalTransferDocumentDTO(
                 exported_at=document.exported_at,
+                property_schema=document.property_schema,
                 tags=document.tags,
                 groups=document.groups,
                 tabs=[
@@ -464,7 +498,10 @@ class TransferService:
                     if fields != "minimal":
                         lines.append(f"  note: {tab.note or ''}")
                         lines.append(f"  agentReview: {tab.agent_review or ''}")
-                        lines.append(f"  viewed: {str(tab.viewed).lower()}")
+                        lines.append(
+                            "  customProperties: "
+                            + json.dumps(tab.custom_properties, ensure_ascii=False, sort_keys=True)
+                        )
                     lines.append("")
 
         def write_group(group: TransferGroupDTO) -> None:
@@ -512,10 +549,10 @@ class TransferService:
         if format == "markdown":
             return markdown_import(str(content))
         if isinstance(content, dict):
-            return copy.deepcopy(content), []
+            return migrate_v2_document(content), []
         try:
             value = json.loads(str(content))
-            return value if isinstance(value, dict) else None, []
+            return migrate_v2_document(value) if isinstance(value, dict) else None, []
         except json.JSONDecodeError as error:
             return None, [
                 issue(
@@ -609,6 +646,7 @@ class TransferService:
         if errors:
             return ImportApplyResultDTO(success=False, errors=errors, warnings=warnings)
         dto = TransferDocumentDTO.model_validate(document)
+        await self.repository.replace_property_schema(dict(dto.property_schema))
         backup_id: str | None = None
         if mode == "replace":
             backup = await self.create_backup("pre_replace_import")

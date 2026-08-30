@@ -14,6 +14,21 @@ export type VaultGroup = {
 
 export type LibraryViewMode = TabViewMode | "groups";
 
+export type CustomPropertyType =
+  | "int"
+  | "float"
+  | "string"
+  | "boolean"
+  | "json";
+
+export type CustomPropertyDefinition = {
+  description: string;
+  type: CustomPropertyType;
+  default: unknown;
+};
+
+export type CustomPropertySchema = Record<string, CustomPropertyDefinition>;
+
 export type VaultTab = {
   id: string;
   groupId: GroupId | null;
@@ -23,6 +38,7 @@ export type VaultTab = {
   note: string;
   agentReview: string;
   viewed: boolean;
+  customProperties: Record<string, unknown>;
   tags: string[];
   color: string;
   icon: string;
@@ -41,7 +57,8 @@ export type SavedSearch = {
 };
 
 export type PersistedVault = {
-  schemaVersion: 2;
+  schemaVersion: 3;
+  propertySchema: CustomPropertySchema;
   tabs: VaultTab[];
   vaultGroups: VaultGroup[];
   tagCatalog: Record<string, string>;

@@ -35,6 +35,7 @@ from .dto import (
     PreviewDTO,
     SearchDataDTO,
     SearchMode,
+    StructuredSearchDTO,
     TransferFormat,
 )
 from .service import SystemService
@@ -118,6 +119,35 @@ async def search(
         SearchDataDTO(results=result.results),
         meta=result.meta,
         warnings=result.warnings,
+    )
+
+
+@router.post("/search", response_model=SuccessResponseDTO[SearchDataDTO])
+async def structured_search(
+    body: StructuredSearchDTO,
+    service: Annotated[SystemService, Depends(get_system_service)],
+) -> SuccessResponseDTO[SearchDataDTO]:
+    """Search tabs using free text plus typed Custom Property predicates.
+
+    Args:
+        body (StructuredSearchDTO): Query, search mode, and schema-validated property filters.
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped search
+            service.
+
+    Returns:
+        SuccessResponseDTO[SearchDataDTO]: Scored tabs satisfying every structured predicate.
+    """
+    result = await service.search(
+        body.query,
+        body.mode,
+        body.limit,
+        body.group_id,
+        body.tags,
+        body.min_score,
+        body.property_filters,
+    )
+    return success(
+        SearchDataDTO(results=result.results), meta=result.meta, warnings=result.warnings
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import TypeVar, cast
 
@@ -68,6 +69,8 @@ class MCPClient:
         self._http = httpx.AsyncClient(
             base_url=f"{self.base_url}/api/v1/", headers=headers, timeout=30.0
         )
+        self._schema_ready = False
+        self._schema_lock = asyncio.Lock()
 
     @classmethod
     def from_environment(cls) -> MCPClient:
@@ -109,6 +112,7 @@ class MCPClient:
         Raises:
             MCPClientError: The request fails, the API rejects it, or its response is malformed.
         """
+        await self._ensure_property_schema()
         try:
             response = await self._http.request(
                 method,
@@ -148,6 +152,52 @@ class MCPClient:
             return response_type.model_validate(payload)
         except ValidationError as error:
             raise MCPClientError("TabVault API returned an invalid response shape") from error
+
+    async def _ensure_property_schema(self) -> None:
+        """Register the MCP-owned viewed property once on the first live connection.
+
+        Raises:
+            MCPClientError: The schema cannot be read or updated.
+        """
+        if self._schema_ready:
+            return
+        async with self._schema_lock:
+            if self._schema_ready:
+                return
+            try:
+                response = await self._http.get("property-schema")
+                response.raise_for_status()
+                payload = cast(dict[str, object], response.json())
+                data = payload.get("data")
+                data_record = cast(dict[str, object], data) if isinstance(data, dict) else {}
+                properties_value = data_record.get("properties")
+                properties = (
+                    cast(dict[str, object], properties_value)
+                    if isinstance(properties_value, dict)
+                    else {}
+                )
+                viewed_value = properties.get("viewed")
+                viewed = (
+                    cast(dict[str, object], viewed_value) if isinstance(viewed_value, dict) else {}
+                )
+                if not (
+                    viewed.get("type") == "boolean"
+                    and viewed.get("default") is False
+                    and viewed.get("description") == ""
+                ):
+                    update = await self._http.post(
+                        "property-schema",
+                        json={
+                            "name": "viewed",
+                            "description": "",
+                            "type": "boolean",
+                            "default": False,
+                        },
+                    )
+                    update.raise_for_status()
+            except (httpx.HTTPError, ValueError, TypeError) as error:
+                raise MCPClientError(f"Could not register the viewed property: {error}") from error
+            self._schema_ready = True
 
     async def list_tabs(self, query: TabListQueryDTO) -> TabListResponseDTO:
         """List Saved Tabs using typed filters and pagination."""

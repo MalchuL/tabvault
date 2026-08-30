@@ -1,25 +1,23 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from factories import NOW, group, tab, tag
 
-from mcp_tabvault.client import MCPClient
 from mcp_tabvault.client.dto import (
     GroupDeleteResponseDTO,
     GroupDeleteResultDTO,
     GroupListResponseDTO,
     GroupResponseDTO,
     SearchDataDTO,
+    SearchItemDTO,
     SearchMetaDTO,
     SearchResponseDTO,
-    TabCreateMetaDTO,
     TabCreateResponseDTO,
     TabDeleteResponseDTO,
     TabDeleteResultDTO,
-    TabJobDTO,
     TabListResponseDTO,
-    TabReorderResponseDTO,
-    TabReorderResultDTO,
     TabResponseDTO,
     TagListResponseDTO,
 )
@@ -28,102 +26,136 @@ from mcp_tabvault.domain.tabs import tools as tab_tools
 from mcp_tabvault.domain.tags import tools as tag_tools
 
 
+class ToolClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, Any]] = []
+        self.assigned = tab("oldest").model_copy(update={"group_id": "group"})
+        self.unassigned = tab("other", "https://other")
+
+    async def list_groups(self, query: Any) -> GroupListResponseDTO:
+        self.calls.append(("list_groups", query))
+        return GroupListResponseDTO(data=[group()])
+
+    async def list_tabs(self, query: Any) -> TabListResponseDTO:
+        self.calls.append(("list_tabs", query))
+        return TabListResponseDTO(data=[self.assigned, self.unassigned])
+
+    async def search_tabs(self, query: Any) -> SearchResponseDTO:
+        self.calls.append(("search_tabs", query))
+        return SearchResponseDTO(
+            data=SearchDataDTO(
+                results=[
+                    SearchItemDTO(
+                        tab=self.assigned, score=1, match_type="keyword", matched_on="title"
+                    ),
+                    SearchItemDTO(
+                        tab=self.unassigned, score=0.5, match_type="keyword", matched_on="url"
+                    ),
+                ]
+            ),
+            meta=SearchMetaDTO(query_embedding_ms=1, search_ms=2),
+        )
+
+    async def create_tab(self, body: Any) -> TabCreateResponseDTO:
+        self.calls.append(("create_tab", body))
+        return TabCreateResponseDTO(data=self.assigned.model_copy(update={"url": body.url}))
+
+    async def update_tab(self, tab_id: str, body: Any) -> TabResponseDTO:
+        self.calls.append(("update_tab", (tab_id, body)))
+        changes: dict[str, object] = {}
+        if "url" in body.model_fields_set:
+            changes["url"] = body.url
+        if "group_id" in body.model_fields_set:
+            changes["group_id"] = body.group_id
+        return TabResponseDTO(data=self.assigned.model_copy(update=changes))
+
+    async def delete_tab(self, tab_id: str) -> TabDeleteResponseDTO:
+        self.calls.append(("delete_tab", tab_id))
+        return TabDeleteResponseDTO(data=TabDeleteResultDTO(id=tab_id, deleted_at=NOW, hard=False))
+
+    async def list_group_tabs(self, group_id: str, query: Any) -> TabListResponseDTO:
+        self.calls.append(("list_group_tabs", (group_id, query)))
+        return TabListResponseDTO(data=[])
+
+    async def create_group(self, body: Any) -> GroupResponseDTO:
+        self.calls.append(("create_group", body))
+        return GroupResponseDTO(data=group().model_copy(update={"name": body.name}))
+
+    async def update_group(self, group_id: str, body: Any) -> GroupResponseDTO:
+        self.calls.append(("update_group", (group_id, body)))
+        return GroupResponseDTO(data=group().model_copy(update={"name": body.name or "Group"}))
+
+    async def delete_group(self, group_id: str) -> GroupDeleteResponseDTO:
+        self.calls.append(("delete_group", group_id))
+        return GroupDeleteResponseDTO(
+            data=GroupDeleteResultDTO(id=group_id, archived_tab_count=2, deleted_at=NOW)
+        )
+
+    async def list_tags(self, query: Any) -> TagListResponseDTO:
+        self.calls.append(("list_tags", query))
+        return TagListResponseDTO(data=[tag()])
+
+    async def tag_tab(self, tab_id: str, body: Any) -> TabResponseDTO:
+        self.calls.append(("tag_tab", (tab_id, body)))
+        return TabResponseDTO(data=self.assigned)
+
+    async def untag_tab(self, tab_id: str, tag_name: str) -> TabResponseDTO:
+        self.calls.append(("untag_tab", (tab_id, tag_name)))
+        return TabResponseDTO(data=self.assigned)
+
+
 @pytest.mark.anyio
-async def test_every_tool_builds_typed_inputs_and_returns_dtos(
+async def test_every_tool_uses_human_selectors_and_returns_one_id_free_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that all tools build proper typed inputs and return appropriate DTOs."""
-    tab_page = TabListResponseDTO(data=[tab()])
-    search_response = SearchResponseDTO(
-        data=SearchDataDTO(results=[]), meta=SearchMetaDTO(query_embedding_ms=1, search_ms=2)
-    )
-    created = TabCreateResponseDTO(
-        data=tab(), meta=TabCreateMetaDTO(job=TabJobDTO(tab_id="tab", job_id="job"))
-    )
-    tab_response = TabResponseDTO(data=tab())
-    deleted = TabDeleteResponseDTO(data=TabDeleteResultDTO(id="tab", deleted_at=NOW, hard=False))
-    reordered = TabReorderResponseDTO(data=TabReorderResultDTO(group_id="group", tab_ids=["tab"]))
-    group_page = GroupListResponseDTO(data=[group()])
-    group_response = GroupResponseDTO(data=group())
-    group_deleted = GroupDeleteResponseDTO(
-        data=GroupDeleteResultDTO(id="group", archived_tab_count=0, deleted_at=NOW)
-    )
-    tag_page = TagListResponseDTO(data=[tag()])
+    client = ToolClient()
+    monkeypatch.setattr(tab_tools, "get_client", lambda: client)
+    monkeypatch.setattr(tab_tools.utils, "get_client", lambda: client)
+    monkeypatch.setattr(group_tools, "get_client", lambda: client)
+    monkeypatch.setattr(group_tools.utils, "get_client", lambda: client)
+    monkeypatch.setattr(tag_tools, "get_client", lambda: client)
+    monkeypatch.setattr(tag_tools.tab_utils, "get_client", lambda: client)
+    monkeypatch.setattr(tag_tools.group_utils, "get_client", lambda: client)
 
-    mock_client = MCPClient("http://test")
+    listed = await tab_tools.list_tabs(group="group")
+    unassigned = await tab_tools.list_tabs(unassignedOnly=True)
+    searched = await tab_tools.search_tabs("query", group="Group")
+    searched_unassigned = await tab_tools.search_tabs("query", unassignedOnly=True)
+    fetched = await tab_tools.get_tab("https://exact")
+    saved = await tab_tools.save_tab("https://new", group="GROUP")
+    updated = await tab_tools.update_tab("https://exact", newUrl="https://changed")
+    deleted = await tab_tools.delete_tab("https://exact")
+    moved = await tab_tools.move_tab("https://exact", targetGroup="Group")
+    unassigned_move = await tab_tools.move_tab("https://exact")
 
-    requests_made: list[tuple[str, object]] = []
+    groups = await group_tools.list_groups()
+    fetched_group = await group_tools.get_group("group")
+    created_group = await group_tools.create_group("New")
+    updated_group = await group_tools.update_group("GROUP", newName="Renamed")
+    deleted_group = await group_tools.delete_group("group")
 
-    async def mock_request(method: str, path: str, response_type: type, body=None, query=None):
-        requests_made.append((method, path))
-        if method == "GET" and path == "/tabs":
-            return tab_page
-        if method == "GET" and path == "/search":
-            return search_response
-        if method == "GET" and path == "/tabs/tab":
-            return tab_response
-        if method == "POST" and path == "/tabs":
-            return created
-        if method == "PATCH" and path == "/tabs/tab":
-            return tab_response
-        if method == "DELETE" and path == "/tabs/tab":
-            return deleted
-        if method == "PUT" and path == "/tabs/order":
-            return reordered
-        if method == "GET" and path == "/groups":
-            return group_page
-        if method == "GET" and path == "/groups/group/tabs":
-            return TabListResponseDTO(data=[])
-        if method in {"POST", "PATCH"} and path in {"/groups", "/groups/group"}:
-            return group_response
-        if method == "DELETE" and path == "/groups/group":
-            return group_deleted
-        if method == "GET" and path == "/tags":
-            return tag_page
-        if method == "POST" and path == "/tabs/tab/tags":
-            return tab_response
-        if method == "DELETE" and path == "/tabs/tab/tags/docs":
-            return tab_response
-        raise RuntimeError(f"Unexpected request: {method} {path}")
+    tags = await tag_tools.list_tags()
+    tagged = await tag_tools.tag_tab("https://exact", "docs")
+    untagged = await tag_tools.untag_tab("https://exact", "docs")
 
-    mock_client._request = mock_request
+    assert listed.data[0].group == "Group"
+    assert unassigned.data[1].group is None
+    assert searched.data.results[0].tab.group == "Group"
+    assert [item.tab.url for item in searched_unassigned.data.results] == ["https://other"]
+    assert fetched.data.url == "https://exact"
+    assert saved.data.url == "https://new"
+    assert updated.data.url == "https://changed"
+    assert deleted.data.url == "https://exact"
+    assert moved.data.group == "Group" and unassigned_move.data.group is None
+    assert groups.data[0].name == fetched_group.data.name == "Group"
+    assert created_group.data.name == "New" and updated_group.data.name == "Renamed"
+    assert deleted_group.data.name == "Group" and deleted_group.data.archived_tab_count == 2
+    assert tags.data[0].name == "docs"
+    assert tagged.data.url == untagged.data.url == "https://exact"
 
-    monkeypatch.setattr(tab_tools, "get_client", lambda: mock_client)
-    monkeypatch.setattr(tab_tools.utils, "get_client", lambda: mock_client)
-    monkeypatch.setattr(group_tools, "get_client", lambda: mock_client)
-    monkeypatch.setattr(group_tools.utils, "get_client", lambda: mock_client)
-    monkeypatch.setattr(tag_tools, "get_client", lambda: mock_client)
-
-    await tab_tools.list_tabs(groupId="unassigned")
-    await tab_tools.search_tabs("query", groupId="group")
-    await tab_tools.get_tab("tab")
-    await tab_tools.save_tab("https://example.com", agentReview="summary", groupId="group")
-    await tab_tools.update_tab("tab", title="Changed", hiddenUntil="2030-01-01T00:00:00Z")
-    await tab_tools.delete_tab("tab")
-    await tab_tools.move_tab("tab", targetGroupId="group", position=1)
-    await tab_tools.reorder_tabs(["tab"], groupId="group")
-
-    for call in requests_made:
-        if call[0] == "GET" and call[1] == "/tabs":
-            from mcp_tabvault.client.dto import TabListQueryDTO
-
-            TabListQueryDTO(group_id="unassigned")
-            break
-
-    await tab_tools.move_tab("tab")
-
-    await tab_tools.get_tab_by_url("https://exact")
-    await tab_tools.list_tabs_by_url("https://exact")
-    await tab_tools.update_tabs_by_url("https://exact", targetGroupId="unassigned")
-    await tab_tools.tag_tabs_by_url("https://exact", "docs")
-    await tab_tools.untag_tabs_by_url("https://exact", "docs")
-
-    await group_tools.list_groups()
-    await group_tools.create_group("Group", description="Context", color="#fff")
-    await group_tools.update_group("group", description="Updated", position=1)
-    await group_tools.delete_group("group")
-
-    await tag_tools.list_tags()
-    await tag_tools.tag_tab("tab", "docs")
-    await tag_tools.untag_tab("tab", "docs")
-    await mock_client.aclose()
+    mutated_ids = [
+        value[0] if isinstance(value, tuple) else value
+        for name, value in client.calls
+        if name in {"update_tab", "delete_tab", "tag_tab", "untag_tab"}
+    ]
+    assert set(mutated_ids) == {"oldest"}

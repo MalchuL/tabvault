@@ -102,7 +102,7 @@ class Tab(Base):
         favicon_asset_id (Mapped[str | None]): Stable identifier of the related favicon asset.
         note (Mapped[str]): User-authored note stored with the Saved Tab.
         agent_review (Mapped[str]): Agent-authored review text stored with the Saved Tab.
-        viewed (Mapped[bool]): Whether any equivalent occurrence has been viewed.
+        custom_properties (Mapped[dict[str, Any]]): Explicit schema-defined property overrides.
         group_id (Mapped[str | None]): Identifier of the containing Group, or ``None`` for
             Unassigned.
         position (Mapped[float]): Stable display position within the current Group or Unassigned
@@ -130,7 +130,7 @@ class Tab(Base):
     )
     note: Mapped[str] = mapped_column(Text, default="")
     agent_review: Mapped[str] = mapped_column(Text, default="")
-    viewed: Mapped[bool] = mapped_column(Boolean, default=False)
+    custom_properties: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     group_id: Mapped[str | None] = mapped_column(
         ForeignKey("groups.id", ondelete="SET NULL"), index=True
     )
@@ -141,6 +141,24 @@ class Tab(Base):
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now, onupdate=utc_now)
     tags: Mapped[list[Tag]] = relationship(secondary=tab_tags, lazy="selectin")
+
+
+class PropertySchema(Base):
+    """Persist the singleton Library Custom Property Schema.
+
+    The current product has one Library and therefore one row with identifier ``1``. A future
+    Project migration can add project ownership without changing the JSON definition document.
+
+    Attributes:
+        id (Mapped[int]): Singleton row identity, fixed to ``1`` by the service.
+        properties (Mapped[dict[str, Any]]): Definitions keyed by stable property name.
+        updated_at (Mapped[datetime]): UTC instant of the latest schema mutation.
+    """
+
+    __tablename__ = "property_schemas"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    properties: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime(), default=utc_now, onupdate=utc_now)
 
 
 class Tag(Base):

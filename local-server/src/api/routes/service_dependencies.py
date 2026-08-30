@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import Settings, get_settings
 from db.session import get_async_session
+from domain.custom_properties.repository import CustomPropertyRepository
+from domain.custom_properties.service import CustomPropertyService
 from domain.groups.repository import GroupRepository
 from domain.groups.service import GroupService
 from domain.system.repository import SystemRepository
@@ -22,6 +24,18 @@ SessionDep = Annotated[AsyncSession, Depends(get_async_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
+def get_custom_property_service(db: SessionDep) -> CustomPropertyService:
+    """Build a request-scoped Custom Property service.
+
+    Args:
+        db (SessionDep): Request-scoped session shared by schema and tab mutations.
+
+    Returns:
+        CustomPropertyService: Service that owns schema and property transaction boundaries.
+    """
+    return CustomPropertyService(db, CustomPropertyRepository(db))
+
+
 def get_tab_service(db: SessionDep) -> TabService:
     """Build a request-scoped tab service.
 
@@ -34,7 +48,11 @@ def get_tab_service(db: SessionDep) -> TabService:
     Returns:
         TabService: Result produced by the operation described above.
     """
-    return TabService(db, TabRepository(db))
+    return TabService(
+        db,
+        TabRepository(db),
+        CustomPropertyService(db, CustomPropertyRepository(db)),
+    )
 
 
 def get_group_service(db: SessionDep) -> GroupService:
@@ -103,6 +121,7 @@ def get_system_service(
     settings: SettingsDep,
     vectors: Annotated[LocalVectorIndex, Depends(get_vector_index)],
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
+    custom_properties: Annotated[CustomPropertyService, Depends(get_custom_property_service)],
 ) -> SystemService:
     """Build a request-scoped system service.
 
@@ -116,8 +135,10 @@ def get_system_service(
             this operation.
         transfer (Annotated[TransferService, Depends(get_transfer_service)]): Transfer value
             consumed by this operation.
+        custom_properties (Annotated[CustomPropertyService, Depends(get_custom_property_service)]):
+            Request-scoped schema resolver used by search projections.
 
     Returns:
         SystemService: Result produced by the operation described above.
     """
-    return SystemService(db, settings, vectors, SystemRepository(db), transfer)
+    return SystemService(db, settings, vectors, SystemRepository(db), transfer, custom_properties)

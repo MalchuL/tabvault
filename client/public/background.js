@@ -3,6 +3,7 @@ import {
   isVaultV2,
   orderKey,
   serverDocumentToVault,
+  upgradeVault,
   vaultToServerDocument,
 } from "./library-sync.js";
 
@@ -15,7 +16,8 @@ const HEALTH_ALERT_KEY = "tabvault-health-alert";
 const HEALTH_ALARM_NAME = "tabvault-index-health";
 const LIBRARY_REFRESH_KEY = "tabvault-library-refresh";
 const LIBRARY_REFRESH_ALARM_NAME = "tabvault-library-refresh";
-const VAULT_STORAGE_KEY = "tabvault-v2";
+const VAULT_STORAGE_KEY = "tabvault-v3";
+const PREVIOUS_VAULT_STORAGE_KEY = "tabvault-v2";
 const SERVER_URL_KEY = "tabvault-local-server-url";
 const API_KEY_STORAGE_KEY = "tabvault-api-key";
 const STORAGE_MODE_KEY = "tabvault-storage-mode";
@@ -42,6 +44,7 @@ function buildSavedTab(tab) {
     note: "",
     agentReview: "",
     viewed: false,
+    customProperties: { viewed: false },
     tags: [],
     color: "#F05A28",
     icon: "●",
@@ -85,6 +88,31 @@ function buildSessionGroup() {
   };
 }
 
+async function ensureViewedProperty(baseUrl, headers) {
+  const schemaUrl = `${baseUrl.replace(/\/+$/, "")}/api/v1/property-schema`;
+  const response = await fetch(schemaUrl, { headers });
+  if (!response.ok) return false;
+  const payload = await response.json();
+  const viewed = payload?.data?.properties?.viewed;
+  if (
+    viewed?.type === "boolean" &&
+    viewed.default === false &&
+    viewed.description === ""
+  )
+    return true;
+  const update = await fetch(schemaUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      name: "viewed",
+      description: "",
+      type: "boolean",
+      default: false,
+    }),
+  });
+  return update.ok;
+}
+
 async function syncQuickCapture(group, tabs) {
   const stored = await chrome.storage.local.get([
     SERVER_URL_KEY,
@@ -98,6 +126,7 @@ async function syncQuickCapture(group, tabs) {
     "Content-Type": "application/json",
     "X-API-Key": apiKey,
   };
+  if (!(await ensureViewedProperty(baseUrl, headers))) return false;
   const groupResponse = await fetch(
     `${baseUrl.replace(/\/+$/, "")}/api/v1/groups`,
     {
@@ -131,7 +160,7 @@ async function syncQuickCapture(group, tabs) {
           title: tab.title,
           note: tab.note,
           agentReview: tab.agentReview,
-          viewed: tab.viewed,
+          customProperties: { ...tab.customProperties, viewed: tab.viewed },
           tags: tab.tags,
           groupId: group.id,
         })),
@@ -155,8 +184,14 @@ async function saveAndCloseTabs(sourceTabs) {
       tab.id && typeof tab.url === "string" && /^https?:\/\//i.test(tab.url)
   );
   const skippedCount = sourceTabs.length - validTabs.length;
-  const stored = await chrome.storage.local.get(VAULT_STORAGE_KEY);
-  let vault = stored[VAULT_STORAGE_KEY] || defaultVault();
+  const stored = await chrome.storage.local.get([
+    VAULT_STORAGE_KEY,
+    PREVIOUS_VAULT_STORAGE_KEY,
+  ]);
+  let vault =
+    upgradeVault(
+      stored[VAULT_STORAGE_KEY] ?? stored[PREVIOUS_VAULT_STORAGE_KEY]
+    ) ?? defaultVault();
   if (!isVaultV2(vault))
     throw new Error(
       "Browser data is not schema v2; open TabVault to recover it."
@@ -293,13 +328,17 @@ async function restoreLibraryRefreshAlarm() {
 async function refreshStoredLibrary() {
   const stored = await chrome.storage.local.get([
     VAULT_STORAGE_KEY,
+    PREVIOUS_VAULT_STORAGE_KEY,
     SERVER_URL_KEY,
     API_KEY_STORAGE_KEY,
     STORAGE_MODE_KEY,
   ]);
   if (stored[STORAGE_MODE_KEY] !== "backend") return false;
-  let vault = stored[VAULT_STORAGE_KEY] || defaultVault();
-  if (!isVaultV2(vault)) throw new Error("Browser library is not schema v2");
+  let vault =
+    upgradeVault(
+      stored[VAULT_STORAGE_KEY] ?? stored[PREVIOUS_VAULT_STORAGE_KEY]
+    ) ?? defaultVault();
+  if (!isVaultV2(vault)) throw new Error("Browser library is not schema v3");
   const baseUrl = (stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL).replace(
     /\/+$/,
     ""

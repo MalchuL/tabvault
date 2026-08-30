@@ -1,72 +1,90 @@
-"""Register top-level asynchronous MCP tools for Group operations."""
+"""Register name-addressed MCP tools for Group operations."""
 
 from __future__ import annotations
 
 from mcp_tabvault.client import get_client
 from mcp_tabvault.client.dto import (
     GroupCreateDTO,
-    GroupDeleteResponseDTO,
     GroupListQueryDTO,
-    GroupListResponseDTO,
-    GroupResponseDTO,
     GroupTabsQueryDTO,
     GroupUpdateDTO,
 )
 from mcp_tabvault.server import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, mcp
 
-from . import utils
+from . import mapper, utils
+from .dto import (
+    GroupDeleteResponseViewDTO,
+    GroupDeleteViewDTO,
+    GroupListViewDTO,
+    GroupResponseViewDTO,
+)
 
 
 @mcp.tool(annotations=READ, structured_output=True)
 async def list_groups(
     category: str | None = None, limit: int = 100, offset: int = 0
-) -> GroupListResponseDTO:
-    """List visible flat Groups, optionally restricted by category."""
-    return await get_client().list_groups(
+) -> GroupListViewDTO:
+    """List visible Groups without persistence identity or display position."""
+    response = await get_client().list_groups(
         GroupListQueryDTO(category=category, limit=limit, offset=offset)
     )
+    return mapper.to_page(response)
+
+
+@mcp.tool(annotations=READ, structured_output=True)
+async def get_group(name: str) -> GroupResponseViewDTO:
+    """Read the oldest visible case-insensitive exact Group-name match."""
+    group = utils.group_named(await utils.visible_groups(), name)
+    return GroupResponseViewDTO(data=mapper.to_view(group))
 
 
 @mcp.tool(annotations=WRITE, structured_output=True)
 async def create_group(
     name: str, description: str = "", color: str | None = None
-) -> GroupResponseDTO:
-    """Create a Manual Group."""
-    return await get_client().create_group(
+) -> GroupResponseViewDTO:
+    """Create a Manual Group and return its ID-free view."""
+    response = await get_client().create_group(
         GroupCreateDTO(name=name, description=description, color=color)
     )
+    return GroupResponseViewDTO(data=mapper.to_view(response.data))
 
 
 @mcp.tool(annotations=IDEMPOTENT_WRITE, structured_output=True)
 async def update_group(
-    id: str,
-    name: str | None = None,
+    name: str,
+    newName: str | None = None,
     description: str | None = None,
     color: str | None = None,
-    position: float | None = None,
-) -> GroupResponseDTO:
-    """Update a visible Group and keep it classified as Manual."""
-    await utils.require_visible_group(id)
+) -> GroupResponseViewDTO:
+    """Update the oldest visible case-insensitive exact Group-name match."""
+    group = utils.group_named(await utils.visible_groups(), name)
     values: dict[str, object | None] = {
-        "name": name,
+        "name": newName,
         "description": description,
         "color": color,
-        "position": position,
         "category": "manual",
     }
     body = GroupUpdateDTO.model_validate(
         {key: value for key, value in values.items() if value is not None}
     )
-    return await get_client().update_group(id, body)
+    response = await get_client().update_group(group.id, body)
+    return GroupResponseViewDTO(data=mapper.to_view(response.data))
 
 
 @mcp.tool(annotations=DESTRUCTIVE, structured_output=True)
-async def delete_group(id: str) -> GroupDeleteResponseDTO:
-    """Delete a visible Group when it contains no hidden members."""
-    await utils.require_visible_group(id)
+async def delete_group(name: str) -> GroupDeleteResponseViewDTO:
+    """Delete the oldest visible matching Group when it has no hidden members."""
+    group = utils.group_named(await utils.visible_groups(), name)
     hidden = await get_client().list_group_tabs(
-        id, GroupTabsQueryDTO(visibility="hidden", fields="minimal", limit=1)
+        group.id, GroupTabsQueryDTO(visibility="hidden", fields="minimal", limit=1)
     )
     if hidden.size > 0:
-        raise RuntimeError("Group is not accessible through MCP")
-    return await get_client().delete_group(id)
+        raise RuntimeError(f"Group named {name!r} is not accessible through MCP")
+    response = await get_client().delete_group(group.id)
+    return GroupDeleteResponseViewDTO(
+        data=GroupDeleteViewDTO(
+            name=group.name,
+            archived_tab_count=response.data.archived_tab_count,
+            deleted_at=response.data.deleted_at,
+        )
+    )

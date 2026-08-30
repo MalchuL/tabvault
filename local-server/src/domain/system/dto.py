@@ -11,8 +11,11 @@ from lib.dto_config import DTO, model_config
 from lib.responses import IssueDTO, WarningDTO
 
 SearchMode: TypeAlias = Literal["semantic", "keyword", "hybrid"]
+PropertyFilterOperator: TypeAlias = Literal["eq", "ne", "gt", "gte", "lt", "lte"]
 SearchMatchType: TypeAlias = Literal["both", "semantic", "keyword"]
-SearchMatchedOn: TypeAlias = Literal["title", "url", "note", "agentReview", "tags", "semantic"]
+SearchMatchedOn: TypeAlias = Literal[
+    "title", "url", "note", "agentReview", "tags", "customProperties", "semantic"
+]
 TransferFormat: TypeAlias = Literal["json", "markdown"]
 ImportMode: TypeAlias = Literal["upload", "replace"]
 ExportFields: TypeAlias = Literal["full", "minimal"]
@@ -22,6 +25,44 @@ PreviewStatus: TypeAlias = Literal["pending", "running", "ready", "unavailable"]
 AssetKind: TypeAlias = Literal["image", "icon"]
 HealthResult: TypeAlias = Literal["ready", "needs_attention"]
 VectorStatus: TypeAlias = Literal["ready", "not_ready"]
+
+
+class PropertyFilterDTO(BaseModel):
+    """Define one typed predicate over a resolved Custom Property Value.
+
+    Attributes:
+        name (str): Declared property name to evaluate.
+        operator (PropertyFilterOperator): Equality or ordered comparison operation.
+        value (Any): Comparison value validated against the current schema by the service.
+    """
+
+    name: str
+    operator: PropertyFilterOperator
+    value: Any
+    model_config = model_config()
+
+
+class StructuredSearchDTO(BaseModel):
+    """Describe search text plus typed dynamic-property predicates.
+
+    Attributes:
+        query (str): Non-empty free-text query scored by the selected search mode.
+        property_filters (list[PropertyFilterDTO]): Predicates all matching tabs must satisfy.
+        mode (SearchMode): Keyword, semantic, or hybrid scoring mode.
+        limit (int): Maximum number of results.
+        group_id (str | None): Optional exact Group filter.
+        tags (list[str]): Tag names that must all be present.
+        min_score (float): Minimum semantic score accepted from the provider.
+    """
+
+    query: str = Field(min_length=1)
+    property_filters: list[PropertyFilterDTO] = Field(default_factory=list, max_length=64)
+    mode: SearchMode = "hybrid"
+    limit: int = Field(default=10, ge=1, le=50)
+    group_id: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    min_score: float = Field(default=0.3, ge=0, le=1)
+    model_config = model_config()
 
 
 class HealthConfigDTO(BaseModel):
@@ -152,7 +193,7 @@ class HealthDTO(BaseModel):
 
     status: Literal["ok"]
     version: str
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     storage: StorageCountsDTO
     vector_index: VectorStatusDTO
     model_config = model_config()
@@ -461,7 +502,7 @@ class TransferTabDTO(DTO):
         favicon (str | None): Typed favicon value carried by this object.
         note (str | None): User-authored note stored with the Saved Tab.
         agent_review (str | None): Agent-authored review text stored with the Saved Tab.
-        viewed (bool): Whether any equivalent occurrence has been viewed.
+        custom_properties (dict[str, Any]): Raw explicit Custom Property Values.
         tags (list[str]): Tags associated with the Saved Tab.
         group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
         position (float): Stable display position within the current Group or Unassigned section.
@@ -478,7 +519,7 @@ class TransferTabDTO(DTO):
     favicon: str | None = None
     note: str | None = None
     agent_review: str | None = ""
-    viewed: bool = False
+    custom_properties: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
     group_id: str | None = None
     position: float = 0
@@ -496,15 +537,17 @@ class TransferDocumentDTO(DTO):
     DTO configuration serializes public field names in camelCase and rejects unknown input fields.
 
     Attributes:
-        schema_version (Literal[2]): Typed schema version value carried by this object.
+        schema_version (Literal[3]): Typed schema version value carried by this object.
         exported_at (datetime | None): UTC instant associated with exported.
+        property_schema (dict[str, Any]): Definitions keyed by stable custom-property name.
         tags (list[TransferTagDTO]): Tags associated with the Saved Tab.
         groups (list[TransferGroupDTO]): Typed groups value carried by this object.
         tabs (list[TransferTabDTO]): Typed tabs value carried by this object.
     """
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     exported_at: datetime | None = None
+    property_schema: dict[str, Any] = Field(default_factory=dict)
     tags: list[TransferTagDTO] = Field(default_factory=list)
     groups: list[TransferGroupDTO] = Field(default_factory=list)
     tabs: list[TransferTabDTO] = Field(default_factory=list)
@@ -541,15 +584,16 @@ class MinimalTransferDocumentDTO(DTO):
     DTO configuration serializes public field names in camelCase and rejects unknown input fields.
 
     Attributes:
-        schema_version (Literal[2]): Typed schema version value carried by this object.
+        schema_version (Literal[3]): Typed schema version value carried by this object.
         exported_at (datetime | None): UTC instant associated with exported.
         tags (list[TransferTagDTO]): Tags associated with the Saved Tab.
         groups (list[TransferGroupDTO]): Typed groups value carried by this object.
         tabs (list[MinimalTransferTabDTO]): Typed tabs value carried by this object.
     """
 
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     exported_at: datetime | None = None
+    property_schema: dict[str, Any] = Field(default_factory=dict)
     tags: list[TransferTagDTO]
     groups: list[TransferGroupDTO]
     tabs: list[MinimalTransferTabDTO]

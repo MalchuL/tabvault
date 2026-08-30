@@ -48,7 +48,7 @@ import {
   type StorageMode,
   type SyncStatus,
 } from "@/lib/extension";
-import { orderKey } from "@/lib/library";
+import { DEFAULT_PROPERTY_SCHEMA, orderKey } from "@/lib/library";
 import { TabDragPreview, TabList } from "@/components/TabList";
 import { ContextHelp } from "@/components/ContextHelp";
 import {
@@ -246,11 +246,13 @@ export default function Home() {
   const refreshLibraryRef = useRef<
     (options?: { silent?: boolean }) => Promise<void>
   >(async () => undefined);
+  const propertySchemaRef = useRef(DEFAULT_PROPERTY_SCHEMA);
 
   const descendantCollectionIds = (id: GroupId) => new Set<GroupId>([id]);
 
   const currentVault = (): PersistedVault => ({
-    schemaVersion: 2,
+    schemaVersion: 3,
+    propertySchema: propertySchemaRef.current,
     tabs,
     vaultGroups,
     tagCatalog,
@@ -261,6 +263,7 @@ export default function Home() {
   });
 
   const applyVault = (vault: PersistedVault) => {
+    propertySchemaRef.current = vault.propertySchema;
     tombstonesRef.current = vault.tombstones ?? { tabs: [], groups: [] };
     setTabs(vault.tabs);
     setVaultGroups(vault.vaultGroups);
@@ -361,7 +364,8 @@ export default function Home() {
           domain: normaliseUrl(tab.url),
           note: tab.note ?? "",
           agentReview: tab.agentReview ?? "",
-          viewed: Boolean(tab.viewed),
+          customProperties: tab.customProperties ?? {},
+          viewed: Boolean(tab.customProperties?.viewed),
           tags: tab.tags ?? [],
           color: "#6b8c7e",
           icon: tab.title.slice(0, 1).toUpperCase() || "T",
@@ -477,7 +481,8 @@ export default function Home() {
     if (!storageReady || activeDragId) return;
     const browser = new BrowserStorageAdapter<PersistedVault>();
     const fallback: PersistedVault = {
-      schemaVersion: 2,
+      schemaVersion: 3,
+      propertySchema: propertySchemaRef.current,
       tabs,
       vaultGroups,
       tagCatalog,
@@ -1304,6 +1309,7 @@ export default function Home() {
       note: "",
       agentReview: "",
       viewed: false,
+      customProperties: { viewed: false },
       tags: [],
       color: "#F05A28",
       icon: "●",
@@ -1702,6 +1708,7 @@ export default function Home() {
           note: updatedTab.note,
           agentReview: updatedTab.agentReview,
           viewed: updatedTab.viewed,
+          customProperties: updatedTab.customProperties,
           tags: updatedTab.tags,
           groupId: updatedTab.groupId,
           hiddenUntil: updatedTab.hiddenUntil ?? null,
@@ -2709,6 +2716,7 @@ export default function Home() {
             tagDraft={tagDraft}
             tagSuggestions={tagSuggestions}
             tagCatalog={tagCatalog}
+            propertySchema={propertySchemaRef.current}
             onChange={setEditingTab}
             onTagDraftChange={setTagDraft}
             onAddTag={addTagToTab}

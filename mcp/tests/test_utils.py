@@ -12,150 +12,111 @@ from mcp_tabvault.client.dto import (
     PaginatedResponseDTO,
     TabDTO,
     TabListResponseDTO,
-    TabResponseDTO,
-    TabUpdateDTO,
+    TabProjectionDTO,
 )
 from mcp_tabvault.domain.groups import utils as groups
+from mcp_tabvault.domain.tabs import mapper
 from mcp_tabvault.domain.tabs import utils as tabs
 
 
 class QueueClient:
     def __init__(self, responses: list[Any]) -> None:
         self.responses = responses
-        self.calls: list[tuple[str, tuple[Any, ...]]] = []
-
-    async def _next(self, name: str, *args: Any) -> Any:
-        self.calls.append((name, args))
-        response = self.responses.pop(0)
-        if isinstance(response, Exception):
-            raise response
-        return response
+        self.calls: list[tuple[str, Any]] = []
 
     async def list_groups(self, query: Any) -> GroupListResponseDTO:
-        return await self._next("list_groups", query)
-
-    async def get_tab(self, tab_id: str) -> TabResponseDTO:
-        return await self._next("get_tab", tab_id)
-
-    async def update_tab(self, tab_id: str, body: TabUpdateDTO) -> TabResponseDTO:
-        return await self._next("update_tab", tab_id, body)
+        self.calls.append(("list_groups", query))
+        return self.responses.pop(0)
 
     async def list_tabs(self, query: Any) -> TabListResponseDTO:
-        return await self._next("list_tabs", query)
+        self.calls.append(("list_tabs", query))
+        return self.responses.pop(0)
 
 
 def page(*items: TabDTO, has_next: bool = False, size: int | None = None) -> TabListResponseDTO:
-    return PaginatedResponseDTO[TabDTO | Any](
+    return PaginatedResponseDTO[TabDTO | TabProjectionDTO](
         data=list(items), has_next=has_next, size=len(items) if size is None else size
     )
 
 
 @pytest.mark.anyio
-async def test_visible_group_policy_pagination(monkeypatch: pytest.MonkeyPatch) -> None:
-    future = datetime.now(UTC) + timedelta(days=1)
-    past = (datetime.now(UTC) - timedelta(days=1)).replace(tzinfo=None)
-    assert tabs.is_hidden(tab(hidden_until=future))
-    assert not tabs.is_hidden(tab(hidden_until=past))
-    assert not tabs.is_hidden(tab())
-
+async def test_group_name_resolution_uses_oldest_case_insensitive_match_across_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    newest = group("new").model_copy(update={"name": "Research"})
+    oldest = group("old").model_copy(update={"name": "research"})
     client = QueueClient(
         [
-            TabResponseDTO(data=tab(archived=True)),
-            TabResponseDTO(data=tab(hidden_until=future)),
-            TabResponseDTO(data=tab()),
+            GroupListResponseDTO(data=[newest], has_next=True, size=7),
+            GroupListResponseDTO(data=[oldest]),
         ]
     )
-    monkeypatch.setattr(tabs, "get_client", lambda: client)
-    with pytest.raises(MCPClientError, match="not accessible"):
-        await tabs.require_visible_tab("archived")
-    with pytest.raises(MCPClientError, match="not accessible"):
-        await tabs.require_visible_tab("hidden")
-    assert (await tabs.require_visible_tab("visible")).data.id == "tab"
+    monkeypatch.setattr(groups, "get_client", lambda: client)
 
-    group_client = QueueClient(
-        [
-            GroupListResponseDTO(data=[group("other")], has_next=True, size=7),
-            GroupListResponseDTO(data=[group("wanted")]),
-        ]
-    )
-    monkeypatch.setattr(groups, "get_client", lambda: group_client)
-    await groups.require_visible_group("wanted")
-    assert group_client.calls[1][1][0].offset == 7
+    visible = await groups.visible_groups()
+    assert groups.group_named(visible, "RESEARCH").id == "old"
+    assert client.calls[1][1].offset == 7
+    assert groups.resolve_scope(visible, "research", False) == "old"
+    assert groups.resolve_scope(visible, None, False) == "all"
+    assert groups.resolve_scope(visible, None, True) is None
+    with pytest.raises(ValueError, match="cannot be used together"):
+        groups.resolve_scope(visible, "Research", True)
+    with pytest.raises(MCPClientError, match="Missing"):
+        groups.group_named(visible, "Missing")
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    "response",
-    [
-        GroupListResponseDTO(data=[]),
-        GroupListResponseDTO(data=[], has_next=True),
-    ],
-)
-async def test_group_policy_rejects_missing_and_invalid_pages(
-    monkeypatch: pytest.MonkeyPatch, response: GroupListResponseDTO
+async def test_group_pagination_rejects_an_empty_continuation(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(groups, "get_client", lambda: QueueClient([response]))
-    with pytest.raises(MCPClientError):
-        await groups.require_visible_group("missing")
+    monkeypatch.setattr(
+        groups,
+        "get_client",
+        lambda: QueueClient([GroupListResponseDTO(data=[], has_next=True, size=0)]),
+    )
+    with pytest.raises(MCPClientError, match="invalid Group page size"):
+        await groups.visible_groups()
 
 
 @pytest.mark.anyio
-async def test_url_lookup_paginates_and_filters_exact_visible_matches(
+async def test_first_tab_uses_oldest_exact_visible_url_and_validates_pages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     future = datetime.now(UTC) + timedelta(days=1)
     client = QueueClient(
         [
-            page(
-                tab("first"),
-                tab("partial", "https://exact/path"),
-                has_next=True,
-                size=9,
-            ),
-            page(
-                tab("second"),
-                tab("archived", archived=True),
-                tab("hidden", hidden_until=future),
-            ),
+            page(tab("partial", "https://exact/path"), has_next=True, size=9),
+            page(tab("oldest"), tab("hidden", hidden_until=future)),
         ]
     )
     monkeypatch.setattr(tabs, "get_client", lambda: client)
-    result = await tabs.matching_tabs("https://exact")
-    assert [item.id for item in result] == ["first", "second"]
-    assert client.calls[1][1][0].offset == 9
+    result = await tabs.first_visible_tab("https://exact")
+    assert result.id == "oldest"
+    assert client.calls[0][1].sort_by == "createdAt"
+    assert client.calls[0][1].sort_dir == "asc"
+    assert client.calls[1][1].offset == 9
 
-    missing = QueueClient([page()])
-    monkeypatch.setattr(tabs, "get_client", lambda: missing)
-    assert await tabs.matching_tabs("https://missing") == []
+    monkeypatch.setattr(tabs, "get_client", lambda: QueueClient([page()]))
+    with pytest.raises(MCPClientError, match="https://missing"):
+        await tabs.first_visible_tab("https://missing")
 
     invalid = QueueClient([page(tab(), has_next=True, size=0)])
     monkeypatch.setattr(tabs, "get_client", lambda: invalid)
     with pytest.raises(MCPClientError, match="invalid Saved Tab page size"):
-        await tabs.matching_tabs("https://exact")
+        await tabs.first_visible_tab("https://missing")
 
 
-@pytest.mark.anyio
-async def test_url_bulk_update_is_best_effort(monkeypatch: pytest.MonkeyPatch) -> None:
-    updated = TabResponseDTO(data=tab("one", "https://new"))
-    client = QueueClient(
-        [
-            page(tab("one"), tab("two")),
-            updated,
-            MCPClientError("rejected"),
-        ]
-    )
-    monkeypatch.setattr(tabs, "get_client", lambda: client)
+def test_tab_mapper_replaces_group_identity_and_rejects_incomplete_data() -> None:
+    assigned = tab().model_copy(update={"group_id": "group"})
+    view = mapper.to_view(assigned, [group()])
+    assert view.group == "Group"
+    assert "id" not in view.model_dump(mode="json", by_alias=True)
+    assert "position" not in view.model_dump(mode="json", by_alias=True)
 
-    matching_tabs = await tabs.matching_tabs("https://exact")
-    bulk_result = await tabs.best_effort(
-        matching_tabs, lambda tab: client.update_tab(tab.id, TabUpdateDTO(url="https://new"))
-    )
+    with pytest.raises(MCPClientError, match="Group"):
+        mapper.to_view(assigned, [])
 
-    assert bulk_result.matched == 2
-    assert [item.id for item in bulk_result.data] == ["one"]
-    assert bulk_result.errors[0].model_dump(by_alias=True) == {
-        "tabId": "two",
-        "message": "rejected",
-    }
-    updates = [call for call in client.calls if call[0] == "update_tab"]
-    assert len(updates) == 2
+    incomplete = TabProjectionDTO(url="https://exact")
+    response = PaginatedResponseDTO[TabDTO | TabProjectionDTO](data=[incomplete])
+    with pytest.raises(MCPClientError, match="incomplete"):
+        mapper.to_page(response, [])

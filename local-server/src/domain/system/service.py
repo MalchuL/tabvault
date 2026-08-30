@@ -11,6 +11,9 @@ from typing import Any, cast
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import Settings
+from domain.custom_properties.dto import matches_type
+from domain.custom_properties.error import InvalidCustomPropertiesError
+from domain.custom_properties.service import CustomPropertyService
 from domain.tabs.error import TabNotFoundError
 from domain.tabs.mapper import TabMapper
 from lib.responses import WarningDTO
@@ -29,6 +32,7 @@ from .dto import (
     JobQueuedDTO,
     LibraryClearDTO,
     PreviewDTO,
+    PropertyFilterDTO,
     SearchItemDTO,
     SearchMatchedOn,
     SearchMatchType,
@@ -65,6 +69,7 @@ class SystemService:
         vectors: LocalVectorIndex,
         repository: SystemRepository,
         transfer: TransferService,
+        custom_properties: CustomPropertyService,
     ) -> None:
         """Initialize the service and its dependencies.
 
@@ -79,12 +84,14 @@ class SystemService:
             repository (SystemRepository): Persistence adapter used to load and mutate domain
                 records.
             transfer (TransferService): Transfer value consumed by this operation.
+            custom_properties (CustomPropertyService): Resolver for declared property defaults.
         """
         self.db = db
         self.settings = settings
         self.vectors = vectors
         self.repository = repository
         self.transfer = transfer
+        self.custom_properties = custom_properties
         self.mapper = TabMapper()
         self.system_mapper = SystemMapper()
 
@@ -102,7 +109,7 @@ class SystemService:
         return HealthDTO(
             status="ok",
             version="0.2.0",
-            schema_version=2,
+            schema_version=3,
             storage=StorageCountsDTO(tabs=tabs, groups=groups, tags=tags),
             vector_index=self.vectors.status(),
         )
@@ -134,6 +141,7 @@ class SystemService:
         group_id: str | None,
         tags: list[str],
         min_score: float,
+        property_filters: list[PropertyFilterDTO] | None = None,
     ) -> SearchResultDTO:
         """Search active tabs using keyword and optional semantic scores.
 
@@ -148,6 +156,8 @@ class SystemService:
             group_id (str | None): Stable identifier of the group targeted by the operation.
             tags (list[str]): Tags value consumed by this operation.
             min_score (float): Min score value consumed by this operation.
+            property_filters (list[PropertyFilterDTO] | None): Typed predicates applied to resolved
+                properties before scoring.
 
         Returns:
             SearchResultDTO: Result produced by the operation described above.
@@ -158,6 +168,40 @@ class SystemService:
         """
         started = time.perf_counter()
         rows = await self.repository.search_tabs(group_id, tags, utc_now())
+        definitions = await self.custom_properties.definitions()
+        filters = property_filters or []
+        for item in filters:
+            definition = definitions.get(item.name)
+            if definition is None or not matches_type(item.value, definition["type"]):
+                raise InvalidCustomPropertiesError(
+                    f"Invalid filter for property {item.name!r}", received=item.value
+                )
+            if item.operator not in {"eq", "ne"} and definition["type"] not in {"int", "float"}:
+                raise InvalidCustomPropertiesError(
+                    f"Operator {item.operator!r} requires an int or float property"
+                )
+        if filters:
+            operators = {
+                "eq": lambda left, right: left == right,
+                "ne": lambda left, right: left != right,
+                "gt": lambda left, right: left > right,
+                "gte": lambda left, right: left >= right,
+                "lt": lambda left, right: left < right,
+                "lte": lambda left, right: left <= right,
+            }
+            rows = [
+                row
+                for row in rows
+                if all(
+                    operators[item.operator](
+                        self.custom_properties.resolve_values(row.custom_properties, definitions)[
+                            item.name
+                        ],
+                        item.value,
+                    )
+                    for item in filters
+                )
+            ]
         by_id = {row.id: row for row in rows}
         terms = [term.lower() for term in q.split() if term]
         keyword: dict[str, tuple[float, SearchMatchedOn]] = {}
@@ -167,6 +211,11 @@ class SystemService:
                 "url": row.url.lower(),
                 "note": (row.note or "").lower(),
                 "agentReview": row.agent_review.lower(),
+                "customProperties": json.dumps(
+                    self.custom_properties.resolve_values(row.custom_properties, definitions),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ).lower(),
             }
             matches = [(name, sum(term in text for term in terms)) for name, text in fields.items()]
             name, count = max(matches, key=lambda item: item[1])
@@ -222,7 +271,12 @@ class SystemService:
             )
             results.append(
                 SearchItemDTO(
-                    tab=self.mapper.to_dto(by_id[tab_id]),
+                    tab=self.mapper.to_dto(
+                        by_id[tab_id],
+                        self.custom_properties.resolve_values(
+                            by_id[tab_id].custom_properties, definitions
+                        ),
+                    ),
                     score=round(score, 4),
                     match_type=match_type,
                     matched_on=keyword.get(tab_id, (0, "semantic"))[1],
@@ -514,7 +568,7 @@ class SystemService:
         Returns:
             dict[str, Any]: Result produced by the operation described above.
         """
-        path = Path(__file__).parents[3] / "schema" / "v2.tabvault.schema.json"
+        path = Path(__file__).parents[3] / "schema" / "v3.tabvault.schema.json"
         return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
 
     @staticmethod

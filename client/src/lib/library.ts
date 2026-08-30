@@ -1,6 +1,7 @@
 /** Schema-v2 browser persistence and server transfer conversion. */
 import type {
   PersistedVault,
+  CustomPropertySchema,
   VaultGroup,
   VaultTab,
 } from "@/domain/library/types";
@@ -22,6 +23,9 @@ export const LIBRARY_REFRESH_INTERVALS = [
 ] as const;
 
 export const UNASSIGNED_ORDER_KEY = "unassigned";
+export const DEFAULT_PROPERTY_SCHEMA: CustomPropertySchema = {
+  viewed: { description: "", type: "boolean", default: false },
+};
 
 const HAS_TIMEZONE = /[zZ]|[+-]\d{2}:?\d{2}$/;
 
@@ -46,7 +50,8 @@ function utcTimestampOrNull(value: unknown): string | null {
 
 export function emptyBrowserVault(): PersistedVault {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    propertySchema: DEFAULT_PROPERTY_SCHEMA,
     tabs: [],
     vaultGroups: [],
     tagCatalog: {},
@@ -66,7 +71,12 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 export function isPersistedVault(value: unknown): value is PersistedVault {
-  if (!isRecord(value) || value.schemaVersion !== 2) return false;
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== 3 ||
+    !isRecord(value.propertySchema)
+  )
+    return false;
   if (
     !Array.isArray(value.tabs) ||
     !Array.isArray(value.vaultGroups) ||
@@ -133,6 +143,7 @@ export function isPersistedVault(value: unknown): value is PersistedVault {
       typeof tab.note === "string" &&
       typeof tab.agentReview === "string" &&
       typeof tab.viewed === "boolean" &&
+      isRecord(tab.customProperties) &&
       isStringArray(tab.tags) &&
       typeof tab.color === "string" &&
       typeof tab.icon === "string" &&
@@ -151,6 +162,33 @@ export function isPersistedVault(value: unknown): value is PersistedVault {
   );
 }
 
+export function migratePersistedVault(value: unknown): PersistedVault | null {
+  if (isPersistedVault(value)) return value;
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== 2 ||
+    !Array.isArray(value.tabs)
+  )
+    return null;
+  const migrated = {
+    ...value,
+    schemaVersion: 3,
+    propertySchema: {
+      viewed: { description: "", type: "boolean", default: false },
+    },
+    tabs: value.tabs.map(tab =>
+      isRecord(tab)
+        ? {
+            ...tab,
+            viewed: Boolean(tab.viewed),
+            customProperties: { viewed: Boolean(tab.viewed) },
+          }
+        : tab
+    ),
+  };
+  return isPersistedVault(migrated) ? migrated : null;
+}
+
 function domainFromUrl(value: string) {
   try {
     return new URL(value).hostname.replace(/^www\./, "");
@@ -163,7 +201,8 @@ export function toServerDocument(
   vault: PersistedVault
 ): Record<string, unknown> {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    propertySchema: vault.propertySchema,
     tags: Object.entries(vault.tagCatalog).map(([name, description]) => ({
       name,
       description,
@@ -184,7 +223,7 @@ export function toServerDocument(
       title: tab.title,
       note: tab.note,
       agentReview: tab.agentReview,
-      viewed: tab.viewed,
+      customProperties: { ...tab.customProperties, viewed: tab.viewed },
       tags: tab.tags,
       groupId: tab.archived ? null : tab.groupId,
       archived: Boolean(tab.archived),
@@ -201,8 +240,11 @@ export function fromServerDocument(
   document: Record<string, unknown>,
   preferences: Pick<PersistedVault, "savedSearches" | "tabView" | "tombstones">
 ): PersistedVault {
-  if (document.schemaVersion !== 2)
-    throw new Error("Server library is not schema v2");
+  if (document.schemaVersion !== 3)
+    throw new Error("Server library is not schema v3");
+  const propertySchema = isRecord(document.propertySchema)
+    ? (document.propertySchema as CustomPropertySchema)
+    : {};
   const tombstones = preferences.tombstones ?? { tabs: [], groups: [] };
   const deletedTabs = new Set(tombstones.tabs);
   const deletedGroups = new Set(tombstones.groups);
@@ -242,7 +284,14 @@ export function fromServerDocument(
       domain: domainFromUrl(String(tab.url ?? "")),
       note: typeof tab.note === "string" ? tab.note : "",
       agentReview: typeof tab.agentReview === "string" ? tab.agentReview : "",
-      viewed: Boolean(tab.viewed),
+      customProperties: isRecord(tab.customProperties)
+        ? tab.customProperties
+        : {},
+      viewed: Boolean(
+        isRecord(tab.customProperties)
+          ? (tab.customProperties.viewed ?? propertySchema.viewed?.default)
+          : propertySchema.viewed?.default
+      ),
       tags: Array.isArray(tab.tags) ? tab.tags.map(String) : [],
       color: "#6b8c7e",
       icon:
@@ -261,7 +310,8 @@ export function fromServerDocument(
     return orders;
   }, {});
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
+    propertySchema,
     tabs,
     vaultGroups,
     tagCatalog: remoteTags.reduce<Record<string, string>>((catalog, tag) => {

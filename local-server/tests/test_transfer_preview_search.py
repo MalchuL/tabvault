@@ -40,7 +40,7 @@ def test_import_validate_export_replace_backup_and_clear(
     imported = client.post("/api/v1/import?mode=upload", headers=headers, json=document)
     assert imported.status_code == 200
     exported = client.get("/api/v1/export?format=json", headers=headers)
-    assert exported.json()["schemaVersion"] == 2
+    assert exported.json()["schemaVersion"] == 3
     assert exported.json()["groups"][0]["category"] == "manual"
     assert exported.json()["tabs"][0]["groupId"] == "group-1"
     markdown = client.get("/api/v1/export?format=markdown", headers=headers)

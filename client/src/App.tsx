@@ -23,6 +23,7 @@ const Deduplicator = lazy(() => import("./pages/Deduplicator"));
 const Home = lazy(() => import("./pages/Home"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Settings = lazy(() => import("./pages/Settings"));
+const CustomProperties = lazy(() => import("./pages/CustomProperties"));
 const Transfer = lazy(() => import("./pages/Transfer"));
 
 function isExtensionPage() {
@@ -47,6 +48,7 @@ function AppRoutes() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/deduplicate" component={Deduplicator} />
       <Route path="/settings" component={Settings} />
+      <Route path="/custom-properties" component={CustomProperties} />
       <Route path="/transfer" component={Transfer} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />

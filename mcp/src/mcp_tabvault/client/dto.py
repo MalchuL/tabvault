@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Generic, Literal, TypeAlias, TypeVar
+from typing import Any, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -12,6 +12,7 @@ from pydantic import (
     SerializerFunctionWrapHandler,
     field_serializer,
     field_validator,
+    model_validator,
 )
 from pydantic.alias_generators import to_camel
 
@@ -142,7 +143,7 @@ class PaginatedResponseDTO(DTO, Generic[ItemT]):
 class TabListQueryDTO(DTO):
     """Describe filters accepted by the Saved Tab collection endpoint."""
 
-    group_id: str = "all"
+    group_id: str | None = "all"
     category: str | None = None
     tags: str = ""
     search: str | None = None
@@ -195,9 +196,17 @@ class TabCreateDTO(DTO):
     title: str | None = Field(default=None, max_length=1024)
     note: str = Field(default="", max_length=20_000)
     agent_review: str = Field(default="", max_length=20_000)
-    viewed: bool = False
+    viewed: bool = Field(default=False, exclude=True)
+    custom_properties: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list, max_length=64)
     group_id: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def map_viewed_to_custom_properties(self) -> TabCreateDTO:
+        """Serialize the stable MCP viewed argument through the generic property bag."""
+        if "viewed" in self.model_fields_set:
+            self.custom_properties = {**self.custom_properties, "viewed": self.viewed}
+        return self
 
 
 class TabUpdateDTO(DTO):
@@ -207,11 +216,19 @@ class TabUpdateDTO(DTO):
     title: str | None = Field(default=None, min_length=1, max_length=1024)
     note: str | None = Field(default=None, max_length=20_000)
     agent_review: str | None = Field(default=None, max_length=20_000)
-    viewed: bool | None = None
+    viewed: bool | None = Field(default=None, exclude=True)
+    custom_properties: dict[str, Any] | None = None
     tags: list[str] | None = Field(default=None, max_length=64)
     group_id: str | None = Field(default=None, max_length=128)
     position: float | None = Field(default=None, ge=0)
     hidden_until: datetime | None = None
+
+    @model_validator(mode="after")
+    def map_viewed_to_custom_properties(self) -> TabUpdateDTO:
+        """Serialize a supplied MCP viewed update through the generic property bag."""
+        if self.viewed is not None:
+            self.custom_properties = {**(self.custom_properties or {}), "viewed": self.viewed}
+        return self
 
 
 class TabReorderDTO(DTO):
@@ -263,7 +280,8 @@ class TabDTO(DTO):
     favicon: str | None
     note: str
     agent_review: str
-    viewed: bool
+    viewed: bool = False
+    custom_properties: dict[str, Any] = Field(default_factory=dict)
     tags: list[str]
     group_id: str | None
     position: float
@@ -272,6 +290,15 @@ class TabDTO(DTO):
     hidden_until: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="after")
+    def resolve_viewed_compatibility(self) -> TabDTO:
+        """Preserve MCP viewed output while consuming resolved generic properties."""
+        if "viewed" in self.custom_properties:
+            self.viewed = bool(self.custom_properties["viewed"])
+        else:
+            self.custom_properties = {"viewed": self.viewed}
+        return self
 
 
 class TabProjectionDTO(DTO):
@@ -284,6 +311,9 @@ class TabProjectionDTO(DTO):
     note: str | None = Field(default=None, exclude_if=lambda value: value is None)
     agent_review: str | None = Field(default=None, exclude_if=lambda value: value is None)
     viewed: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    custom_properties: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     tags: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
     group_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
     position: float | None = Field(default=None, exclude_if=lambda value: value is None)
@@ -292,6 +322,13 @@ class TabProjectionDTO(DTO):
     hidden_until: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
     created_at: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
     updated_at: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def resolve_viewed_compatibility(self) -> TabProjectionDTO:
+        """Derive the optional viewed projection from resolved generic properties."""
+        if self.custom_properties is not None:
+            self.viewed = bool(self.custom_properties.get("viewed", False))
+        return self
 
 
 class TabJobDTO(DTO):
@@ -374,33 +411,6 @@ class SearchMetaDTO(DTO):
 
     query_embedding_ms: int
     search_ms: int
-
-
-class TabByUrlResultDTO(DTO):
-    """Wrap the first exact URL match for MCP structured output."""
-
-    result: TabDTO | None
-
-
-class TabsByUrlResultDTO(DTO):
-    """Wrap all exact URL matches for MCP structured output."""
-
-    result: list[TabDTO]
-
-
-class UrlBulkErrorDTO(DTO):
-    """Describe one failed member of a best-effort URL mutation."""
-
-    tab_id: str
-    message: str
-
-
-class UrlBulkResultDTO(DTO):
-    """Describe successes and failures from a best-effort URL mutation."""
-
-    matched: int
-    data: list[TabDTO]
-    errors: list[UrlBulkErrorDTO]
 
 
 TabListResponseDTO = PaginatedResponseDTO[TabDTO | TabProjectionDTO]

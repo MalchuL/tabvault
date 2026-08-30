@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
@@ -49,7 +49,7 @@ class TabCreateDTO(BaseModel):
         title (str | None): Human-readable title.
         note (str | None): User-authored note stored with the Saved Tab.
         agent_review (str | None): Agent-authored review text stored with the Saved Tab.
-        viewed (bool): Whether any equivalent occurrence has been viewed.
+        custom_properties (dict[str, Any]): Explicit schema-defined values supplied on creation.
         tags (list[str]): Tags names associated with the Saved Tab.
         group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
         position (float | None): Stable display position within the current Group or Unassigned
@@ -61,7 +61,7 @@ class TabCreateDTO(BaseModel):
     title: str | None = Field(default=None, max_length=1024)
     note: str | None = Field(default="", max_length=20_000)
     agent_review: str | None = Field(default="", max_length=20_000)
-    viewed: bool = False
+    custom_properties: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list, max_length=64)
     group_id: str | None = Field(default=None, max_length=128)
     position: float | None = Field(default=None, ge=0)
@@ -128,7 +128,7 @@ class TabUpdateDTO(DTO):
         title (str | None): Human-readable title.
         note (str | None): User-authored note stored with the Saved Tab.
         agent_review (str | None): Agent-authored review text stored with the Saved Tab.
-        viewed (bool | None): Whether any equivalent occurrence has been viewed.
+        custom_properties (dict[str, Any] | None): Explicit values to merge atomically.
         tags (list[str] | None): Tags names associated with the Saved Tab.
         group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
         position (float | None): Stable display position within the current Group or Unassigned
@@ -141,7 +141,7 @@ class TabUpdateDTO(DTO):
     title: str | None = Field(default=None, min_length=1, max_length=1024)
     note: str | None = Field(default=None, max_length=20_000)
     agent_review: str | None = Field(default=None, max_length=20_000)
-    viewed: bool | None = None
+    custom_properties: dict[str, Any] | None = None
     tags: list[str] | None = Field(default=None, max_length=64)
     group_id: str | None = Field(default=None, max_length=128)
     position: float | None = Field(default=None, ge=0)
@@ -228,7 +228,7 @@ class TabDTO(DTO):
         favicon (str | None): Typed favicon value carried by this object.
         note (str): User-authored note stored with the Saved Tab.
         agent_review (str): Agent-authored review text stored with the Saved Tab.
-        viewed (bool): Whether any equivalent occurrence has been viewed.
+        custom_properties (dict[str, Any]): Resolved declared values, including defaults.
         tags (list[str]): Tags associated with the Saved Tab.
         group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
         position (float): Stable display position within the current Group or Unassigned section.
@@ -245,7 +245,7 @@ class TabDTO(DTO):
     favicon: str | None
     note: str
     agent_review: str
-    viewed: bool
+    custom_properties: dict[str, Any]
     tags: list[str]
     group_id: str | None
     position: float
@@ -269,7 +269,7 @@ class TabProjectionDTO(DTO):
         favicon (str | None): Typed favicon value carried by this object.
         note (str | None): User-authored note stored with the Saved Tab.
         agent_review (str | None): Agent-authored review text stored with the Saved Tab.
-        viewed (bool | None): Whether any equivalent occurrence has been viewed.
+        custom_properties (dict[str, Any] | None): Resolved declared property values.
         tags (list[str] | None): Tags associated with the Saved Tab.
         group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
         position (float | None): Stable display position within the current Group or Unassigned
@@ -287,7 +287,7 @@ class TabProjectionDTO(DTO):
     favicon: str | None = None
     note: str | None = None
     agent_review: str | None = None
-    viewed: bool | None = None
+    custom_properties: dict[str, Any] | None = None
     tags: list[str] | None = None
     group_id: str | None = None
     position: float | None = None

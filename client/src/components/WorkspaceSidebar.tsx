@@ -15,6 +15,7 @@ import {
   Plus,
   RefreshCw,
   Settings2,
+  SlidersHorizontal,
   Sparkles,
   Tag,
   X,
@@ -338,6 +339,19 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
                 <ArrowDownToLine className="h-3.5 w-3.5" />
                 <span className="text-[13px] font-semibold">
                   Import & Export
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => closeAndGo("/custom-properties")}
+                aria-current={
+                  location === "/custom-properties" ? "page" : undefined
+                }
+                className={libraryClass(location === "/custom-properties")}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <span className="text-[13px] font-semibold">
+                  Custom Properties
                 </span>
               </button>
               <button

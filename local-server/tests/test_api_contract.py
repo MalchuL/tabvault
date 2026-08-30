@@ -40,7 +40,7 @@ def test_auth_prefix_health_and_required_group_category(
     assert client.get("/v1/tabs", headers=headers).status_code == 404
     health = client.get("/api/v1/health", headers=headers)
     assert health.status_code == 200
-    assert health.json()["schemaVersion"] == 2
+    assert health.json()["schemaVersion"] == 3
 
     invalid = client.post("/api/v1/groups", headers=headers, json={"name": "Missing"})
     assert invalid.status_code == 422
@@ -187,14 +187,14 @@ def test_patch_is_the_only_move_restore_and_metadata_update(
             "groupId": group["id"],
             "note": "Human note",
             "agentReview": "Agent note",
-            "viewed": True,
+            "customProperties": {"viewed": True},
             "hiddenUntil": "2030-01-01T00:00:00Z",
         },
     ).json()["data"]
     assert changed["groupId"] == group["id"]
     assert changed["note"] == "Human note"
     assert changed["agentReview"] == "Agent note"
-    assert changed["viewed"] is True
+    assert changed["customProperties"]["viewed"] is True
     assert changed["hiddenUntil"].startswith("2030-01-01")
 
     archived = client.patch(
@@ -511,7 +511,7 @@ def test_markdown_import_scoped_export_replace_and_restore_job(
     exported = client.get(
         "/api/v1/export?format=json&scope=tag:note&fields=minimal", headers=headers
     ).json()
-    assert exported["schemaVersion"] == 2 and len(exported["tabs"]) == 1
+    assert exported["schemaVersion"] == 3 and len(exported["tabs"]) == 1
     document = client.get("/api/v1/export?format=json", headers=headers).json()
     replaced = client.post(
         "/api/v1/import",
@@ -624,7 +624,7 @@ def test_visibility_policy_is_shared_by_lists_groups_search_counts_and_export(
     assert {hidden_mixed["id"], hidden_only["id"]}.isdisjoint(exported_ids)
     synced = client.get("/api/v1/sync", headers=headers).json()
     synced_ids = {tab["id"] for tab in synced["tabs"]}
-    assert synced["schemaVersion"] == 2
+    assert synced["schemaVersion"] == 3
     assert {
         visible["id"],
         elapsed["id"],
