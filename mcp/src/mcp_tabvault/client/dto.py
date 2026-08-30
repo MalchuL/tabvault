@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Generic, Literal, TypeAlias, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_serializer,
+    field_validator,
+)
 from pydantic.alias_generators import to_camel
 
 DataT = TypeVar("DataT")
@@ -15,12 +22,77 @@ SearchMode: TypeAlias = Literal["semantic", "keyword", "hybrid"]
 TabVisibility: TypeAlias = Literal["visible", "hidden", "archived"]
 TabSortBy: TypeAlias = Literal["position", "createdAt", "updatedAt", "title"]
 SortDirection: TypeAlias = Literal["asc", "desc"]
+ReceivedValue: TypeAlias = str | int | float | bool | None
+
+
+def utc_datetime(value: datetime) -> datetime:
+    """Treat a naive instant as UTC and convert an aware instant to UTC.
+
+    The TabVault API persists UTC in SQLite, which drops timezone metadata. MCP hosts then reject
+    structured tool output because JSON Schema ``date-time`` requires an offset.
+
+    Args:
+        value: Instant received from the API or constructed in process.
+
+    Returns:
+        datetime: The same instant with an explicit UTC timezone.
+    """
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def rfc3339_utc(value: datetime) -> str:
+    """Serialize a datetime as an RFC 3339 UTC instant with a trailing ``Z``.
+
+    Args:
+        value: Instant to serialize. Naive values are interpreted as UTC.
+
+    Returns:
+        str: RFC 3339 timestamp ending in ``Z``.
+    """
+    return utc_datetime(value).isoformat().replace("+00:00", "Z")
 
 
 class DTO(BaseModel):
     """Provide strict camelCase serialization for every bridge contract."""
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def naive_datetimes_are_utc(cls, value: object) -> object:
+        """Attach UTC to naive timestamps so structured output stays RFC 3339.
+
+        Args:
+            value: Validated field value, which may be a datetime or any other DTO field.
+
+        Returns:
+            object: A UTC-aware datetime when the field is a timestamp, otherwise ``value``.
+        """
+        if isinstance(value, datetime):
+            return utc_datetime(value)
+        return value
+
+    @field_serializer("*", when_used="json", mode="wrap")
+    def serialize_rfc3339_datetimes(
+        self, value: object, handler: SerializerFunctionWrapHandler
+    ) -> object:
+        """Emit RFC 3339 UTC timestamps with a trailing ``Z``.
+
+        MCP Inspector and other hosts validate structured output against the generated JSON
+        Schema. Naive ``isoformat()`` values omit a timezone and fail ``format: date-time``.
+
+        Args:
+            value: Field value being serialized to JSON.
+            handler: Default Pydantic serializer for non-datetime fields.
+
+        Returns:
+            object: An RFC 3339 string for datetimes, otherwise the default JSON value.
+        """
+        if isinstance(value, datetime):
+            return rfc3339_utc(value)
+        return handler(value)
 
 
 class WarningDTO(DTO):
@@ -35,7 +107,7 @@ class IssueDTO(WarningDTO):
     """Describe one structured API validation or domain issue."""
 
     expected: str
-    received: JsonValue = None
+    received: ReceivedValue = None
     http_status: int
     suggested_fix: str | None = None
 

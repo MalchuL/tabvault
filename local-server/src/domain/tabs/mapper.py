@@ -44,10 +44,10 @@ class TabMapper:
             group_id=tab.group_id,
             position=tab.position,
             archived=tab.archived,
-            archived_at=tab.archived_at,
+            archived_at=stored_utc(tab.archived_at),
             hidden_until=stored_utc(tab.hidden_until),
-            created_at=tab.created_at,
-            updated_at=tab.updated_at,
+            created_at=stored_utc(tab.created_at) or tab.created_at,
+            updated_at=stored_utc(tab.updated_at) or tab.updated_at,
         )
 
     @classmethod

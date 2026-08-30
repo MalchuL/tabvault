@@ -18,14 +18,16 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { CapabilityIssue } from "@/components/CapabilityIssue";
 import {
-  checkLocalServer,
+  blockingSearchCapability,
   clearBrowserLibrary,
   clearLibraryOnServer,
   configureExtensionLibraryRefresh,
   configureIndexHealthCheck,
   DEFAULT_TABVAULT_API_KEY,
   DEFAULT_TABVAULT_SERVER_URL,
+  loadServerSearchState,
   readApiKey,
   readLibraryRefreshInterval,
   readLocalServerUrl,
@@ -36,6 +38,7 @@ import {
   writeLocalServerUrl,
   writeStorageMode,
   type SemanticIndexStatus,
+  type ServerCapabilities,
   type StorageMode,
 } from "@/lib/extension";
 import {
@@ -56,6 +59,9 @@ export default function Settings() {
   const [indexStatus, setIndexStatus] = useState<SemanticIndexStatus | null>(
     null
   );
+  const [capabilities, setCapabilities] = useState<ServerCapabilities | null>(
+    null
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshingLibrary, setIsRefreshingLibrary] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(0);
@@ -66,21 +72,32 @@ export default function Settings() {
   const [showApiKey, setShowApiKey] = useState(false);
   const isBackendMode = storageMode === "backend";
 
+  const applySearchState = (state: {
+    online: boolean;
+    schemaVersion?: number;
+    capabilities: ServerCapabilities | null;
+    indexStatus: SemanticIndexStatus | null;
+  }) => {
+    setOnline(state.online);
+    setCapabilities(state.capabilities);
+    setIndexStatus(state.indexStatus);
+  };
+
   const refresh = async (url = serverUrl, key = apiKey, announce = true) => {
     try {
-      const health = await checkLocalServer(url, key);
-      setOnline(health.status === "ok");
-      setIndexStatus(health.semanticIndex ?? null);
+      const state = await loadServerSearchState(url, key);
+      applySearchState(state);
       if (!announce) return;
-      if (health.status === "ok") {
+      if (state.online) {
         toast.success("TabVault server is connected", {
-          description: `Schema v${health.schemaVersion} is ready at ${url}.`,
+          description: `Schema v${state.schemaVersion} is ready at ${url}.`,
         });
       } else {
         toast.error("The TabVault server is unavailable");
       }
     } catch {
       setOnline(false);
+      setCapabilities(null);
       setIndexStatus(null);
       if (announce) toast.error("The TabVault server is unavailable");
     }
@@ -99,15 +116,15 @@ export default function Settings() {
       setRefreshInterval(interval);
       if (mode !== "backend") {
         setOnline(false);
+        setCapabilities(null);
         setIndexStatus(null);
         return;
       }
       try {
-        const health = await checkLocalServer(url, key);
-        setOnline(health.status === "ok");
-        setIndexStatus(health.semanticIndex ?? null);
+        applySearchState(await loadServerSearchState(url, key));
       } catch {
         setOnline(false);
+        setCapabilities(null);
         setIndexStatus(null);
       }
     });
@@ -119,6 +136,7 @@ export default function Settings() {
       await writeStorageMode(storageMode);
       if (storageMode !== "backend") {
         setOnline(false);
+        setCapabilities(null);
         setIndexStatus(null);
         toast.success("Storage settings saved");
         return;
@@ -414,6 +432,9 @@ export default function Settings() {
                   configured server has a ready index. Otherwise, TabVault
                   searches titles, notes, and tags.
                 </p>
+                <CapabilityIssue
+                  capability={blockingSearchCapability(capabilities)}
+                />
                 <button
                   onClick={() => setLocation("/dashboard")}
                   className="mt-5 inline-flex items-center gap-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-[#536057] hover:text-[#e95224]"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -73,7 +74,13 @@ def test_flat_group_and_core_mapper_conversions() -> None:
     )
     tab.created_at = tab.updated_at = utc_now()
     assert tab.url == "https://example.com/?x=1#anchor"
-    assert TabMapper.to_dto(tab).tags == ["docs"]
+    mapped = TabMapper.to_dto(tab)
+    assert mapped.tags == ["docs"]
+    naive = tab.created_at.replace(tzinfo=None)
+    tab.created_at = tab.updated_at = naive
+    serialized = TabMapper.to_dto(tab).model_dump(mode="json", by_alias=True)
+    assert serialized["createdAt"].endswith("Z")
+    assert serialized["updatedAt"].endswith("Z")
     assert TabMapper.to_update_dict(TabUpdateDTO(note=None)) == {"note": ""}
     assert set(
         TabMapper.to_projection(tab, "minimal").model_dump(exclude_unset=True, by_alias=True)
@@ -94,6 +101,17 @@ def test_transfer_mapper_uses_schema_v2_fields() -> None:
     assert tab.url == tab_dto.url
     assert tab.group_id == "group"
     assert tab.note == "" and tab.agent_review == "" and tab.viewed is False
+
+    naive_group = TransferGroupDTO.model_validate(
+        {
+            "id": "group",
+            "name": "Group",
+            "category": "session",
+            "updatedAt": "2026-08-29T20:37:37.346680",
+        }
+    )
+    assert naive_group.updated_at == datetime.fromisoformat("2026-08-29T20:37:37.346680+00:00")
+    assert naive_group.model_dump(mode="json", by_alias=True)["updatedAt"].endswith("Z")
 
 
 def test_services_and_controllers_keep_database_operations_in_repositories() -> None:

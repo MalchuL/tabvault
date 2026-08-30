@@ -4,6 +4,7 @@ import {
   defaultVault,
   isVaultV2,
   serverDocumentToVault,
+  utcTimestamp,
   vaultToServerDocument,
 } from "../client/public/library-sync.js";
 
@@ -145,4 +146,22 @@ test("browser tombstones suppress server resurrection until deletion syncs", () 
   assert.deepEqual(hydrated.tabs, []);
   assert.deepEqual(hydrated.vaultGroups, []);
   assert.deepEqual(hydrated.tombstones, vault.tombstones);
+});
+
+test("portable timestamps without a timezone are treated as UTC", () => {
+  assert.equal(utcTimestamp("2026-08-29T20:37:37.346680"), "2026-08-29T20:37:37.346Z");
+  assert.equal(utcTimestamp("2026-08-29T20:37:37.346680Z"), "2026-08-29T20:37:37.346Z");
+  const vault = defaultVault();
+  vault.vaultGroups.push({
+    id: "group-1",
+    name: "Group",
+    description: "",
+    category: "manual",
+    accent: "#829b65",
+    createdAt: "2026-08-29T20:37:37.346680",
+    updatedAt: "2026-08-29T20:37:37.346680",
+  });
+  const document = vaultToServerDocument(vault);
+  assert.equal(document.groups[0].updatedAt, "2026-08-29T20:37:37.346Z");
+  assert.match(document.groups[0].updatedAt, /Z$/);
 });

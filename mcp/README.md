@@ -14,8 +14,80 @@ TABVAULT_API_KEY=change-me \
 uv run tabvault-mcp
 ```
 
-Point an MCP host at `uv --directory /absolute/path/to/tabvault/mcp run tabvault-mcp` with the same
-two environment variables. The URL defaults to `http://127.0.0.1:47821`; the API key has no default.
+The URL defaults to `http://127.0.0.1:47821`; the API key has no default. Start the local TabVault
+API first, then attach an MCP host with the same two variables.
+
+## MCP Inspector (development)
+
+Use [MCP Inspector](https://github.com/modelcontextprotocol/inspector) to exercise tools, resources,
+and prompts without an IDE host:
+
+```bash
+cd mcp
+npx @modelcontextprotocol/inspector
+```
+
+Add a stdio server with the settings in [misc/inspector.png](misc/inspector.png):
+
+![MCP Inspector settings for local TabVault development](misc/inspector.png)
+
+| Field | Value |
+| --- | --- |
+| Server ID | `tabvault` |
+| Transport | `stdio (local process)` |
+| Command | `uv` |
+| Arguments | `run` then `tabvault-mcp` (one argument per line) |
+| Environment | `TABVAULT_SERVER_URL=http://127.0.0.1:47821` and `TABVAULT_API_KEY=change-me` |
+| Working directory | absolute path to this `mcp/` package |
+
+## Cursor
+
+Add a project server in `.cursor/mcp.json`, or a global server in `~/.cursor/mcp.json`. Cursor
+Settings → MCP → Add new MCP server uses the same fields as the Inspector screenshot.
+
+```json
+{
+  "mcpServers": {
+    "tabvault": {
+      "command": "uv",
+      "args": ["--directory", "/absolute/path/to/tabvault/mcp", "run", "tabvault-mcp"],
+      "env": {
+        "TABVAULT_SERVER_URL": "http://127.0.0.1:47821",
+        "TABVAULT_API_KEY": "change-me"
+      }
+    }
+  }
+}
+```
+
+Replace the `--directory` path with this repo's `mcp/` folder. After saving, toggle the server on
+under Cursor Settings → MCP (or restart Cursor) and confirm `tabvault` shows its tools.
+
+## Codex
+
+Register a stdio server in `~/.codex/config.toml`, or in a trusted project's `.codex/config.toml`:
+
+```toml
+[mcp_servers.tabvault]
+command = "uv"
+args = ["run", "tabvault-mcp"]
+cwd = "/absolute/path/to/tabvault/mcp"
+
+[mcp_servers.tabvault.env]
+TABVAULT_SERVER_URL = "http://127.0.0.1:47821"
+TABVAULT_API_KEY = "change-me"
+```
+
+Or add the same launch from the CLI:
+
+```bash
+codex mcp add tabvault \
+  --env TABVAULT_SERVER_URL=http://127.0.0.1:47821 \
+  --env TABVAULT_API_KEY=change-me \
+  -- uv --directory /absolute/path/to/tabvault/mcp run tabvault-mcp
+```
+
+In a Codex session, run `/mcp` to confirm the server connected.
 
 ## Tools
 

@@ -24,6 +24,7 @@ from fastapi.security import APIKeyHeader
 
 from alembic import command
 from api.error_logging import register_error_handlers
+from api.request_logging import register_request_logging
 from api.routes.api import api_router
 from config.settings import Settings, configure_logging, get_settings
 from db.session import configure_database, dispose_database, get_session_factory
@@ -102,6 +103,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "CORS is open to all origins (*); configure TABVAULT_CORS_ORIGINS before network exposure"
         )
     await asyncio.to_thread(run_migrations)
+    configure_logging(settings)
     engine, _session_factory = configure_database(settings)
     if settings.effective_database_url.startswith("sqlite"):
         async with engine.begin() as connection:
@@ -132,6 +134,7 @@ def create_app() -> FastAPI:
         FastAPI: Result produced by the operation described above.
     """
     settings = get_settings()
+    configure_logging(settings)
     app = FastAPI(
         title="TabVault API Server",
         version="0.2.0",
@@ -236,6 +239,7 @@ def create_app() -> FastAPI:
         api_router, prefix=settings.api_prefix, dependencies=[Depends(require_api_key)]
     )
     register_error_handlers(app)
+    register_request_logging(app)
     return app
 
 
@@ -249,11 +253,13 @@ def main() -> None:
     use cases in their dedicated services.
     """
     settings = get_settings()
+    configure_logging(settings)
     uvicorn.run(
         "api.main:app",
         host=settings.host,
         port=settings.port,
         reload=False,
+        access_log=False,
         log_level=settings.log_level.lower(),
     )
 

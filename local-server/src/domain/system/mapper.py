@@ -183,8 +183,8 @@ class SystemMapper:
         return TransferTagDTO(
             name=tag.name,
             description=tag.description,
-            created_at=tag.created_at,
-            updated_at=tag.updated_at,
+            created_at=stored_utc(tag.created_at) or tag.created_at,
+            updated_at=stored_utc(tag.updated_at) or tag.updated_at,
         )
 
     @staticmethod
@@ -208,8 +208,8 @@ class SystemMapper:
             description=group.description,
             color=group.color,
             position=group.position,
-            created_at=group.created_at,
-            updated_at=group.updated_at,
+            created_at=stored_utc(group.created_at) or group.created_at,
+            updated_at=stored_utc(group.updated_at) or group.updated_at,
         )
 
     @staticmethod
@@ -238,10 +238,10 @@ class SystemMapper:
             group_id=tab.group_id,
             position=tab.position,
             archived=tab.archived,
-            archived_at=tab.archived_at,
+            archived_at=stored_utc(tab.archived_at),
             hidden_until=stored_utc(tab.hidden_until),
-            created_at=tab.created_at,
-            updated_at=tab.updated_at,
+            created_at=stored_utc(tab.created_at) or tab.created_at,
+            updated_at=stored_utc(tab.updated_at) or tab.updated_at,
         )
 
     @staticmethod

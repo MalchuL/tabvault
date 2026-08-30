@@ -11,7 +11,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
-    DateTime,
     Float,
     ForeignKey,
     Integer,
@@ -22,7 +21,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from lib.time import utc_now
+from lib.time import UtcDateTime, utc_now
 
 AssetKind: TypeAlias = Literal["image", "icon"]
 PreviewStatus: TypeAlias = Literal["pending", "running", "ready", "unavailable"]
@@ -86,10 +85,8 @@ class Group(Base):
     category: Mapped[str] = mapped_column(String(128), index=True)
     color: Mapped[str | None] = mapped_column(String(32))
     position: Mapped[float] = mapped_column(Float, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now
-    )
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now, onupdate=utc_now)
 
 
 class Tab(Base):
@@ -139,12 +136,10 @@ class Tab(Base):
     )
     position: Mapped[float] = mapped_column(Float, default=0)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    hidden_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now
-    )
+    archived_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
+    hidden_until: Mapped[datetime | None] = mapped_column(UtcDateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now, onupdate=utc_now)
     tags: Mapped[list[Tag]] = relationship(secondary=tab_tags, lazy="selectin")
 
 
@@ -164,10 +159,8 @@ class Tag(Base):
     __tablename__ = "tags"
     name: Mapped[str] = mapped_column(String(256, collation="NOCASE"), primary_key=True)
     description: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now
-    )
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now, onupdate=utc_now)
 
 
 class Asset(Base):
@@ -195,7 +188,7 @@ class Asset(Base):
     size_bytes: Mapped[int] = mapped_column(Integer)
     checksum: Mapped[str] = mapped_column(String(64), unique=True)
     source_url: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
 
 
 class Preview(Base):
@@ -229,7 +222,7 @@ class Preview(Base):
     length: Mapped[int] = mapped_column(Integer, default=0)
     source_url: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
-    fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fetched_at: Mapped[datetime | None] = mapped_column(UtcDateTime)
 
 
 class Job(Base):
@@ -258,10 +251,8 @@ class Job(Base):
     progress: Mapped[float] = mapped_column(Float, default=0)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now
-    )
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now, onupdate=utc_now)
 
 
 class Backup(Base):
@@ -283,7 +274,7 @@ class Backup(Base):
     path: Mapped[str] = mapped_column(Text, unique=True)
     reason: Mapped[BackupReason] = mapped_column(String(32))
     size_bytes: Mapped[int] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
 
 
 class Tombstone(Base):
@@ -304,7 +295,7 @@ class Tombstone(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     entity_type: Mapped[TombstoneType] = mapped_column(String(24))
     entity_id: Mapped[str] = mapped_column(String(256))
-    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    deleted_at: Mapped[datetime] = mapped_column(UtcDateTime, default=utc_now)
 
 
 class HealthSchedule(Base):
@@ -327,6 +318,6 @@ class HealthSchedule(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     interval_seconds: Mapped[int] = mapped_column(Integer, default=0)
     notify_on_needs_attention: Mapped[bool] = mapped_column(Boolean, default=False)
-    last_check: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_check: Mapped[datetime | None] = mapped_column(UtcDateTime)
     last_result: Mapped[HealthResult | None] = mapped_column(String(32))
-    last_alert: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_alert: Mapped[datetime | None] = mapped_column(UtcDateTime)

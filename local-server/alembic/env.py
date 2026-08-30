@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
@@ -11,8 +12,23 @@ from config.settings import get_settings
 from models import Base
 
 config = context.config
-if config.config_file_name:
-    fileConfig(config.config_file_name)
+
+
+def configure_alembic_logging() -> None:
+    """Load Alembic's ini logging only when this process has no handlers yet.
+
+    ``tabvault-server`` configures application logging before it runs migrations.
+    Alembic's default ``fileConfig`` would otherwise replace those handlers and
+    set the root logger to WARNING, which hides per-request access lines. The
+    standalone ``alembic`` CLI still has an empty handler list, so it keeps the
+    ini formatters and logger levels.
+
+    """
+    if config.config_file_name and not logging.getLogger().handlers:
+        fileConfig(config.config_file_name, disable_existing_loggers=False)
+
+
+configure_alembic_logging()
 database_url = get_settings().effective_database_url.replace("sqlite+aiosqlite", "sqlite")
 config.set_main_option("sqlalchemy.url", database_url)
 target_metadata = Base.metadata

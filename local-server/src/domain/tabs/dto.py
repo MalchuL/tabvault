@@ -8,9 +8,8 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
 
-from lib.dto_config import model_config
+from lib.dto_config import DTO, model_config
 from lib.pagination import PaginatedResponse
-from lib.time import absolute_utc
 
 from .visibility import TabVisibility
 
@@ -118,7 +117,7 @@ class TabListOptionsDTO(BaseModel):
     model_config = model_config()
 
 
-class TabUpdateDTO(BaseModel):
+class TabUpdateDTO(DTO):
     """Describe explicitly supplied Saved Tab fields.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -148,30 +147,10 @@ class TabUpdateDTO(BaseModel):
     position: float | None = Field(default=None, ge=0)
     archived: bool | None = None
     hidden_until: datetime | None = None
-    model_config = model_config()
 
     _url_is_http = field_validator("url")(
         lambda value: _validate_saved_url(value) if value is not None else value
     )
-
-    @field_validator("hidden_until")
-    @classmethod
-    def hidden_until_is_utc(cls, value: datetime | None) -> datetime | None:
-        """Require an absolute instant and normalize it to UTC.
-
-        This type is part of a validated boundary: Pydantic enforces its declared shape while the
-        shared DTO configuration serializes public field names in camelCase and rejects unknown
-        input fields.
-
-        Args:
-            value (datetime | None): Value to validate, convert, or persist.
-
-        Returns:
-            datetime | None: Result produced by the operation described above.
-        """
-        if value is None:
-            return None
-        return absolute_utc(value)
 
 
 class TabReorderDTO(BaseModel):
@@ -236,7 +215,7 @@ class TabTagDTO(BaseModel):
     model_config = model_config()
 
 
-class TabDTO(BaseModel):
+class TabDTO(DTO):
     """Represent one complete Saved Tab.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -275,10 +254,9 @@ class TabDTO(BaseModel):
     hidden_until: datetime | None
     created_at: datetime
     updated_at: datetime
-    model_config = model_config()
 
 
-class TabProjectionDTO(BaseModel):
+class TabProjectionDTO(DTO):
     """Represent a caller-selected subset of Saved Tab fields.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -318,7 +296,6 @@ class TabProjectionDTO(BaseModel):
     hidden_until: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    model_config = model_config()
 
 
 class TabJobDTO(BaseModel):
@@ -369,7 +346,7 @@ class TabListResponseDTO(PaginatedResponse[TabDTO | TabProjectionDTO]):
     """Expose a paginated list of Saved Tabs."""
 
 
-class TabDeleteResultDTO(BaseModel):
+class TabDeleteResultDTO(DTO):
     """Describe an archived or permanently deleted Saved Tab.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -384,4 +361,3 @@ class TabDeleteResultDTO(BaseModel):
     id: str
     deleted_at: datetime
     hard: bool
-    model_config = model_config()

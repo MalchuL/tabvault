@@ -4,12 +4,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from domain.tabs.dto import TabDTO
-from lib.dto_config import model_config
+from lib.dto_config import DTO, model_config
 from lib.responses import IssueDTO, WarningDTO
-from lib.time import absolute_utc
 
 SearchMode: TypeAlias = Literal["semantic", "keyword", "hybrid"]
 SearchMatchType: TypeAlias = Literal["both", "semantic", "keyword"]
@@ -98,6 +97,42 @@ class VectorStatusDTO(BaseModel):
     provider: Literal["sentence-transformers"]
     model: str
     last_error: str | None
+    model_config = model_config()
+
+
+class CapabilityDTO(BaseModel):
+    """Describe whether one server feature is usable in this process.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        available (bool): Whether the current process can provide the feature.
+        error (str | None): Short explanation when the feature is unavailable.
+        fix (str | None): Operator-facing remediation when the feature is unavailable.
+    """
+
+    available: bool
+    error: str | None = None
+    fix: str | None = None
+    model_config = model_config()
+
+
+class CapabilitiesDTO(BaseModel):
+    """Report which local-server features are available right now.
+
+    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
+    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+
+    Attributes:
+        keyword_search (CapabilityDTO): Substring search over titles, notes, URLs, and tags.
+        semantic_search (CapabilityDTO): Embedding runtime required for meaning-based search.
+        vector_index (CapabilityDTO): Rebuilt local embedding index used by semantic search.
+    """
+
+    keyword_search: CapabilityDTO
+    semantic_search: CapabilityDTO
+    vector_index: CapabilityDTO
     model_config = model_config()
 
 
@@ -205,7 +240,7 @@ class JobQueuedDTO(BaseModel):
     model_config = model_config()
 
 
-class JobDTO(BaseModel):
+class JobDTO(DTO):
     """Represent background job state.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -228,10 +263,9 @@ class JobDTO(BaseModel):
     error: str | None
     created_at: datetime
     updated_at: datetime
-    model_config = model_config()
 
 
-class BackupDTO(BaseModel):
+class BackupDTO(DTO):
     """Represent an available backup snapshot.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -248,7 +282,6 @@ class BackupDTO(BaseModel):
     created_at: datetime
     reason: str
     size_bytes: int
-    model_config = model_config()
 
 
 class BackupListDataDTO(BaseModel):
@@ -265,7 +298,7 @@ class BackupListDataDTO(BaseModel):
     model_config = model_config()
 
 
-class PreviewDTO(BaseModel):
+class PreviewDTO(DTO):
     """Represent captured preview content or its pending state.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -298,7 +331,6 @@ class PreviewDTO(BaseModel):
     error: str | None = None
     fetched_at: datetime | None = None
     fallback_asset: str
-    model_config = model_config()
 
 
 class AssetFileDTO(BaseModel):
@@ -317,7 +349,7 @@ class AssetFileDTO(BaseModel):
     model_config = model_config()
 
 
-class HealthScheduleDTO(BaseModel):
+class HealthScheduleDTO(DTO):
     """Represent vector-index health-check scheduling state.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -339,7 +371,6 @@ class HealthScheduleDTO(BaseModel):
     last_check: datetime | None
     last_result: HealthResult | None
     last_alert: datetime | None
-    model_config = model_config()
 
 
 class IndexStatusDTO(VectorStatusDTO):
@@ -371,7 +402,7 @@ class LibraryClearDTO(BaseModel):
     model_config = model_config()
 
 
-class TransferTagDTO(BaseModel):
+class TransferTagDTO(DTO):
     """Represent a tag in a portable library document.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -388,10 +419,9 @@ class TransferTagDTO(BaseModel):
     description: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    model_config = model_config()
 
 
-class TransferGroupDTO(BaseModel):
+class TransferGroupDTO(DTO):
     """Represent a group in a portable library document.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -416,10 +446,9 @@ class TransferGroupDTO(BaseModel):
     position: float = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    model_config = model_config()
 
 
-class TransferTabDTO(BaseModel):
+class TransferTabDTO(DTO):
     """Represent a tab in a portable library document.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -458,29 +487,9 @@ class TransferTabDTO(BaseModel):
     hidden_until: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    model_config = model_config()
-
-    @field_validator("hidden_until")
-    @classmethod
-    def hidden_until_is_utc(cls, value: datetime | None) -> datetime | None:
-        """Require an absolute instant and normalize it to UTC.
-
-        This type is part of a validated boundary: Pydantic enforces its declared shape while the
-        shared DTO configuration serializes public field names in camelCase and rejects unknown
-        input fields.
-
-        Args:
-            value (datetime | None): Value to validate, convert, or persist.
-
-        Returns:
-            datetime | None: Result produced by the operation described above.
-        """
-        if value is None:
-            return None
-        return absolute_utc(value)
 
 
-class TransferDocumentDTO(BaseModel):
+class TransferDocumentDTO(DTO):
     """Represent the versioned portable TabVault document.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -499,7 +508,6 @@ class TransferDocumentDTO(BaseModel):
     tags: list[TransferTagDTO] = Field(default_factory=list)
     groups: list[TransferGroupDTO] = Field(default_factory=list)
     tabs: list[TransferTabDTO] = Field(default_factory=list)
-    model_config = model_config()
 
 
 class MinimalTransferTabDTO(BaseModel):
@@ -526,7 +534,7 @@ class MinimalTransferTabDTO(BaseModel):
     model_config = model_config()
 
 
-class MinimalTransferDocumentDTO(BaseModel):
+class MinimalTransferDocumentDTO(DTO):
     """Represent a portable document with minimal tab fields.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -545,7 +553,6 @@ class MinimalTransferDocumentDTO(BaseModel):
     tags: list[TransferTagDTO]
     groups: list[TransferGroupDTO]
     tabs: list[MinimalTransferTabDTO]
-    model_config = model_config()
 
 
 class TransferExportDTO(BaseModel):

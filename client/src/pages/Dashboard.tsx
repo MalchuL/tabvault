@@ -21,10 +21,12 @@ import {
   Wifi,
 } from "lucide-react";
 import { toast } from "sonner";
+import { CapabilityIssue } from "@/components/CapabilityIssue";
 import {
-  checkLocalServer,
+  blockingSearchCapability,
   DEFAULT_TABVAULT_API_KEY,
   DEFAULT_TABVAULT_SERVER_URL,
+  loadServerSearchState,
   readApiKey,
   readExtensionVault,
   readLocalServerUrl,
@@ -32,6 +34,7 @@ import {
   rebuildSemanticIndex,
   runIndexHealthCheck,
   type SemanticIndexStatus,
+  type ServerCapabilities,
   type SyncStatus,
 } from "@/lib/extension";
 
@@ -65,8 +68,21 @@ export default function Dashboard() {
   const [indexStatus, setIndexStatus] = useState<SemanticIndexStatus | null>(
     null
   );
+  const [capabilities, setCapabilities] = useState<ServerCapabilities | null>(
+    null
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRebuilding, setIsRebuilding] = useState(false);
+
+  const applySearchState = (state: {
+    online: boolean;
+    capabilities: ServerCapabilities | null;
+    indexStatus: SemanticIndexStatus | null;
+  }) => {
+    setOnline(state.online);
+    setCapabilities(state.capabilities);
+    setIndexStatus(state.indexStatus);
+  };
 
   const loadStatus = async (announce = false) => {
     setIsRefreshing(true);
@@ -82,12 +98,11 @@ export default function Dashboard() {
       setServerUrl(url);
       setApiKey(key);
       try {
-        const health = await checkLocalServer(url, key);
-        setOnline(health.status === "ok");
-        setIndexStatus(health.semanticIndex ?? null);
+        applySearchState(await loadServerSearchState(url, key));
         if (announce) toast.success("Dashboard refreshed");
       } catch {
         setOnline(false);
+        setCapabilities(null);
         setIndexStatus(null);
         if (announce)
           toast.message("Working from local storage", {
@@ -106,6 +121,20 @@ export default function Dashboard() {
     return () => window.clearTimeout(refreshTimer);
   }, []);
 
+  useEffect(() => {
+    if (!online) return;
+    const timer = window.setInterval(() => {
+      void loadServerSearchState(serverUrl, apiKey)
+        .then(applySearchState)
+        .catch(() => {
+          setOnline(false);
+          setCapabilities(null);
+          setIndexStatus(null);
+        });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [online, serverUrl, apiKey]);
+
   const rebuild = async () => {
     if (!online) {
       toast.error("Connect the server before rebuilding the index");
@@ -114,10 +143,36 @@ export default function Dashboard() {
     setIsRebuilding(true);
     try {
       const status = await rebuildSemanticIndex(serverUrl, apiKey);
-      setIndexStatus(status);
-      toast.success("Index rebuild started");
+      const state = await loadServerSearchState(serverUrl, apiKey);
+      applySearchState(state);
+      const blocked = blockingSearchCapability(state.capabilities);
+      if (blocked) {
+        toast.error(blocked.error ?? "Semantic search is not ready", {
+          description: blocked.fix ?? undefined,
+        });
+        return;
+      }
+      if (status.status === "ready" || state.indexStatus?.status === "ready") {
+        toast.success("Semantic index rebuilt", {
+          description: `${state.indexStatus?.indexedTabs ?? status.indexedTabs} tabs are ready for ranked search.`,
+        });
+        return;
+      }
+      toast.success("Index rebuild started", {
+        description:
+          "The first rebuild downloads the embedding model and can take several minutes.",
+      });
     } catch {
-      toast.error("Could not start the index rebuild");
+      try {
+        const state = await loadServerSearchState(serverUrl, apiKey);
+        applySearchState(state);
+        const blocked = blockingSearchCapability(state.capabilities);
+        toast.error(blocked?.error ?? "Could not start the index rebuild", {
+          description: blocked?.fix ?? undefined,
+        });
+      } catch {
+        toast.error("Could not start the index rebuild");
+      }
     } finally {
       setIsRebuilding(false);
     }
@@ -152,6 +207,7 @@ export default function Dashboard() {
         : "Stored in this browser profile";
   const SyncIcon = syncState === "synced" ? Check : CloudOff;
   const indexReady = indexStatus?.status === "ready";
+  const blockedCapability = blockingSearchCapability(capabilities);
   const healthNeedsAttention =
     indexStatus?.healthCheck?.lastResult === "needs_attention";
   const libraryMetrics = [
@@ -312,6 +368,12 @@ export default function Dashboard() {
                 ? `${indexStatus?.model ?? "Local embedding model"} is ready. Keyword and tag search remain available too.`
                 : "Set up or rebuild the index only if you want search to match related concepts, not just words."}
             </p>
+            {indexStatus?.lastError && !blockedCapability?.error && (
+              <p className="mt-3 text-[12px] leading-5 text-[#8a4a38]">
+                {indexStatus.lastError}
+              </p>
+            )}
+            <CapabilityIssue capability={blockedCapability} />
             <button
               onClick={() => void rebuild()}
               disabled={!online || isRebuilding}

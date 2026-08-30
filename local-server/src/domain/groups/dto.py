@@ -6,11 +6,11 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from lib.dto_config import model_config
+from lib.dto_config import DTO, model_config
 from lib.pagination import PaginatedResponse
 
 
-class GroupCreateDTO(BaseModel):
+class GroupCreateDTO(DTO):
     """Describe one Group to create.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -36,7 +36,6 @@ class GroupCreateDTO(BaseModel):
     id: str | None = Field(default=None, max_length=128)
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    model_config = model_config()
 
 
 class GroupUpdateDTO(BaseModel):
@@ -62,7 +61,7 @@ class GroupUpdateDTO(BaseModel):
     model_config = model_config()
 
 
-class GroupDTO(BaseModel):
+class GroupDTO(DTO):
     """Represent one flat Group.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -89,14 +88,13 @@ class GroupDTO(BaseModel):
     created_at: datetime
     updated_at: datetime
     tab_count: int = 0
-    model_config = model_config()
 
 
 class GroupListResponseDTO(PaginatedResponse[GroupDTO]):
     """Expose a paginated list of Groups."""
 
 
-class GroupDeleteResultDTO(BaseModel):
+class GroupDeleteResultDTO(DTO):
     """Describe permanent Group deletion and archived members.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -111,4 +109,3 @@ class GroupDeleteResultDTO(BaseModel):
     id: str
     archived_tab_count: int
     deleted_at: datetime
-    model_config = model_config()

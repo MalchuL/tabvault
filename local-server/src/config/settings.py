@@ -137,13 +137,33 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def configure_logging(settings: Settings) -> None:
-    """Configure root logging from validated settings.
+LOG_FORMAT = "%(asctime)s %(levelname)-5s [%(name)s] %(message)s"
+LOG_DATE_FORMAT = "%H:%M:%S"
 
-    The value is derived from validated runtime configuration so startup, HTTP handling, and
-    background work share one interpretation of environment settings.
+
+def configure_logging(settings: Settings) -> None:
+    """Configure process-wide logging from validated settings.
+
+    Applies ``TABVAULT_LOG_LEVEL`` to the root logger and uses one readable line format
+    for application, uvicorn, and Alembic messages. Existing handlers keep their sinks
+    (including pytest's ``caplog``) and only receive the shared formatter. Call this
+    again after Alembic migrations; Alembic's ini ``fileConfig`` can reset the root
+    logger to WARNING and hide request access lines. Uvicorn's own access logger is
+    quieted because ``RequestLoggingMiddleware`` already records every request and a
+    response preview.
 
     Args:
         settings (Settings): Validated process settings that control this component.
     """
-    logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
+    level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    formatter = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
+    root = logging.getLogger()
+    root.setLevel(level)
+    if not root.handlers:
+        root.addHandler(logging.StreamHandler())
+    for handler in root.handlers:
+        handler.setFormatter(formatter)
+    logging.getLogger("api.request").setLevel(level)
+    logging.getLogger("uvicorn").setLevel(level)
+    logging.getLogger("uvicorn.error").setLevel(level)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

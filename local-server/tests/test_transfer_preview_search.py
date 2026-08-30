@@ -53,6 +53,65 @@ def test_import_validate_export_replace_backup_and_clear(
     assert client.get("/api/v1/backups", headers=headers).json()["data"]["backups"]
 
 
+def test_merge_import_accepts_naive_updated_at(client: TestClient, headers: dict[str, str]) -> None:
+    seed = {
+        "schemaVersion": 2,
+        "tags": [],
+        "groups": [
+            {
+                "id": "group-1",
+                "name": "Older",
+                "category": "manual",
+                "position": 0,
+                "updatedAt": "2026-01-01T00:00:00Z",
+            }
+        ],
+        "tabs": [],
+    }
+    assert client.post("/api/v1/import?mode=upload", headers=headers, json=seed).status_code == 200
+
+    newer = {
+        "schemaVersion": 2,
+        "tags": [],
+        "groups": [
+            {
+                "id": "group-1",
+                "name": "Newer",
+                "category": "manual",
+                "position": 0,
+                "updatedAt": "2026-06-01T00:00:00",
+            }
+        ],
+        "tabs": [],
+    }
+    merged = client.post("/api/v1/import?mode=upload", headers=headers, json=newer)
+    assert merged.status_code == 200
+    assert merged.json()["success"] is True
+    exported = client.get("/api/v1/export?format=json", headers=headers).json()
+    assert exported["groups"][0]["name"] == "Newer"
+    assert exported["groups"][0]["updatedAt"].endswith("Z")
+
+    stale = {
+        "schemaVersion": 2,
+        "tags": [],
+        "groups": [
+            {
+                "id": "group-1",
+                "name": "Stale",
+                "category": "manual",
+                "position": 0,
+                "updatedAt": "2025-01-01T00:00:00",
+            }
+        ],
+        "tabs": [],
+    }
+    assert client.post("/api/v1/import?mode=upload", headers=headers, json=stale).status_code == 200
+    assert (
+        client.get("/api/v1/export?format=json", headers=headers).json()["groups"][0]["name"]
+        == "Newer"
+    )
+
+
 def test_document_validation_and_markdown_parser_collect_errors() -> None:
     errors, _ = validate_document(
         {

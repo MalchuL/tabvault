@@ -17,9 +17,11 @@ from lib.responses import WarningDTO
 from lib.time import utc_now
 from models import HealthSchedule
 
+from .capabilities import build_capabilities, probe_module
 from .dto import (
     AssetFileDTO,
     BackupDTO,
+    CapabilitiesDTO,
     HealthDTO,
     HealthScheduleDTO,
     IndexStatusDTO,
@@ -103,6 +105,25 @@ class SystemService:
             schema_version=2,
             storage=StorageCountsDTO(tabs=tabs, groups=groups, tags=tags),
             vector_index=self.vectors.status(),
+        )
+
+    async def capabilities(self) -> CapabilitiesDTO:
+        """Report which search features this process can provide.
+
+        This application-layer operation probes optional embedding dependencies without loading the
+        model, then combines that result with the in-memory vector-index status. The payload is
+        intended for Dashboard and Settings so operators see both the failure and the remediation.
+
+        Returns:
+            CapabilitiesDTO: Keyword, semantic-runtime, and rebuilt-index availability.
+        """
+        vector = self.vectors.status()
+        semantic_error = (
+            probe_module("sentence_transformers") or probe_module("zvec") or vector.last_error
+        )
+        return build_capabilities(
+            semantic_error=semantic_error,
+            index_ready=vector.status == "ready",
         )
 
     async def search(

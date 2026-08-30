@@ -21,6 +21,7 @@ from mcp_tabvault.client.dto import (
     GroupUpdateDTO,
     SearchQueryDTO,
     TabCreateDTO,
+    TabDTO,
     TabListQueryDTO,
     TabReorderDTO,
     TabTagDTO,
@@ -67,6 +68,13 @@ async def test_environment_defaults_and_dto_aliases(monkeypatch: pytest.MonkeyPa
     assert TabCreateDTO(url="https://example.com", agent_review="ok").model_dump(
         by_alias=True, exclude_unset=True
     ) == {"url": "https://example.com", "agentReview": "ok"}
+    naive = tab().model_dump(mode="json", by_alias=True)
+    naive["createdAt"] = "2026-08-24T16:38:22.557000"
+    naive["updatedAt"] = "2026-08-24T16:38:22.557000"
+    assert (
+        TabDTO.model_validate(naive).model_dump(mode="json", by_alias=True)["createdAt"]
+        == "2026-08-24T16:38:22.557000Z"
+    )
     with pytest.raises(ValidationError, match="duplicates"):
         TabReorderDTO(tab_ids=["same", "same"])
     await close_client()

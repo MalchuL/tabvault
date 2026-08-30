@@ -21,6 +21,7 @@ from lib.responses import (
 
 from .dto import (
     BackupListDataDTO,
+    CapabilitiesDTO,
     ExportFields,
     HealthConfigDTO,
     HealthDTO,
@@ -58,6 +59,27 @@ async def health(service: Annotated[SystemService, Depends(get_system_service)])
         HealthDTO: Result produced by the operation described above.
     """
     return await service.health()
+
+
+@router.get("/capabilities", response_model=SuccessResponseDTO[CapabilitiesDTO])
+async def capabilities(
+    service: Annotated[SystemService, Depends(get_system_service)],
+) -> SuccessResponseDTO[CapabilitiesDTO]:
+    """Return which local-server features are available in this process.
+
+    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
+    delegates domain work to an injected service, and returns the shared typed response envelope.
+    Database access and transaction decisions remain outside the route.
+
+    Args:
+        service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped application
+            service that implements the use case.
+
+    Returns:
+        SuccessResponseDTO[CapabilitiesDTO]: Keyword, semantic-runtime, and vector-index
+            availability, including an error and fix when a feature is unavailable.
+    """
+    return success(await service.capabilities())
 
 
 @router.get("/search", response_model=SuccessResponseDTO[SearchDataDTO])

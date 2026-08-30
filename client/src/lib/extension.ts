@@ -122,6 +122,29 @@ export type SemanticIndexStatus = {
   healthCheck?: IndexHealthCheck;
 };
 
+export type ServerCapability = {
+  available: boolean;
+  error?: string | null;
+  fix?: string | null;
+};
+
+export type ServerCapabilities = {
+  keywordSearch: ServerCapability;
+  semanticSearch: ServerCapability;
+  vectorIndex: ServerCapability;
+};
+
+export type BackgroundJob = {
+  id: string;
+  status: "pending" | "running" | "done" | "failed";
+  progress: number;
+  error?: string | null;
+};
+
+type SemanticIndexStatusWire = Partial<SemanticIndexStatus> & {
+  indexedCount?: number;
+};
+
 export type IndexHealthCheck = {
   enabled: boolean;
   intervalSeconds: number;
@@ -400,6 +423,51 @@ function apiHeaders(
   };
 }
 
+/**
+ * Normalize health or index-status payloads onto the UI field names.
+ *
+ * The local server reports `vectorIndex` and `indexedCount`; older clients and
+ * copy still use `semanticIndex` and `indexedTabs`.
+ *
+ * @param raw - Health or `/index/status` fragment from the local server.
+ * @returns A UI-ready index status, or `null` when the payload is missing.
+ */
+export function normalizeSemanticIndexStatus(
+  raw?: SemanticIndexStatusWire | null
+): SemanticIndexStatus | null {
+  if (!raw) return null;
+  return {
+    status: raw.status ?? "not_ready",
+    indexedTabs: raw.indexedTabs ?? raw.indexedCount ?? 0,
+    provider: raw.provider ?? "sentence-transformers",
+    model: raw.model ?? "",
+    baseUrl: raw.baseUrl ?? "",
+    batchSize: raw.batchSize,
+    progress: raw.progress,
+    lastError: raw.lastError,
+    healthCheck: raw.healthCheck,
+  };
+}
+
+/**
+ * Choose the capability the operator should see first.
+ *
+ * Runtime install problems take priority over an empty index so Dashboard can
+ * show the missing `sentence-transformers` extra before a rebuild is attempted.
+ *
+ * @param capabilities - Latest `/capabilities` snapshot, if the server is online.
+ * @returns The blocking capability, or `null` when both features are available.
+ */
+export function blockingSearchCapability(
+  capabilities?: ServerCapabilities | null
+): ServerCapability | null {
+  if (!capabilities) return null;
+  if (!capabilities.semanticSearch.available)
+    return capabilities.semanticSearch;
+  if (!capabilities.vectorIndex.available) return capabilities.vectorIndex;
+  return null;
+}
+
 export async function checkLocalServer(
   url: string,
   apiKey = DEFAULT_TABVAULT_API_KEY
@@ -409,11 +477,39 @@ export async function checkLocalServer(
   });
   if (!response.ok)
     throw new Error("Local server did not return a healthy status");
-  return response.json() as Promise<{
+  const payload = (await response.json()) as {
     status: string;
     schemaVersion: number;
-    semanticIndex?: SemanticIndexStatus;
-  }>;
+    semanticIndex?: SemanticIndexStatusWire;
+    vectorIndex?: SemanticIndexStatusWire;
+  };
+  return {
+    ...payload,
+    semanticIndex: normalizeSemanticIndexStatus(
+      payload.semanticIndex ?? payload.vectorIndex
+    ),
+  };
+}
+
+/**
+ * Read which local-server features are available in this process.
+ *
+ * @param url - Configured local-server base URL.
+ * @param apiKey - Local-server API key.
+ * @returns Named capability records, including error and fix text when needed.
+ */
+export async function getServerCapabilities(
+  url: string,
+  apiKey = DEFAULT_TABVAULT_API_KEY
+): Promise<ServerCapabilities> {
+  const response = await fetch(
+    `${url.replace(/\/+$/, "")}/api/v1/capabilities`,
+    { headers: apiHeaders(apiKey) }
+  );
+  if (!response.ok)
+    throw new Error("TabVault local server could not report capabilities");
+  const payload = (await response.json()) as { data: ServerCapabilities };
+  return payload.data;
 }
 
 export async function readLibraryFromServer(
@@ -632,7 +728,33 @@ export async function getSemanticIndexStatus(
   );
   if (!response.ok)
     throw new Error("TabVault local server could not read index status");
-  const payload = (await response.json()) as { data: SemanticIndexStatus };
+  const payload = (await response.json()) as { data: SemanticIndexStatusWire };
+  const status = normalizeSemanticIndexStatus(payload.data);
+  if (!status)
+    throw new Error("TabVault local server returned an empty index status");
+  return status;
+}
+
+/**
+ * Read one background job queued by the local server.
+ *
+ * @param url - Configured local-server base URL.
+ * @param jobId - Identifier returned by a 202 queue response.
+ * @param apiKey - Local-server API key.
+ * @returns The current job status, progress, and optional error.
+ */
+export async function getBackgroundJob(
+  url: string,
+  jobId: string,
+  apiKey = DEFAULT_TABVAULT_API_KEY
+): Promise<BackgroundJob> {
+  const response = await fetch(
+    `${url.replace(/\/+$/, "")}/api/v1/jobs/${encodeURIComponent(jobId)}`,
+    { headers: apiHeaders(apiKey) }
+  );
+  if (!response.ok)
+    throw new Error("TabVault local server could not read the job");
+  const payload = (await response.json()) as { data: BackgroundJob };
   return payload.data;
 }
 
@@ -651,7 +773,40 @@ export async function rebuildSemanticIndex(
     throw new Error(
       "TabVault local server could not rebuild the semantic index"
     );
+  const queued = (await response.json()) as { data?: { jobId?: string } };
+  const jobId = queued.data?.jobId;
+  if (jobId) {
+    await new Promise(resolve => window.setTimeout(resolve, 200));
+    const job = await getBackgroundJob(url, jobId, apiKey);
+    if (job.status === "failed") {
+      throw new Error(job.error ?? "Index rebuild failed");
+    }
+  }
   return getSemanticIndexStatus(url, apiKey);
+}
+
+/**
+ * Load health, capabilities, and index status for Dashboard and Settings.
+ *
+ * @param url - Configured local-server base URL.
+ * @param apiKey - Local-server API key.
+ * @returns Online flag plus the latest capability and index snapshots.
+ */
+export async function loadServerSearchState(
+  url: string,
+  apiKey = DEFAULT_TABVAULT_API_KEY
+) {
+  const health = await checkLocalServer(url, apiKey);
+  const [capabilities, indexStatus] = await Promise.all([
+    getServerCapabilities(url, apiKey).catch(() => null),
+    getSemanticIndexStatus(url, apiKey).catch(() => health.semanticIndex),
+  ]);
+  return {
+    online: health.status === "ok",
+    schemaVersion: health.schemaVersion,
+    capabilities,
+    indexStatus: indexStatus ?? health.semanticIndex ?? null,
+  };
 }
 
 export async function updateTabOnLocalServer(

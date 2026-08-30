@@ -23,8 +23,25 @@ export const LIBRARY_REFRESH_INTERVALS = [
 
 export const UNASSIGNED_ORDER_KEY = "unassigned";
 
+const HAS_TIMEZONE = /[zZ]|[+-]\d{2}:?\d{2}$/;
+
 export function orderKey(groupId: string | null) {
   return groupId ?? UNASSIGNED_ORDER_KEY;
+}
+
+export function utcTimestamp(value: string): string {
+  const instant = HAS_TIMEZONE.test(value) ? value : `${value}Z`;
+  const parsed = Date.parse(instant);
+  if (Number.isNaN(parsed)) return instant;
+  return new Date(parsed).toISOString();
+}
+
+function utcTimestampOrFallback(value: unknown, fallback: string): string {
+  return typeof value === "string" ? utcTimestamp(value) : fallback;
+}
+
+function utcTimestampOrNull(value: unknown): string | null {
+  return typeof value === "string" ? utcTimestamp(value) : null;
 }
 
 export function emptyBrowserVault(): PersistedVault {
@@ -158,8 +175,8 @@ export function toServerDocument(
       description: group.description,
       color: group.accent,
       position,
-      createdAt: group.createdAt,
-      updatedAt: group.updatedAt,
+      createdAt: utcTimestamp(group.createdAt),
+      updatedAt: utcTimestamp(group.updatedAt),
     })),
     tabs: vault.tabs.map(tab => ({
       id: tab.id,
@@ -171,11 +188,11 @@ export function toServerDocument(
       tags: tab.tags,
       groupId: tab.archived ? null : tab.groupId,
       archived: Boolean(tab.archived),
-      archivedAt: tab.archivedAt ?? null,
-      hiddenUntil: tab.hiddenUntil ?? null,
+      archivedAt: utcTimestampOrNull(tab.archivedAt),
+      hiddenUntil: utcTimestampOrNull(tab.hiddenUntil),
       position: vault.tabOrders[orderKey(tab.groupId)]?.indexOf(tab.id) ?? 0,
-      createdAt: tab.createdAt,
-      updatedAt: tab.updatedAt,
+      createdAt: utcTimestamp(tab.createdAt),
+      updatedAt: utcTimestamp(tab.updatedAt),
     })),
   };
 }
@@ -209,8 +226,8 @@ export function fromServerDocument(
     description: typeof group.description === "string" ? group.description : "",
     category: String(group.category),
     accent: typeof group.color === "string" ? group.color : "#829b65",
-    createdAt: typeof group.createdAt === "string" ? group.createdAt : now,
-    updatedAt: typeof group.updatedAt === "string" ? group.updatedAt : now,
+    createdAt: utcTimestampOrFallback(group.createdAt, now),
+    updatedAt: utcTimestampOrFallback(group.updatedAt, now),
   }));
   const tabs: VaultTab[] = remoteTabs
     .slice()
@@ -232,11 +249,11 @@ export function fromServerDocument(
         String(tab.title ?? "T")
           .slice(0, 1)
           .toUpperCase() || "T",
-      createdAt: typeof tab.createdAt === "string" ? tab.createdAt : now,
-      updatedAt: typeof tab.updatedAt === "string" ? tab.updatedAt : now,
+      createdAt: utcTimestampOrFallback(tab.createdAt, now),
+      updatedAt: utcTimestampOrFallback(tab.updatedAt, now),
       archived: Boolean(tab.archived),
-      archivedAt: typeof tab.archivedAt === "string" ? tab.archivedAt : null,
-      hiddenUntil: typeof tab.hiddenUntil === "string" ? tab.hiddenUntil : null,
+      archivedAt: utcTimestampOrNull(tab.archivedAt),
+      hiddenUntil: utcTimestampOrNull(tab.hiddenUntil),
     }));
   const tabOrders = tabs.reduce<Record<string, string[]>>((orders, tab) => {
     const key = orderKey(tab.groupId);

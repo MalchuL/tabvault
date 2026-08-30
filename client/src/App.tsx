@@ -5,13 +5,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
-import {
-  Route,
-  Router,
-  Switch,
-  useLocation,
-  type BaseLocationHook,
-} from "wouter";
+import { Route, Router, Switch, type BaseLocationHook } from "wouter";
 import { useBrowserLocation } from "wouter/use-browser-location";
 import { useHashLocation } from "wouter/use-hash-location";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -61,18 +55,10 @@ function AppRoutes() {
 }
 
 function AppWorkspace() {
-  const [location] = useLocation();
-  const isLibraryRoute =
-    location === "/" ||
-    location === "/all-tabs" ||
-    location === "/archive" ||
-    location === "/hidden" ||
-    location.startsWith("/collections");
-  const routes = <AppRoutes />;
-  return isLibraryRoute ? (
-    routes
-  ) : (
-    <WorkspaceSidebar>{routes}</WorkspaceSidebar>
+  return (
+    <WorkspaceSidebar>
+      <AppRoutes />
+    </WorkspaceSidebar>
   );
 }
 

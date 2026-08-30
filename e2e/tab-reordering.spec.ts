@@ -233,9 +233,21 @@ test("workspace sidebar remains available on secondary pages", async ({
   page,
 }) => {
   await openSchemaV2Library(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
   const sidebar = page.getByTestId("workspace-sidebar");
   await expect(sidebar).toBeVisible();
+  await expect(
+    sidebar.getByRole("button", { name: /^All Tabs/ })
+  ).toBeVisible();
+  await expect(
+    sidebar.getByRole("button", { name: "Advanced Deduplication" })
+  ).toBeVisible();
+  await expect(sidebar.getByRole("button", { name: /^Tags/ })).toBeVisible();
+  await sidebar.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(sidebar).toBeVisible();
+  await expect(
+    sidebar.getByRole("button", { name: "Advanced Deduplication" })
+  ).toBeVisible();
   await sidebar.getByRole("button", { name: "Dashboard", exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(sidebar).toBeVisible();
@@ -311,7 +323,10 @@ test("Advanced Deduplicator previews and applies an exact-URL fixed plan", async
   page,
 }) => {
   await openSchemaV2Library(page);
-  await page.getByRole("button", { name: "Advanced Dedup" }).click();
+  await page
+    .getByTestId("workspace-sidebar")
+    .getByRole("button", { name: "Advanced Deduplication" })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Advanced Deduplicator" })
   ).toBeVisible();

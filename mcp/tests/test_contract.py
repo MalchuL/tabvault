@@ -10,7 +10,13 @@ from factories import tab
 
 from mcp_tabvault import main
 from mcp_tabvault.client import MCPClient
-from mcp_tabvault.client.dto import TabDTO
+from mcp_tabvault.client.dto import (
+    SearchDataDTO,
+    SearchItemDTO,
+    SearchMetaDTO,
+    SearchResponseDTO,
+    TabDTO,
+)
 from mcp_tabvault.domain.groups import prompts as group_prompts
 from mcp_tabvault.domain.groups import resources as group_resources
 from mcp_tabvault.domain.groups import tools as group_tools
@@ -68,6 +74,11 @@ async def test_all_tools_have_typed_schemas_and_safety_annotations() -> None:
         "data",
         "errors",
     }
+    for tool in by_name.values():
+        defs = tool.output_schema.get("$defs", {})
+        assert "JsonValue" not in defs
+        for name, definition in defs.items():
+            assert definition, f"{tool.name} $defs.{name} must declare validation keywords"
 
 
 @pytest.mark.anyio
@@ -81,6 +92,34 @@ async def test_mcp_v2_converts_returned_dto_to_structured_content(
     response = await main.mcp.call_tool("get_tab_by_url", {"url": "https://exact"})
     assert response.structured_content is not None
     assert response.structured_content["result"]["id"] == "tab"
+
+
+@pytest.mark.anyio
+async def test_structured_output_emits_rfc3339_timestamps_from_naive_api_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    naive = tab().model_dump(mode="json", by_alias=True)
+    naive["createdAt"] = "2026-08-24T16:38:22.557000"
+    naive["updatedAt"] = "2026-08-24T16:38:22.557000"
+    parsed = TabDTO.model_validate(naive)
+
+    async def search(*_args: object, **_kwargs: object) -> SearchResponseDTO:
+        return SearchResponseDTO(
+            data=SearchDataDTO(
+                results=[
+                    SearchItemDTO(tab=parsed, score=1, match_type="keyword", matched_on="title")
+                ]
+            ),
+            meta=SearchMetaDTO(query_embedding_ms=1, search_ms=2),
+        )
+
+    monkeypatch.setattr(tab_tools, "get_client", lambda: types.SimpleNamespace(search_tabs=search))
+    response = await main.mcp.call_tool("search_tabs", {"query": "docs"})
+    assert response.structured_content is not None
+    created_at = response.structured_content["data"]["results"][0]["tab"]["createdAt"]
+    updated_at = response.structured_content["data"]["results"][0]["tab"]["updatedAt"]
+    assert created_at == "2026-08-24T16:38:22.557000Z"
+    assert updated_at == "2026-08-24T16:38:22.557000Z"
 
 
 def contains_dict(annotation: object) -> bool:

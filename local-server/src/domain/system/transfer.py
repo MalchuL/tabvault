@@ -6,7 +6,6 @@ import copy
 import json
 import re
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -15,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import Settings
 from lib.responses import IssueDTO, WarningDTO, issue
-from lib.time import iso, utc_now
+from lib.time import iso, stored_utc, utc_now
 
 from .dto import (
     BackupDTO,
@@ -623,22 +622,24 @@ class TransferService:
         updated = ImportCountsDTO()
         for tag_dto in dto.tags:
             tag = await self.repository.get_tag(tag_dto.name)
-            incoming_updated = tag_dto.updated_at
+            incoming_updated = stored_utc(tag_dto.updated_at)
+            existing_updated = stored_utc(tag.updated_at) if tag is not None else None
             if tag is None:
                 await self.repository.save_model(self.mapper.tag_from_transfer(tag_dto))
                 created.tags += 1
-            elif incoming_updated and incoming_updated > _aware(tag.updated_at):
+            elif incoming_updated and existing_updated and incoming_updated > existing_updated:
                 await self.repository.apply_changes(tag, self.mapper.tag_transfer_changes(tag_dto))
                 updated.tags += 1
         for group_dto in dto.groups:
             if await self.repository.tombstone_exists("group", group_dto.id):
                 continue
             group = await self.repository.get_group(group_dto.id)
-            incoming_updated = group_dto.updated_at
+            incoming_updated = stored_utc(group_dto.updated_at)
+            existing_updated = stored_utc(group.updated_at) if group is not None else None
             if group is None:
                 await self.repository.save_model(self.mapper.group_from_transfer(group_dto))
                 created.groups += 1
-            elif incoming_updated and incoming_updated > _aware(group.updated_at):
+            elif incoming_updated and existing_updated and incoming_updated > existing_updated:
                 await self.repository.apply_changes(
                     group, self.mapper.group_transfer_changes(group_dto)
                 )
@@ -649,12 +650,13 @@ class TransferService:
                 skipped += 1
                 continue
             tab = await self.repository.get_transfer_tab(tab_dto.id)
-            incoming_updated = tab_dto.updated_at
+            incoming_updated = stored_utc(tab_dto.updated_at)
+            existing_updated = stored_utc(tab.updated_at) if tab is not None else None
             if tab is None:
                 tags = await self.repository.resolve_tags(tab_dto.tags)
                 await self.repository.save_model(self.mapper.tab_from_transfer(tab_dto, tags))
                 created.tabs += 1
-            elif incoming_updated and incoming_updated > _aware(tab.updated_at):
+            elif incoming_updated and existing_updated and incoming_updated > existing_updated:
                 await self.repository.apply_changes(
                     tab,
                     self.mapper.tab_transfer_changes(
@@ -699,19 +701,3 @@ class TransferService:
         await self.repository.add_job(job)
         await self.db.commit()
         return job.id
-
-
-def _aware(value: datetime) -> datetime:
-    """Attach the local UTC timezone to naive persisted datetimes.
-
-    The operation handles the versioned portable-library boundary. Imported content is treated as
-    untrusted until structural and referential validation succeeds, and exported records use
-    deterministic ordering for stable backups.
-
-    Args:
-        value (datetime): Value to validate, convert, or persist.
-
-    Returns:
-        datetime: Result produced by the operation described above.
-    """
-    return value.replace(tzinfo=utc_now().tzinfo) if value.tzinfo is None else value

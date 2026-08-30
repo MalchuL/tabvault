@@ -632,12 +632,11 @@ def test_visibility_policy_is_shared_by_lists_groups_search_counts_and_export(
         hidden_mixed["id"],
         hidden_only["id"],
     } <= synced_ids
-    assert (
-        client.patch(
-            f"/api/v1/tabs/{visible['id']}",
-            headers=headers,
-            json={"hiddenUntil": "2030-01-01T00:00:00"},
-        ).status_code
-        == 422
+    naive_hidden = client.patch(
+        f"/api/v1/tabs/{visible['id']}",
+        headers=headers,
+        json={"hiddenUntil": "2030-01-01T00:00:00"},
     )
+    assert naive_hidden.status_code == 200
+    assert naive_hidden.json()["data"]["hiddenUntil"] == "2030-01-01T00:00:00Z"
     assert client.get("/api/v1/tabs?visibility=invalid", headers=headers).status_code == 422

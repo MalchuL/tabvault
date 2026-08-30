@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from lib.time import utc_now
+from lib.time import stored_utc, utc_now
 from models import Group
 
 from .dto import GroupCreateDTO, GroupDTO, GroupUpdateDTO
@@ -38,8 +38,8 @@ class GroupMapper:
             description=group.description,
             color=group.color,
             position=group.position,
-            created_at=group.created_at,
-            updated_at=group.updated_at,
+            created_at=stored_utc(group.created_at) or group.created_at,
+            updated_at=stored_utc(group.updated_at) or group.updated_at,
             tab_count=tab_count,
         )
 

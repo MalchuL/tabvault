@@ -22,8 +22,6 @@ import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import {
   addExtensionMessageListener,
   checkLocalServer,
-  configureExtensionHealthAlerts,
-  configureIndexHealthCheck,
   createGroupOnLocalServer,
   DEFAULT_TABVAULT_API_KEY,
   DEFAULT_TABVAULT_SERVER_URL,
@@ -38,16 +36,12 @@ import {
   readLocalServerUrl,
   readStorageMode,
   readSyncStatus,
-  rebuildSemanticIndex,
   refreshLibraryFromServer,
   reorderTabsOnLocalServer,
-  runIndexHealthCheck,
   saveTabToLocalServer,
   searchLocalServer,
   updateTabOnLocalServer,
   updateGroupOnLocalServer,
-  writeApiKey,
-  writeLocalServerUrl,
   type ChromeTabSnapshot,
   type LocalSearchResponse,
   type SemanticIndexStatus,
@@ -57,6 +51,10 @@ import {
 import { orderKey } from "@/lib/library";
 import { TabDragPreview, TabList } from "@/components/TabList";
 import { ContextHelp } from "@/components/ContextHelp";
+import {
+  LIBRARY_OPEN_TAGS_FLAG,
+  useRegisterLibrarySidebar,
+} from "@/components/workspace-sidebar-context";
 import { CollectionBoard } from "@/domain/library/components/CollectionBoard";
 import {
   CreateCollectionDialog,
@@ -87,25 +85,18 @@ import {
 } from "@/domain/deduplication/execution";
 import { BrowserStorageAdapter } from "@/lib/persistence";
 import {
-  Archive,
   ArrowDownToLine,
   BookMarked,
   Boxes,
   ChevronRight,
   Command,
   Eye,
-  EyeOff,
   LayoutList,
-  LayoutDashboard,
   Plus,
-  RefreshCw,
   Rows3,
   Search,
-  Settings2,
   Sparkles,
-  Tag,
   Trash2,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -212,8 +203,6 @@ export default function Home() {
   const [tabView, setTabView] = useState<LibraryViewMode>("standard");
   const [semanticIndexStatus, setSemanticIndexStatus] =
     useState<SemanticIndexStatus | null>(null);
-  const [showModelPanel, setShowModelPanel] = useState(false);
-  const [isRebuildingIndex, setIsRebuildingIndex] = useState(false);
   const [serverOnline, setServerOnline] = useState(false);
   const [storageMode, setStorageMode] = useState<StorageMode>("local");
   const [syncStatus, setSyncStatus] = useState<SyncStatus>();
@@ -221,19 +210,12 @@ export default function Home() {
     DEFAULT_TABVAULT_SERVER_URL
   );
   const [serverApiKey, setServerApiKey] = useState(DEFAULT_TABVAULT_API_KEY);
-  const [showConnectionSettings, setShowConnectionSettings] = useState(false);
-  const [pendingServerUrl, setPendingServerUrl] = useState(
-    DEFAULT_TABVAULT_SERVER_URL
-  );
-  const [pendingApiKey, setPendingApiKey] = useState(DEFAULT_TABVAULT_API_KEY);
-  const [showApiKey, setShowApiKey] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showTagManager, setShowTagManager] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupDescription, setNewGroupDescription] = useState("");
   const [newTagName, setNewTagName] = useState("");
   const [tagDraft, setTagDraft] = useState("");
-  const [showMobileRail, setShowMobileRail] = useState(false);
   const [editingTab, setEditingTab] = useState<VaultTab | null>(null);
   const [editingCollection, setEditingCollection] = useState<VaultGroup | null>(
     null
@@ -413,7 +395,6 @@ export default function Home() {
     setSearchGroupFilter(id);
     setQuery("");
     setTabView("standard");
-    setShowMobileRail(false);
     setLocation("/");
   };
 
@@ -526,8 +507,6 @@ export default function Home() {
         if (cancelled) return;
         setLocalServerUrl(url);
         setServerApiKey(apiKey);
-        setPendingServerUrl(url);
-        setPendingApiKey(apiKey);
         try {
           const health = await checkLocalServer(url, apiKey);
           if (!cancelled) {
@@ -666,23 +645,6 @@ export default function Home() {
     setActiveResultIndex(0);
   }, [query, searchGroupFilter]);
 
-  const refreshLocalServer = async () => {
-    try {
-      const health = await checkLocalServer(localServerUrl, serverApiKey);
-      setServerOnline(health.status === "ok");
-      setSemanticIndexStatus(health.semanticIndex ?? null);
-      toast.success("TabVault API connected", {
-        description: `Schema v${health.schemaVersion} is ready at ${localServerUrl}.`,
-      });
-    } catch {
-      setServerOnline(false);
-      setSemanticIndexStatus(null);
-      toast.error("TabVault API is unreachable or rejected the key", {
-        description: `Check the endpoint and bearer key for ${localServerUrl}.`,
-      });
-    }
-  };
-
   const refreshLibrary = async (options?: { silent?: boolean }) => {
     if (
       storageMode !== "backend" ||
@@ -713,140 +675,6 @@ export default function Home() {
     }
   };
   refreshLibraryRef.current = refreshLibrary;
-
-  const saveConnectionSettings = async () => {
-    let normalizedUrl: string;
-    try {
-      const parsed = new URL(pendingServerUrl.trim());
-      if (!/^https?:$/.test(parsed.protocol)) throw new Error("protocol");
-      normalizedUrl = parsed.toString().replace(/\/+$/, "");
-    } catch {
-      toast.error("Enter an absolute http:// or https:// API address");
-      return;
-    }
-    const apiKey = pendingApiKey.trim() || DEFAULT_TABVAULT_API_KEY;
-    setLocalServerUrl(normalizedUrl);
-    setServerApiKey(apiKey);
-    await Promise.all([
-      writeLocalServerUrl(normalizedUrl),
-      writeApiKey(apiKey),
-    ]);
-    try {
-      const health = await checkLocalServer(normalizedUrl, apiKey);
-      setServerOnline(health.status === "ok");
-      setSemanticIndexStatus(health.semanticIndex ?? null);
-      const fallback: PersistedVault = {
-        schemaVersion: 2,
-        tabs,
-        vaultGroups,
-        tagCatalog,
-        tabOrders,
-        savedSearches,
-        tabView,
-        tombstones: tombstonesRef.current,
-      };
-      const { vault: hydrated } = await refreshLibraryFromServer(
-        normalizedUrl,
-        apiKey,
-        fallback
-      );
-      applyVault(hydrated);
-      setShowConnectionSettings(false);
-      toast.success("Server connection saved", {
-        description: `Authenticated API access is active at ${normalizedUrl}.`,
-      });
-    } catch {
-      setServerOnline(false);
-      toast.error("Connection was not accepted", {
-        description:
-          "Verify the bearer key, server address, and server CORS configuration.",
-      });
-    }
-  };
-
-  const rebuildIndex = async () => {
-    if (!extensionContext || !serverOnline) {
-      toast.error("Connect the local server before rebuilding the index");
-      return;
-    }
-    setIsRebuildingIndex(true);
-    try {
-      const status = await rebuildSemanticIndex(localServerUrl, serverApiKey);
-      setSemanticIndexStatus(status);
-      toast.success("Semantic index rebuilt", {
-        description: `${status.indexedTabs} tabs are ready for ranked search.`,
-      });
-    } catch {
-      toast.error("Could not rebuild the semantic index");
-    } finally {
-      setIsRebuildingIndex(false);
-    }
-  };
-
-  const updateHealthSchedule = async (
-    intervalSeconds: number,
-    notifyOnNeedsAttention = Boolean(
-      semanticIndexStatus?.healthCheck?.notifyOnNeedsAttention
-    )
-  ) => {
-    if (!extensionContext || !serverOnline) {
-      toast.error(
-        "Connect the local server before scheduling index health checks"
-      );
-      return;
-    }
-    try {
-      const healthCheck = await configureIndexHealthCheck(
-        localServerUrl,
-        intervalSeconds,
-        notifyOnNeedsAttention,
-        serverApiKey
-      );
-      await configureExtensionHealthAlerts(
-        localServerUrl,
-        healthCheck,
-        serverApiKey
-      );
-      setSemanticIndexStatus(current =>
-        current ? { ...current, healthCheck } : current
-      );
-      toast.success(
-        intervalSeconds
-          ? "Index health check scheduled"
-          : "Index health check disabled",
-        {
-          description: intervalSeconds
-            ? `The local server will check every ${Math.round(intervalSeconds / 60)} minutes while it is running.`
-            : "Manual checks remain available.",
-        }
-      );
-    } catch {
-      toast.error("Could not save the health-check schedule");
-    }
-  };
-
-  const runHealthCheck = async () => {
-    if (!extensionContext || !serverOnline) {
-      toast.error("Connect the local server before running a health check");
-      return;
-    }
-    try {
-      const healthCheck = await runIndexHealthCheck(
-        localServerUrl,
-        serverApiKey
-      );
-      setSemanticIndexStatus(current =>
-        current ? { ...current, healthCheck } : current
-      );
-      toast.success(
-        healthCheck.lastResult === "ready"
-          ? "Semantic index is healthy"
-          : "Semantic index needs attention"
-      );
-    } catch {
-      toast.error("Could not run the health check");
-    }
-  };
 
   const toggleResultSelection = (id: string) =>
     setSelectedResultIds(current => {
@@ -1537,6 +1365,25 @@ export default function Home() {
 
   const captureCurrentTabRef = useRef(captureCurrentTab);
   captureCurrentTabRef.current = captureCurrentTab;
+
+  useRegisterLibrarySidebar({
+    activeCount: activeTabs.length,
+    archivedCount: archivedTabs.length,
+    hiddenCount: hiddenTabs.length,
+    tagCount: Object.keys(tagCatalog).length,
+    storageMode,
+    serverOnline,
+    isRefreshing: isRefreshingLibrary,
+    onOpenTags: () => setShowTagManager(true),
+    onRefreshLibrary: () => void refreshLibrary(),
+    onCaptureTab: extensionContext ? () => void captureCurrentTab() : undefined,
+  });
+
+  useEffect(() => {
+    if (sessionStorage.getItem(LIBRARY_OPEN_TAGS_FLAG) !== "1") return;
+    sessionStorage.removeItem(LIBRARY_OPEN_TAGS_FLAG);
+    setShowTagManager(true);
+  }, []);
 
   useEffect(() => {
     if (!extensionContext) return;
@@ -2237,460 +2084,9 @@ export default function Home() {
       onDragCancel={cancelLibraryDrag}
     >
       <div className="min-h-screen bg-[#f6f3ec] text-[#18261f] paper-grain">
-        <aside
-          className={`fixed inset-y-0 left-0 z-30 flex w-[274px] flex-col border-r border-[#ded9cd] bg-[#f9f7f1]/95 px-4 py-5 backdrop-blur-xl transition-transform duration-200 lg:translate-x-0 ${showMobileRail ? "translate-x-0 shadow-[16px_0_50px_rgba(24,38,31,0.14)]" : "-translate-x-full"}`}
-        >
-          <div className="flex items-center justify-between px-2">
-            <div className="flex items-center gap-2.5">
-              <BrandMark className="h-9 w-9" />
-              <div>
-                <span className="block font-['DM_Sans'] text-[19px] font-bold leading-none tracking-[-0.055em]">
-                  tabvault
-                </span>
-                <span className="mt-1 block font-mono text-[9px] uppercase tracking-[0.16em] text-[#83867e]">
-                  local link library
-                </span>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowMobileRail(false)}
-              className="rounded-md p-2 text-[#777b74] hover:bg-[#ebe8df] lg:hidden"
-              aria-label="Close navigation"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          {extensionContext && (
-            <div className="mt-8 px-2">
-              <button
-                onClick={() => void captureCurrentTab()}
-                className="flex w-full items-center justify-between rounded-lg bg-[#e95224] px-3.5 py-3 text-left text-[#fffaf2] shadow-[0_7px_16px_rgba(233,82,36,0.19)] transition hover:-translate-y-0.5 hover:bg-[#d94a1e] active:scale-[0.98]"
-              >
-                <span className="flex items-center gap-2.5 text-[13px] font-bold">
-                  <Plus className="h-4 w-4" /> Save active tab
-                </span>
-                <span className="rounded border border-white/25 px-1.5 py-0.5 font-mono text-[9px]">
-                  ⌘ S
-                </span>
-              </button>
-            </div>
-          )}
-
-          <nav className="thin-scrollbar mt-7 flex-1 overflow-y-auto px-1">
-            <p className="mb-2 px-2 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#8e9189]">
-              Browse
-            </p>
-            <div className="space-y-1">
-              <button
-                onClick={() => setLocation("/")}
-                className={`flex w-full items-center gap-2.5 rounded-lg border-l-2 px-3 py-2 text-left text-[13px] font-semibold ${isAllTabsPage ? "border-[#e95224] bg-[#eeece4] text-[#18261f]" : "border-transparent text-[#666c65] hover:bg-[#efede6]"}`}
-              >
-                <LayoutList className="h-3.5 w-3.5" /> All Tabs{" "}
-                <span className="ml-auto font-mono text-[10px] text-[#a2a49c]">
-                  {activeTabs.length}
-                </span>
-              </button>
-              {archivedTabs.length > 0 && (
-                <button
-                  onClick={() => setLocation("/archive")}
-                  className={`flex w-full items-center gap-2.5 rounded-lg border-l-2 px-3 py-2 text-left text-[13px] font-semibold ${isArchivePage ? "border-[#e95224] bg-[#eeece4] text-[#18261f]" : "border-transparent text-[#666c65] hover:bg-[#efede6]"}`}
-                >
-                  <Archive className="h-3.5 w-3.5" /> Archive{" "}
-                  <span className="ml-auto font-mono text-[10px] text-[#a2a49c]">
-                    {archivedTabs.length}
-                  </span>
-                </button>
-              )}
-              {hiddenTabs.length > 0 && (
-                <button
-                  onClick={() => setLocation("/hidden")}
-                  className={`flex w-full items-center gap-2.5 rounded-lg border-l-2 px-3 py-2 text-left text-[13px] font-semibold ${isHiddenPage ? "border-[#e95224] bg-[#eeece4] text-[#18261f]" : "border-transparent text-[#666c65] hover:bg-[#efede6]"}`}
-                >
-                  <Eye className="h-3.5 w-3.5" /> Hidden{" "}
-                  <span className="ml-auto font-mono text-[10px] text-[#a2a49c]">
-                    {hiddenTabs.length}
-                  </span>
-                </button>
-              )}
-              <button
-                onClick={() => setLocation("/dashboard")}
-                className="flex w-full items-center gap-2.5 rounded-lg border-l-2 border-transparent px-3 py-2 text-left text-[13px] font-semibold text-[#666c65] hover:bg-[#efede6] hover:text-[#18261f]"
-              >
-                <LayoutDashboard className="h-3.5 w-3.5" /> Dashboard
-              </button>
-            </div>
-            <div className="mt-8 border-t border-[#e3ded3] pt-6">
-              <p className="mb-2 px-2 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#8e9189]">
-                Library
-              </p>
-              <button
-                onClick={() => setShowTagManager(true)}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[#666c65] hover:bg-[#efede6] hover:text-[#18261f]"
-              >
-                <Tag className="h-3.5 w-3.5" />
-                <span className="text-[13px] font-semibold">Tags</span>
-                <span className="ml-auto font-mono text-[10px] text-[#a2a49c]">
-                  {Object.keys(tagCatalog).length}
-                </span>
-              </button>
-              <button
-                onClick={() => setLocation("/transfer")}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[#666c65] hover:bg-[#efede6] hover:text-[#18261f]"
-              >
-                <ArrowDownToLine className="h-3.5 w-3.5" />
-                <span className="text-[13px] font-semibold">
-                  Import & Export
-                </span>
-              </button>
-              <button
-                onClick={() => setLocation("/settings")}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[#666c65] hover:bg-[#efede6] hover:text-[#18261f]"
-              >
-                <Settings2 className="h-3.5 w-3.5" />
-                <span className="text-[13px] font-semibold">Settings</span>
-              </button>
-              <button
-                onClick={() => {
-                  if (storageMode !== "backend" || !serverOnline) {
-                    toast.error(
-                      "Connect the TabVault server before refreshing the library"
-                    );
-                    return;
-                  }
-                  void refreshLibrary();
-                }}
-                disabled={isRefreshingLibrary}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[#666c65] hover:bg-[#efede6] hover:text-[#18261f] disabled:opacity-60"
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${isRefreshingLibrary ? "animate-spin" : ""}`}
-                />
-                <span className="text-[13px] font-semibold">
-                  {isRefreshingLibrary ? "Refreshing…" : "Refresh library"}
-                </span>
-              </button>
-            </div>
-          </nav>
-
-          <div className="hidden mt-5 rounded-xl border border-[#ded9cd] bg-[#fffdf8] p-3.5 shadow-[0_8px_24px_rgba(24,38,31,0.04)]">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-                API connection
-                <ContextHelp title="API connection" side="right" align="start">
-                  Your library always works in browser storage. Add an HTTP(S)
-                  endpoint and bearer key here when you want it to sync with a
-                  TabVault server.
-                </ContextHelp>
-              </span>
-              <span
-                className={`h-2 w-2 rounded-full ${serverOnline ? "bg-[#6e9870] shadow-[0_0_0_3px_rgba(110,152,112,0.12)]" : "bg-[#c95f46]"}`}
-              />
-            </div>
-            <p className="mt-2 text-[12px] font-bold">
-              {serverOnline
-                ? "Server-backed library"
-                : "Browser storage active"}
-            </p>
-            <p className="mt-1 truncate font-mono text-[9px] text-[#8c9088]">
-              {localServerUrl.replace(/^https?:\/\//, "")}
-            </p>
-            {showConnectionSettings && (
-              <div className="mt-3 space-y-2 border-t border-[#e8e3d8] pt-3">
-                <label className="block">
-                  <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
-                    API endpoint
-                  </span>
-                  <input
-                    value={pendingServerUrl}
-                    onChange={event => setPendingServerUrl(event.target.value)}
-                    placeholder="https://api.example.com"
-                    className="mt-1 w-full border-b border-[#cfc9bc] bg-[#f9f7f1] px-2 py-1.5 font-mono text-[10px] outline-none focus:border-[#e95224]"
-                  />
-                </label>
-                <label className="block">
-                  <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
-                    API key
-                  </span>
-                  <div className="relative mt-1">
-                    <input
-                      value={pendingApiKey}
-                      onChange={event => setPendingApiKey(event.target.value)}
-                      type={showApiKey ? "text" : "password"}
-                      placeholder="admin"
-                      autoComplete="off"
-                      className="w-full border-b border-[#cfc9bc] bg-[#f9f7f1] py-1.5 pl-2 pr-8 font-mono text-[10px] outline-none focus:border-[#e95224]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowApiKey(visible => !visible)}
-                      aria-label={showApiKey ? "Hide API key" : "Show API key"}
-                      aria-pressed={showApiKey}
-                      className="absolute inset-y-0 right-0 flex items-center px-1.5 text-[#858980] hover:text-[#18261f]"
-                    >
-                      {showApiKey ? (
-                        <EyeOff className="h-3.5 w-3.5" />
-                      ) : (
-                        <Eye className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  </div>
-                </label>
-                <button
-                  onClick={() => void saveConnectionSettings()}
-                  className="w-full rounded bg-[#e95224] px-2 py-2 text-left font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-white hover:bg-[#d94a1e]"
-                >
-                  Save & connect →
-                </button>
-              </div>
-            )}
-            <div className="mt-3 flex gap-3 border-t border-[#e8e3d8] pt-2.5">
-              <button
-                onClick={() =>
-                  setShowConnectionSettings(!showConnectionSettings)
-                }
-                className="font-mono text-[9px] uppercase tracking-[0.1em] text-[#687067] hover:text-[#e95224]"
-              >
-                {showConnectionSettings ? "Close settings" : "Configure API"}
-              </button>
-              <button
-                onClick={() => void refreshLocalServer()}
-                className="font-mono text-[9px] uppercase tracking-[0.1em] text-[#687067] hover:text-[#e95224]"
-              >
-                Check
-              </button>
-              <button
-                onClick={() => void refreshLibrary()}
-                className="font-mono text-[9px] uppercase tracking-[0.1em] text-[#687067] hover:text-[#e95224]"
-              >
-                Refresh library
-              </button>
-            </div>
-            <p className="mt-2 text-[9px] leading-4 text-[#898d85]">
-              Any HTTP(S) endpoint is supported. Offline changes remain in
-              browser storage until the API is reachable.
-            </p>
-          </div>
-          <section className="hidden mt-3 overflow-hidden rounded-xl border border-[#ded9cd] bg-[#fffdf8] shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
-            <div className="flex items-center">
-              <button
-                onClick={() => setShowModelPanel(!showModelPanel)}
-                className="flex flex-1 items-center justify-between p-3.5 text-left hover:bg-[#f9f7f1]"
-              >
-                <span>
-                  <span className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-                    Semantic model
-                  </span>
-                  <span className="mt-1 block text-[12px] font-bold">
-                    {semanticIndexStatus?.status === "ready"
-                      ? "Index ready"
-                      : semanticIndexStatus?.progress?.state === "indexing"
-                        ? "Indexing library"
-                        : "Setup required"}
-                  </span>
-                </span>
-                <ChevronRight
-                  className={`h-4 w-4 text-[#8c9088] transition-transform ${showModelPanel ? "rotate-90" : ""}`}
-                />
-              </button>
-              <ContextHelp
-                title="Semantic model"
-                side="right"
-                align="end"
-                className="mr-3.5"
-                tip="You can still search by title, note, and tags if this is not set up."
-              >
-                The optional local embedding model helps search match meaning,
-                not just exact words. It runs through your configured TabVault
-                server and does not replace your saved tab records.
-              </ContextHelp>
-            </div>
-            {showModelPanel && (
-              <div className="border-t border-[#e8e3d8] bg-[#f9f7f1] p-3.5">
-                <div className="space-y-2 font-mono text-[9px] text-[#747970]">
-                  <div className="flex justify-between gap-3">
-                    <span>MODEL</span>
-                    <span className="truncate text-right text-[#334438]">
-                      {semanticIndexStatus?.model ?? "nomic-embed-text"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span>PROVIDER</span>
-                    <span className="text-right text-[#334438]">
-                      {semanticIndexStatus?.provider ?? "Ollama local"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span>INDEXED</span>
-                    <span className="text-right text-[#334438]">
-                      {semanticIndexStatus?.indexedTabs ?? 0} tabs
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span>BATCH SIZE</span>
-                    <span className="text-right text-[#334438]">
-                      {semanticIndexStatus?.batchSize ?? 16}
-                    </span>
-                  </div>
-                  {semanticIndexStatus?.progress?.state === "indexing" && (
-                    <div className="pt-1">
-                      <div className="mb-1 flex justify-between">
-                        <span>PROGRESS</span>
-                        <span>
-                          {semanticIndexStatus.progress.processed}/
-                          {semanticIndexStatus.progress.total}
-                        </span>
-                      </div>
-                      <div className="h-1.5 overflow-hidden bg-[#dfdbd0]">
-                        <div
-                          className="h-full bg-[#e95224] transition-all"
-                          style={{
-                            width: `${Math.round((semanticIndexStatus.progress.processed / Math.max(semanticIndexStatus.progress.total, 1)) * 100)}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {semanticIndexStatus?.lastError && (
-                  <p className="mt-3 border-l-2 border-[#d07a31] pl-2 text-[10px] leading-4 text-[#8a6335]">
-                    {semanticIndexStatus.lastError}
-                  </p>
-                )}
-                <button
-                  onClick={() => void rebuildIndex()}
-                  disabled={isRebuildingIndex || !serverOnline}
-                  className="mt-3 w-full rounded-md bg-[#e95224] px-3 py-2 text-left font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-white disabled:cursor-not-allowed disabled:bg-[#c8c1b6]"
-                >
-                  {isRebuildingIndex
-                    ? "Rebuilding index…"
-                    : "Rebuild local index →"}
-                </button>
-                <p className="mt-2 text-[9px] leading-4 text-[#898d85]">
-                  Run a local Ollama embedding model, then rebuild after model
-                  or import changes.
-                </p>
-              </div>
-            )}
-          </section>
-          <section className="hidden mt-3 rounded-xl border border-[#ded9cd] bg-[#fffdf8] p-3.5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-                  Index health
-                  <ContextHelp title="Index health" side="right" align="start">
-                    A health check asks the server whether the semantic index
-                    and its model are ready. It checks your search setup, not
-                    the contents of each tab.
-                  </ContextHelp>
-                </p>
-                <p className="mt-1 text-[12px] font-bold">
-                  {semanticIndexStatus?.healthCheck?.enabled
-                    ? `Every ${Math.round(semanticIndexStatus.healthCheck.intervalSeconds / 60)} min`
-                    : "Manual checks"}
-                </p>
-              </div>
-              <span
-                className={`mt-1 h-2 w-2 rounded-full ${semanticIndexStatus?.healthCheck?.lastResult === "needs_attention" ? "bg-[#c95f46]" : semanticIndexStatus?.healthCheck?.lastResult === "ready" ? "bg-[#6e9870]" : "bg-[#b5b5ad]"}`}
-              />
-            </div>
-            <div className="mt-3 grid grid-cols-4 gap-1">
-              <button
-                onClick={() => void updateHealthSchedule(0)}
-                className={`rounded border px-1 py-1.5 font-mono text-[8px] uppercase ${!semanticIndexStatus?.healthCheck?.enabled ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
-              >
-                Off
-              </button>
-              <button
-                onClick={() => void updateHealthSchedule(900)}
-                className={`rounded border px-1 py-1.5 font-mono text-[8px] uppercase ${semanticIndexStatus?.healthCheck?.intervalSeconds === 900 ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
-              >
-                15m
-              </button>
-              <button
-                onClick={() => void updateHealthSchedule(3600)}
-                className={`rounded border px-1 py-1.5 font-mono text-[8px] uppercase ${semanticIndexStatus?.healthCheck?.intervalSeconds === 3600 ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
-              >
-                1h
-              </button>
-              <button
-                onClick={() => void updateHealthSchedule(14400)}
-                className={`rounded border px-1 py-1.5 font-mono text-[8px] uppercase ${semanticIndexStatus?.healthCheck?.intervalSeconds === 14400 ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
-              >
-                4h
-              </button>
-            </div>
-            <button
-              onClick={() => void runHealthCheck()}
-              className="mt-3 w-full border-t border-[#e8e3d8] pt-2.5 text-left font-mono text-[9px] uppercase tracking-[0.1em] text-[#687067] hover:text-[#e95224]"
-            >
-              Run health check now →
-            </button>
-          </section>
-          <section className="hidden mt-3 rounded-xl border border-[#ded9cd] bg-[#fffdf8] p-3.5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-                  Local alerts
-                  <ContextHelp title="Local alerts" side="right" align="start">
-                    Alerts notify you only when a scheduled health check needs
-                    attention. They require a health-check interval and the
-                    Chrome extension notification permission.
-                  </ContextHelp>
-                </p>
-                <p className="mt-1 text-[12px] font-bold">
-                  {semanticIndexStatus?.healthCheck?.notifyOnNeedsAttention
-                    ? "Notify on attention"
-                    : "Quiet mode"}
-                </p>
-              </div>
-              <span
-                className={`mt-1 h-2 w-2 rounded-full ${semanticIndexStatus?.healthCheck?.notifyOnNeedsAttention ? "bg-[#e95224]" : "bg-[#b5b5ad]"}`}
-              />
-            </div>
-            <label
-              className={`mt-3 flex items-center gap-2 border-t border-[#e8e3d8] pt-2.5 text-[10px] ${semanticIndexStatus?.healthCheck?.enabled ? "text-[#5c655c]" : "text-[#989b94]"}`}
-            >
-              <input
-                type="checkbox"
-                checked={Boolean(
-                  semanticIndexStatus?.healthCheck?.notifyOnNeedsAttention
-                )}
-                disabled={!semanticIndexStatus?.healthCheck?.enabled}
-                onChange={event =>
-                  void updateHealthSchedule(
-                    semanticIndexStatus?.healthCheck?.intervalSeconds ?? 0,
-                    event.target.checked
-                  )
-                }
-                className="h-3.5 w-3.5 accent-[#e95224]"
-              />{" "}
-              Alert when a scheduled check needs attention
-            </label>
-            <p className="mt-2 text-[9px] leading-4 text-[#898d85]">
-              Chrome shows a local notification only while the scheduled local
-              check is enabled and finds an issue.
-            </p>
-          </section>
-        </aside>
-
-        {showMobileRail ? (
-          <button
-            onClick={() => setShowMobileRail(false)}
-            className="fixed inset-0 z-20 bg-[#18261f]/20 lg:hidden"
-            aria-label="Close navigation overlay"
-          />
-        ) : null}
-        <main className="min-h-screen lg:ml-[274px]">
+        <main className="min-h-screen">
           <header className="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-[#ded9cd]/85 bg-[#f6f3ec]/88 px-5 backdrop-blur-xl sm:px-7 lg:px-9">
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowMobileRail(true)}
-                className="rounded-md border border-[#ded9cd] bg-[#fffdf8] p-2 lg:hidden"
-                aria-label="Open navigation"
-              >
-                <Boxes className="h-4 w-4" />
-              </button>
               <div className="hidden items-center gap-2 text-[12px] text-[#7a7e76] sm:flex">
                 <BookMarked className="h-3.5 w-3.5" />
                 <span>My library</span>

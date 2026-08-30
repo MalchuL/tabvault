@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from lib.dto_config import model_config
+from lib.dto_config import DTO, model_config
 from lib.pagination import PaginatedResponse
 
 
@@ -22,7 +22,7 @@ class TagUpsertDTO(BaseModel):
     model_config = model_config()
 
 
-class TagDTO(BaseModel):
+class TagDTO(DTO):
     """Represent a tag and its usage count.
 
     This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
@@ -41,7 +41,6 @@ class TagDTO(BaseModel):
     created_at: datetime
     updated_at: datetime
     tab_count: int
-    model_config = model_config()
 
 
 class TagListResponseDTO(PaginatedResponse[TagDTO]):

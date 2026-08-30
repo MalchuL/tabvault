@@ -1,6 +1,6 @@
 """Map tag DTOs and persistence models."""
 
-from lib.time import utc_now
+from lib.time import stored_utc, utc_now
 from models import Tag
 
 from .dto import TagDTO, TagUpsertDTO
@@ -32,8 +32,8 @@ class TagMapper:
         return TagDTO(
             name=tag.name,
             description=tag.description,
-            created_at=tag.created_at,
-            updated_at=tag.updated_at,
+            created_at=stored_utc(tag.created_at) or tag.created_at,
+            updated_at=stored_utc(tag.updated_at) or tag.updated_at,
             tab_count=count,
         )
 
