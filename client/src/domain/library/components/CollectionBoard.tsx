@@ -1,3 +1,10 @@
+import { useDroppable } from "@dnd-kit/core";
+import {
+  rectSortingStrategy,
+  SortableContext,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { FolderOpen, FolderPlus, Pencil, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { GroupId, VaultGroup, VaultTab } from "../types";
@@ -45,11 +52,7 @@ export function CollectionBoard({
       {groups.map(group => {
         const groupTabs = tabs.filter(tab => tab.groupId === group.id);
         return (
-          <article
-            key={group.id}
-            data-testid={`group-card-${group.id}`}
-            className="group flex min-h-[210px] flex-col border border-[#dcd7cc] bg-[#fffdf8] p-5 shadow-[0_10px_24px_rgba(24,38,31,0.035)] transition hover:-translate-y-0.5 hover:border-[#c7c1b4]"
-          >
+          <CollectionCard key={group.id} group={group}>
             <div className="flex items-start gap-3">
               <button
                 onClick={() => onBrowse(group.id)}
@@ -102,39 +105,28 @@ export function CollectionBoard({
                 </button>
               </div>
             </div>
-            <div className="mt-5 flex flex-1 flex-wrap content-start gap-2">
-              {groupTabs.map(tab => {
-                const searchActive = Boolean(query.trim());
-                const matched = matchedTabIds.has(tab.id);
-                return (
-                  <button
+            <SortableContext
+              items={groupTabs.map(tab => tab.id)}
+              strategy={rectSortingStrategy}
+            >
+              <div className="mt-5 flex flex-1 flex-wrap content-start gap-2">
+                {groupTabs.map(tab => (
+                  <SortableCollectionTab
                     key={tab.id}
-                    type="button"
-                    onClick={() => onBrowse(group.id)}
-                    data-testid={`grouped-tab-${tab.id}`}
-                    data-search-state={
-                      searchActive ? (matched ? "match" : "dimmed") : "idle"
-                    }
-                    aria-label={tab.title}
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] ${
-                      searchActive
-                        ? matched
-                          ? "border-[#e95224] bg-[#fff7f1] shadow-[0_0_0_1px_rgba(233,82,36,0.12)]"
-                          : "border-transparent bg-[#f8f5ed]/45 opacity-35"
-                        : "border-transparent bg-[#f8f5ed]/70 hover:border-[#d8d2c5]"
-                    }`}
-                    title={tab.title}
-                  >
-                    <CollectionTabIcon tab={tab} />
-                  </button>
-                );
-              })}
-              {!groupTabs.length ? (
-                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#92958d]">
-                  Empty collection
-                </span>
-              ) : null}
-            </div>
+                    tab={tab}
+                    groupId={group.id}
+                    onBrowse={onBrowse}
+                    searchActive={Boolean(query.trim())}
+                    matched={matchedTabIds.has(tab.id)}
+                  />
+                ))}
+                {!groupTabs.length ? (
+                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#92958d]">
+                    Empty collection
+                  </span>
+                ) : null}
+              </div>
+            </SortableContext>
             <div className="mt-5 flex items-center justify-between border-t border-[#e8e3d8] pt-3 font-mono text-[9px] uppercase tracking-[0.08em] text-[#858980]">
               <span>{groupTabs.length} tabs</span>
               <span style={{ color: categoryColor(group.category) }}>
@@ -152,7 +144,7 @@ export function CollectionBoard({
                 Browse →
               </button>
             </div>
-          </article>
+          </CollectionCard>
         );
       })}
       <button
@@ -172,7 +164,80 @@ export function CollectionBoard({
   );
 }
 
-function CollectionTabIcon({ tab }: { tab: VaultTab }) {
+function CollectionCard({
+  group,
+  children,
+}: {
+  group: VaultGroup;
+  children: React.ReactNode;
+}) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: `group-container:${group.id}`,
+    data: { groupId: group.id, layout: "grid" },
+  });
+  return (
+    <article
+      ref={setNodeRef}
+      data-testid={`group-card-${group.id}`}
+      data-drop-active={isOver ? "true" : "false"}
+      className="group flex min-h-[210px] flex-col border border-[#dcd7cc] bg-[#fffdf8] p-5 shadow-[0_10px_24px_rgba(24,38,31,0.035)] transition hover:border-[#c7c1b4] data-[drop-active=true]:border-[#e95224]"
+    >
+      {children}
+    </article>
+  );
+}
+
+function SortableCollectionTab({
+  tab,
+  groupId,
+  onBrowse,
+  searchActive,
+  matched,
+}: {
+  tab: VaultTab;
+  groupId: GroupId;
+  onBrowse: (groupId: GroupId) => void;
+  searchActive: boolean;
+  matched: boolean;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: tab.id, data: { groupId } });
+  return (
+    <button
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      type="button"
+      onClick={() => onBrowse(groupId)}
+      data-testid={`grouped-tab-${tab.id}`}
+      data-search-state={searchActive ? (matched ? "match" : "dimmed") : "idle"}
+      aria-label={tab.title}
+      className={`flex h-9 w-9 shrink-0 touch-none items-center justify-center rounded-md border transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] ${
+        searchActive
+          ? matched
+            ? "border-[#e95224] bg-[#fff7f1] shadow-[0_0_0_1px_rgba(233,82,36,0.12)]"
+            : "border-transparent bg-[#f8f5ed]/45 opacity-35"
+          : "border-transparent bg-[#f8f5ed]/70 hover:border-[#d8d2c5]"
+      }`}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0 : undefined,
+      }}
+      title={tab.title}
+    >
+      <CollectionTabIcon tab={tab} />
+    </button>
+  );
+}
+
+export function CollectionTabIcon({ tab }: { tab: VaultTab }) {
   const [failed, setFailed] = useState(false);
   if (failed)
     return (

@@ -5,7 +5,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import {
-  ArrowLeft,
   BellRing,
   BrainCircuit,
   CheckCircle2,
@@ -47,8 +46,6 @@ import {
   type PersistedVault,
 } from "@/lib/library";
 import { BrowserStorageAdapter } from "@/lib/persistence";
-
-const logoUrl = "/icon-128.png";
 
 export default function Settings() {
   const [, setLocation] = useLocation();
@@ -264,38 +261,15 @@ export default function Settings() {
   };
 
   return (
-    <main className="min-h-screen bg-[#f6f3ec] px-5 py-6 text-[#18261f] paper-grain sm:px-8 lg:px-12">
+    <main className="min-h-dvh bg-[#f6f3ec] px-5 py-6 text-[#18261f] sm:px-8 lg:px-8">
       <div className="mx-auto max-w-4xl">
-        <header className="flex items-center justify-between border-b border-[#dcd7cc] pb-5">
-          <button
-            onClick={() => setLocation("/")}
-            className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.1em] text-[#687067] hover:text-[#e95224]"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" /> Back to library
-          </button>
-          <div className="flex items-center gap-2">
-            <img src={logoUrl} alt="TabVault" className="h-7 w-7" />
-            <span className="font-['DM_Sans'] text-[15px] font-bold tracking-[-0.05em] text-[#29342d]">
-              tabvault
-            </span>
-          </div>
-        </header>
-
-        <section className="mt-10 max-w-2xl">
-          <p className="font-mono text-[10px] uppercase tracking-[0.15em] text-[#8e9189]">
-            Configuration
-          </p>
-          <h1 className="mt-2 font-['DM_Sans'] text-4xl font-bold tracking-[-0.06em] sm:text-5xl">
+        <section className="max-w-2xl">
+          <h1 className="font-['DM_Sans'] text-2xl font-bold tracking-[-0.04em]">
             Settings
           </h1>
-          <p className="mt-3 max-w-xl text-[13px] leading-6 text-[#697068]">
-            {isBackendMode
-              ? "Configure the server and background preferences. Review library readiness and maintenance in Dashboard."
-              : "Links stay in this browser. Switch to Backend preferred to connect a TabVault server."}
-          </p>
         </section>
 
-        <div className="mt-10 grid gap-5 lg:grid-cols-2">
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
           <section
             className={`border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]${isBackendMode ? "" : " lg:col-span-2"}`}
           >

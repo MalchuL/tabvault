@@ -59,7 +59,22 @@ function AppRoutes() {
 function AppWorkspace() {
   return (
     <WorkspaceSidebar>
-      <AppRoutes />
+      <Suspense
+        fallback={
+          <div
+            role="status"
+            aria-label="Loading page"
+            className="mx-auto max-w-6xl space-y-5 p-6 sm:p-8"
+          >
+            <div className="h-8 w-40 rounded bg-muted motion-safe:animate-pulse" />
+            <div className="h-10 rounded bg-muted motion-safe:animate-pulse" />
+            <div className="h-48 rounded bg-muted motion-safe:animate-pulse" />
+            <span className="sr-only">Loading page…</span>
+          </div>
+        }
+      >
+        <AppRoutes />
+      </Suspense>
     </WorkspaceSidebar>
   );
 }
@@ -96,23 +111,15 @@ export default function App() {
         <TooltipProvider>
           <Toaster position="bottom-right" richColors />
           <BrowserSchemaGate>
-            <Suspense
-              fallback={
-                <main className="min-h-screen bg-[#f6f3ec] p-8 font-mono text-[10px] uppercase tracking-[0.12em] text-[#687067]">
-                  Opening library…
-                </main>
+            <Router
+              hook={
+                isExtensionPage()
+                  ? useHashLocation
+                  : useNormalizedBrowserLocation
               }
             >
-              <Router
-                hook={
-                  isExtensionPage()
-                    ? useHashLocation
-                    : useNormalizedBrowserLocation
-                }
-              >
-                <AppWorkspace />
-              </Router>
-            </Suspense>
+              <AppWorkspace />
+            </Router>
           </BrowserSchemaGate>
         </TooltipProvider>
       </ThemeProvider>

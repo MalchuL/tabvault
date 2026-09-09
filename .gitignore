@@ -121,3 +121,6 @@ temp/
 .project-config.json
 
 local-server/.coverage
+
+.agents/
+skills-lock.json

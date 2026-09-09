@@ -100,20 +100,22 @@ test("manual groups are the only quick and selected move targets", async ({
     .getByRole("checkbox", { name: /^Select / })
     .check();
   const moveSelected = page.getByLabel("Move selected tabs to collection");
-  await expect(moveSelected.locator("option")).toHaveText([
-    "Move to…",
-    "Research",
-  ]);
+  await moveSelected.click();
+  await expect(page.getByRole("menuitem")).toHaveText(["Research"]);
+  await page.keyboard.press("Escape");
 
   const rowMove = page
     .getByTestId("tab-row-t-1001")
     .getByLabel("Move Agents can organize the web better than we can");
-  await expect(rowMove.locator("option")).toHaveText(["Move to…", "Research"]);
-  await expect(
-    page
-      .getByTestId("tab-row-t-research")
-      .getByLabel("Move Model Context Protocol specification")
-  ).toHaveValue("research");
+  await rowMove.click();
+  await expect(page.getByRole("menuitem")).toHaveText(["Research"]);
+  await page.keyboard.press("Escape");
+  await page
+    .getByTestId("tab-row-t-research")
+    .getByLabel("Move Model Context Protocol specification")
+    .click();
+  await expect(page.getByRole("menuitem", { name: "Research" })).toBeDisabled();
+  await page.keyboard.press("Escape");
 
   await page
     .getByTestId("tab-row-advanced-new")
@@ -135,10 +137,9 @@ test("manual groups are the only quick and selected move targets", async ({
     .getByTestId("tab-row-t-1001")
     .getByLabel("Move Agents can organize the web better than we can");
   await expect(compactMove).toBeVisible();
-  await expect(compactMove.locator("option")).toHaveText([
-    "Move to…",
-    "Research",
-  ]);
+  await compactMove.click();
+  await expect(page.getByRole("menuitem")).toHaveText(["Research"]);
+  await page.keyboard.press("Escape");
 });
 
 test("group board keeps every tab visible and emphasizes search matches", async ({
@@ -239,14 +240,14 @@ test("workspace sidebar remains available on secondary pages", async ({
     sidebar.getByRole("button", { name: /^All Tabs/ })
   ).toBeVisible();
   await expect(
-    sidebar.getByRole("button", { name: "Advanced Deduplication" })
+    sidebar.getByRole("button", { name: "Deduplicate" })
   ).toBeVisible();
   await expect(sidebar.getByRole("button", { name: /^Tags/ })).toBeVisible();
   await sidebar.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page).toHaveURL(/\/settings$/);
   await expect(sidebar).toBeVisible();
   await expect(
-    sidebar.getByRole("button", { name: "Advanced Deduplication" })
+    sidebar.getByRole("button", { name: "Deduplicate" })
   ).toBeVisible();
   await sidebar.getByRole("button", { name: "Dashboard", exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
@@ -260,11 +261,13 @@ test("empty Session groups remain until explicitly deleted", async ({
   await page
     .getByTestId("tab-row-t-duplicate")
     .getByLabel("Move Agents can organize the web better than we can")
-    .selectOption("research");
+    .click();
+  await page.getByRole("menuitem", { name: "Research", exact: true }).click();
   await page
     .getByTestId("tab-row-advanced-new")
     .getByLabel("Move New title")
-    .selectOption("research");
+    .click();
+  await page.getByRole("menuitem", { name: "Research", exact: true }).click();
 
   await expect(page.getByTestId("group-separator-session")).toContainText(
     "0 tabs"
@@ -325,7 +328,7 @@ test("Advanced Deduplicator previews and applies an exact-URL fixed plan", async
   await openSchemaV2Library(page);
   await page
     .getByTestId("workspace-sidebar")
-    .getByRole("button", { name: "Advanced Deduplication" })
+    .getByRole("button", { name: "Deduplicate" })
     .click();
   await expect(
     page.getByRole("heading", { name: "Advanced Deduplicator" })

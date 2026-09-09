@@ -165,7 +165,8 @@ export function TabList({
         )?.category;
         const showGroupLabel = collapsibleGroups || tabGroups.length > 1;
         const isCollapsed = collapsedGroupIds.has(groupId);
-        const dropGapHeight = isCollapsed
+        const dragDisabled = isCollapsed || viewMode === "preview";
+        const dropGapHeight = dragDisabled
           ? 0
           : (activeDragHeight ?? (viewMode === "compact" ? 45 : 128));
         return (
@@ -174,6 +175,7 @@ export function TabList({
             groupId={groupId}
             groupName={groupName}
             dropGapHeight={dropGapHeight}
+            disabled={dragDisabled}
           >
             {showGroupLabel && (
               <GroupSeparator
@@ -248,16 +250,19 @@ function DroppableGroup({
   groupId,
   groupName,
   dropGapHeight,
+  disabled,
   children,
 }: {
   groupId: string;
   groupName: string;
   dropGapHeight: number;
+  disabled: boolean;
   children: ReactNode;
 }) {
   const { isOver, setNodeRef } = useDroppable({
     id: `group-container:${groupId}`,
     data: { groupId },
+    disabled,
   });
 
   return (
@@ -504,7 +509,10 @@ export function TabDragPreview({
 }
 
 function SortableTabRow(props: TabRowProps) {
-  const sortable = useSortable({ id: props.tab.id });
+  const sortable = useSortable({
+    id: props.tab.id,
+    disabled: props.viewMode === "preview",
+  });
   return <TabRowPresentation {...props} sortable={sortable} />;
 }
 
@@ -587,7 +595,7 @@ function TabRowPresentation({
         </label>
       )}
 
-      {!compact && (
+      {!compact && !instantPreview && (
         <button
           {...attributes}
           {...listeners}

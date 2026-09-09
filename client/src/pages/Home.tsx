@@ -50,14 +50,23 @@ import {
 } from "@/lib/extension";
 import { DEFAULT_PROPERTY_SCHEMA, orderKey } from "@/lib/library";
 import { TabDragPreview, TabList } from "@/components/TabList";
+import { IconButton } from "@/components/ui/icon-button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { ContextHelp } from "@/components/ContextHelp";
 import {
   LIBRARY_OPEN_TAGS_FLAG,
   useRegisterLibrarySidebar,
 } from "@/components/workspace-sidebar-context";
-import { CollectionBoard } from "@/domain/library/components/CollectionBoard";
 import {
-  CreateCollectionDialog,
+  CollectionBoard,
+  CollectionTabIcon,
+} from "@/domain/library/components/CollectionBoard";
+import {
   DeleteCollectionDialog,
   EditCollectionDialog,
   EditTabDialog,
@@ -85,20 +94,39 @@ import {
 } from "@/domain/deduplication/execution";
 import { BrowserStorageAdapter } from "@/lib/persistence";
 import {
-  ArrowDownToLine,
-  BookMarked,
   Boxes,
+  Check,
+  ListChecks,
+  FolderInput,
+  SlidersHorizontal,
   ChevronRight,
-  Command,
   Eye,
   LayoutList,
-  Plus,
   Rows3,
   Search,
   Sparkles,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+
+function sessionName(date: Date) {
+  const month = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ][date.getMonth()];
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `Session ${month} ${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 const logoUrl = "/icon-128.png";
 
@@ -132,7 +160,7 @@ export default function Home() {
   const [location, setLocation] = useLocation();
   const extensionContext = isExtensionContext();
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
   const collisionDetectionStrategy: CollisionDetection = useCallback(args => {
@@ -151,7 +179,22 @@ export default function Home() {
     const groupContainer = pointerCollisions.find(({ id }) =>
       String(id).startsWith("group-container:")
     );
-    if (groupContainer) return [groupContainer];
+    if (groupContainer) {
+      const container = args.droppableContainers.find(
+        item => item.id === groupContainer.id
+      );
+      if (container?.data.current?.layout === "grid") {
+        const items = args.droppableContainers.filter(
+          item =>
+            item.id !== args.active.id &&
+            item.data.current?.sortable &&
+            item.data.current?.groupId === container.data.current?.groupId
+        );
+        const nearest = closestCenter({ ...args, droppableContainers: items });
+        if (nearest.length) return nearest;
+      }
+      return [groupContainer];
+    }
     const itemCollisions = closestCenter(args).filter(
       ({ id }) =>
         !/^(collection-drop|group-drop|group-container):/.test(String(id))
@@ -161,7 +204,6 @@ export default function Home() {
   }, []);
   const [tabs, setTabs] = useState(startingTabs);
   const [activeDragId, setActiveDragId] = useState<string>();
-  const [activeDragHeight, setActiveDragHeight] = useState<number>();
   const [tabOrders, setTabOrders] = useState<Record<string, string[]>>(() =>
     startingTabs.reduce<Record<string, string[]>>(
       (orders, tab) => ({
@@ -210,10 +252,7 @@ export default function Home() {
     DEFAULT_TABVAULT_SERVER_URL
   );
   const [serverApiKey, setServerApiKey] = useState(DEFAULT_TABVAULT_API_KEY);
-  const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showTagManager, setShowTagManager] = useState(false);
-  const [newGroupName, setNewGroupName] = useState("");
-  const [newGroupDescription, setNewGroupDescription] = useState("");
   const [newTagName, setNewTagName] = useState("");
   const [tagDraft, setTagDraft] = useState("");
   const [editingTab, setEditingTab] = useState<VaultTab | null>(null);
@@ -394,13 +433,6 @@ export default function Home() {
     searchGroupFilter,
     sortByStoredOrder,
   ]);
-
-  const selectCollection = (id: GroupId) => {
-    setSearchGroupFilter(id);
-    setQuery("");
-    setTabView("standard");
-    setLocation("/");
-  };
 
   useEffect(() => {
     const nextDeadline = tabs
@@ -854,8 +886,63 @@ export default function Home() {
     );
   };
 
+  const permanentlyDeleteTabs = async (items: VaultTab[]) => {
+    const ids = new Set(items.map(tab => tab.id));
+    tombstonesRef.current = {
+      ...tombstonesRef.current,
+      tabs: Array.from(
+        new Set([...tombstonesRef.current.tabs, ...Array.from(ids)])
+      ),
+    };
+    setUndoSnapshot(null);
+    setTabs(current => current.filter(tab => !ids.has(tab.id)));
+    setTabOrders(current =>
+      Object.fromEntries(
+        Object.entries(current).map(([key, order]) => [
+          key,
+          order.filter(id => !ids.has(id)),
+        ])
+      )
+    );
+    if (storageMode === "backend" && serverOnline) {
+      const results = await Promise.allSettled(
+        items.map(tab =>
+          deleteTabOnLocalServer(localServerUrl, tab.id, serverApiKey, true)
+        )
+      );
+      if (results.some(result => result.status === "rejected")) {
+        setServerOnline(false);
+        toast.error(
+          "Deleted locally. Server deletion will retry when connected."
+        );
+        return;
+      }
+    }
+    toast.success(
+      `Permanently deleted ${items.length} tab${items.length === 1 ? "" : "s"}`
+    );
+  };
+
+  const toggleSelectionMode = () => {
+    setSelectionMode(current => !current);
+    setSelectedResultIds(new Set());
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedResultIds(
+      selectedResultIds.size === visibleTabs.length
+        ? new Set()
+        : new Set(visibleTabs.map(tab => tab.id))
+    );
+  };
+
   const removeSelected = async () => {
     if (!selectedTabs.length) return;
+    if (isArchivePage) {
+      await permanentlyDeleteTabs(selectedTabs);
+      setSelectedResultIds(new Set());
+      return;
+    }
     createUndoSnapshot(
       `archiving ${selectedTabs.length} tab${selectedTabs.length === 1 ? "" : "s"}`
     );
@@ -902,29 +989,7 @@ export default function Home() {
 
   const deleteTab = async (tab: VaultTab) => {
     if (isArchivePage) {
-      tombstonesRef.current = {
-        ...tombstonesRef.current,
-        tabs: Array.from(new Set([...tombstonesRef.current.tabs, tab.id])),
-      };
-      setTabs(current => current.filter(item => item.id !== tab.id));
-      setTabOrders(
-        current =>
-          Object.fromEntries(
-            Object.entries(current).map(([groupId, orderedIds]) => [
-              groupId,
-              orderedIds.filter(id => id !== tab.id),
-            ])
-          ) as Record<GroupId, string[]>
-      );
-      if (storageMode === "backend" && serverOnline) {
-        await deleteTabOnLocalServer(
-          localServerUrl,
-          tab.id,
-          serverApiKey,
-          true
-        );
-      }
-      toast.success(`Permanently deleted “${tab.title}”`);
+      await permanentlyDeleteTabs([tab]);
       return;
     }
     createUndoSnapshot("archiving 1 tab");
@@ -1276,24 +1341,9 @@ export default function Home() {
     const title = activeTab.title?.trim() || "Browser capture — current tab";
     const capturedAt = new Date();
     const now = capturedAt.toISOString();
-    const month = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ][capturedAt.getMonth()];
-    const pad = (value: number) => String(value).padStart(2, "0");
     const sessionGroup: VaultGroup = {
       id: crypto.randomUUID(),
-      name: `Session ${month} ${pad(capturedAt.getDate())} ${pad(capturedAt.getHours())}:${pad(capturedAt.getMinutes())}`,
+      name: sessionName(capturedAt),
       description: "Captured from the browser",
       category: "session",
       accent: "#829b65",
@@ -1421,17 +1471,14 @@ export default function Home() {
   }, [extensionContext]);
 
   const createGroup = () => {
-    const name = newGroupName.trim();
-    if (!name) {
-      toast.error("Name the collection first");
-      return;
-    }
-    const id = `collection-${Date.now()}`;
-    const now = new Date().toISOString();
+    const createdAt = new Date();
+    const name = sessionName(createdAt);
+    const id = crypto.randomUUID();
+    const now = createdAt.toISOString();
     const group: VaultGroup = {
       id,
       name,
-      description: newGroupDescription.trim(),
+      description: "",
       category: "manual",
       accent: "#8a9c92",
       createdAt: now,
@@ -1452,10 +1499,7 @@ export default function Home() {
         },
         serverApiKey
       ).catch(() => setServerOnline(false));
-    setNewGroupName("");
-    setNewGroupDescription("");
-    setShowGroupDialog(false);
-    selectCollection(id);
+    setTabOrders(current => ({ ...current, [id]: [] }));
     toast.success(`“${name}” is ready`, {
       description: "You can now drag a tab onto its collection row.",
     });
@@ -1752,11 +1796,6 @@ export default function Home() {
     dragSnapshotRef.current = { tabs, tabOrders };
     lastCrossOverRef.current = undefined;
     setActiveDragId(String(active.id));
-    setActiveDragHeight(
-      document
-        .getElementById(`search-result-${String(active.id)}`)
-        ?.getBoundingClientRect().height ?? active.rect.current.initial?.height
-    );
   };
 
   const handleLibraryDragOver = ({
@@ -1768,23 +1807,31 @@ export default function Home() {
     if (!over || active.id === over.id) return;
     const source = tabs.find(tab => tab.id === active.id);
     const target = tabs.find(tab => tab.id === over.id);
-    const groupId = target?.groupId ?? over.data.current?.groupId;
-    if (!source || typeof groupId !== "string") return;
+    const dropGroupId = target ? target.groupId : over.data.current?.groupId;
+    const groupId = dropGroupId === "unassigned" ? null : dropGroupId;
+    if (!source || (groupId !== null && typeof groupId !== "string")) return;
+    const destinationKey = orderKey(groupId);
 
     if (source.groupId === groupId) {
       const original = dragSnapshotRef.current?.tabs.find(
         tab => tab.id === active.id
       );
       if (original?.groupId !== groupId && lastCrossOverRef.current) {
-        lastCrossOverRef.current.overId = String(over.id);
+        if (target) lastCrossOverRef.current.overId = String(over.id);
       }
-      if (String(over.id).startsWith("group-container:")) {
+      if (
+        String(over.id).startsWith("group-container:") &&
+        !lastCrossOverRef.current
+      ) {
         setTabOrders(current => {
-          const order = current[groupId] ?? [];
+          const order = current[destinationKey] ?? [];
           if (order.at(-1) === source.id) return current;
           return {
             ...current,
-            [groupId]: [...order.filter(id => id !== source.id), source.id],
+            [destinationKey]: [
+              ...order.filter(id => id !== source.id),
+              source.id,
+            ],
           };
         });
       }
@@ -1796,11 +1843,21 @@ export default function Home() {
         ? activatorEvent.clientY + delta.y
         : undefined;
     const activeRect = active.rect.current.translated;
+    const pointerX =
+      "clientX" in activatorEvent && typeof activatorEvent.clientX === "number"
+        ? activatorEvent.clientX + delta.x
+        : undefined;
     const placeAfter = Boolean(
       target &&
-        (pointerY !== undefined
-          ? pointerY > over.rect.top + over.rect.height / 2
-          : activeRect && activeRect.top > over.rect.top + over.rect.height)
+        (tabView === "groups"
+          ? pointerX !== undefined && pointerY !== undefined
+            ? pointerY > over.rect.bottom ||
+              (pointerY >= over.rect.top &&
+                pointerX > over.rect.left + over.rect.width / 2)
+            : activeRect && activeRect.left > over.rect.left
+          : pointerY !== undefined
+            ? pointerY > over.rect.top + over.rect.height / 2
+            : activeRect && activeRect.top > over.rect.top + over.rect.height)
     );
     setTabs(current =>
       current.map(tab => (tab.id === source.id ? { ...tab, groupId } : tab))
@@ -1812,7 +1869,7 @@ export default function Home() {
           orderedIds.filter(id => id !== source.id),
         ])
       ) as Record<GroupId, string[]>;
-      const destination = [...(next[groupId] ?? [])];
+      const destination = [...(next[destinationKey] ?? [])];
       const targetIndex = target ? destination.indexOf(target.id) : -1;
       destination.splice(
         targetIndex < 0
@@ -1821,7 +1878,7 @@ export default function Home() {
         0,
         source.id
       );
-      return { ...next, [groupId]: destination };
+      return { ...next, [destinationKey]: destination };
     });
     lastCrossOverRef.current = {
       groupId,
@@ -1838,7 +1895,6 @@ export default function Home() {
     dragSnapshotRef.current = undefined;
     lastCrossOverRef.current = undefined;
     setActiveDragId(undefined);
-    setActiveDragHeight(undefined);
   };
 
   const handleLibraryDragEnd = async ({ active, over }: DragEndEvent) => {
@@ -1847,7 +1903,6 @@ export default function Home() {
     dragSnapshotRef.current = undefined;
     lastCrossOverRef.current = undefined;
     setActiveDragId(undefined);
-    setActiveDragHeight(undefined);
     if (!over) {
       if (snapshot) {
         setTabs(snapshot.tabs);
@@ -2090,85 +2145,22 @@ export default function Home() {
       onDragEnd={handleLibraryDragEnd}
       onDragCancel={cancelLibraryDrag}
     >
-      <div className="min-h-screen bg-[#f6f3ec] text-[#18261f] paper-grain">
+      <div className="min-h-screen bg-[#f6f3ec] text-[#18261f]">
         <main className="min-h-screen">
-          <header className="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-[#ded9cd]/85 bg-[#f6f3ec]/88 px-5 backdrop-blur-xl sm:px-7 lg:px-9">
-            <div className="flex items-center gap-3">
-              <div className="hidden items-center gap-2 text-[12px] text-[#7a7e76] sm:flex">
-                <BookMarked className="h-3.5 w-3.5" />
-                <span>My library</span>
-                <ChevronRight className="h-3 w-3" />
-                <span className="font-semibold text-[#29342d]">
-                  {workspaceLabel}
-                </span>
-              </div>
-              <div className="sm:hidden">
-                <BrandMark className="h-7 w-7" />
-              </div>
-            </div>
-            <div className="flex items-center gap-2.5">
-              <button
-                onClick={() =>
-                  toast("Command center", {
-                    description: "Shortcuts are ready when you are.",
-                  })
-                }
-                className="hidden items-center gap-2 rounded-md border border-[#ded9cd] bg-[#fffdf8] px-2.5 py-1.5 text-[10px] font-medium text-[#737870] transition hover:border-[#bbb4a5] sm:flex"
-              >
-                <Command className="h-3 w-3" /> Command{" "}
-                <span className="border-l border-[#ddd8cb] pl-2 font-mono">
-                  K
-                </span>
-              </button>
-              {extensionContext ? (
-                <button
-                  onClick={() => void captureCurrentTab()}
-                  className="inline-flex items-center gap-2 rounded-md bg-[#e95224] px-3 py-2 text-[11px] font-bold text-white transition hover:bg-[#d94a1e] active:scale-[0.98]"
-                >
-                  <Plus className="h-3.5 w-3.5" />{" "}
-                  <span className="hidden sm:inline">Save active tab</span>
-                </button>
-              ) : (
-                <button
-                  onClick={() => setLocation("/transfer")}
-                  className="inline-flex items-center gap-2 rounded-md border border-[#ded9cd] bg-[#fffdf8] px-3 py-2 text-[11px] font-bold transition hover:border-[#c3bcae] hover:bg-[#fffaf4]"
-                >
-                  <ArrowDownToLine className="h-3.5 w-3.5" />{" "}
-                  <span className="hidden sm:inline">Import & Export</span>
-                </button>
-              )}
-            </div>
-          </header>
-
-          <div className="mx-auto max-w-[1540px] px-5 py-7 sm:px-7 lg:px-9 lg:py-9">
-            <section className="rise-in flex flex-col gap-5 border-b border-[#dcd7cc] pb-7 sm:flex-row sm:items-end sm:justify-between">
+          <div className="mx-auto max-w-[1540px] px-5 py-5 sm:px-7">
+            <section className="flex flex-wrap items-center justify-between gap-3">
               <div className="max-w-2xl">
-                <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-[#8a8e85]">
-                  <BrandMark className="h-4 w-4" />
-                  {isArchivePage
-                    ? "Recovery"
-                    : isHiddenPage
-                      ? "Snoozed"
-                      : "Library"}
-                </p>
-                <h1 className="mt-3 font-['DM_Sans'] text-[34px] font-bold leading-[0.98] tracking-[-0.065em] text-[#18261f] sm:text-[44px]">
+                <h1 className="font-['DM_Sans'] text-2xl font-bold tracking-[-0.04em] text-[#18261f]">
                   {isArchivePage
                     ? "Archive"
                     : isHiddenPage
                       ? "Hidden"
                       : "All tabs"}
                 </h1>
-                <p className="mt-3 max-w-xl text-[13px] leading-6 text-[#697068]">
-                  {isArchivePage
-                    ? "Archived links stay recoverable here. Restore them with PATCH or permanently remove them from this view."
-                    : isHiddenPage
-                      ? "Hidden tabs return automatically at their UTC deadline. Unhide or prolong them here."
-                      : "Browse every active visible saved link. Change the view to scan rows, read previews, or review collection groups."}
-                </p>
               </div>
               <button
                 onClick={() => setLocation("/dashboard")}
-                className="inline-flex shrink-0 items-center gap-2 border-l border-[#d6d0c4] pl-4 text-left font-mono text-[9px] uppercase tracking-[0.09em] text-[#6d746b] transition hover:text-[#e95224] active:scale-[0.98]"
+                className="inline-flex shrink-0 items-center gap-2 rounded px-2 py-2 text-left font-mono text-[9px] uppercase tracking-[0.09em] text-[#6d746b] transition hover:text-[#e95224] active:scale-[0.98]"
                 title="Open dashboard"
               >
                 <BrandMark className="h-3.5 w-3.5 shrink-0" />
@@ -2177,40 +2169,21 @@ export default function Home() {
               </button>
             </section>
 
-            <div className="rise-in-delay mt-7">
+            <div className="mt-4">
               <section>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                   <div>
-                    <p className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.15em] text-[#8e9189]">
-                      {query
-                        ? "Search results"
-                        : isArchivePage
-                          ? "Archived items"
-                          : isHiddenPage
-                            ? "Hidden items"
-                            : "Library items"}
-                      <ContextHelp
-                        title="Search your library"
-                        side="bottom"
-                        align="start"
-                        tip="Try a topic, a phrase from your notes, or a tag."
-                      >
-                        Search checks tab titles, notes, and tags. When the
-                        semantic model is ready, it can also rank results by
-                        related meaning. Use the shelf menu to narrow the scope.
-                      </ContextHelp>
-                    </p>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      <h2 className="font-['DM_Sans'] text-[21px] font-bold tracking-[-0.045em]">
+                      <h2 className="font-['DM_Sans'] text-sm font-semibold tracking-[-0.02em]">
                         {query
                           ? isRemoteSearching
                             ? "Searching local knowledge…"
                             : `${visibleTabs.length} ${remoteSearch?.mode === "semantic" ? "matched on meaning" : "matched locally"}`
-                          : `${visibleTabs.length} tabs in ${workspaceLabel}`}
+                          : `${visibleTabs.length} tabs`}
                       </h2>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
                     {query && (
                       <p className="hidden max-w-[250px] text-right text-[11px] leading-5 text-[#80847d] md:block">
                         {searchStatusCopy}
@@ -2225,151 +2198,161 @@ export default function Home() {
                         >
                           {isQuickCleaning ? "Cleaning…" : "Quick clean"}
                         </button>
-                        <button
+                        <IconButton
+                          label="Advanced deduplication"
                           onClick={() => setLocation("/deduplicate")}
-                          className="rounded border border-[#d9d3c6] bg-[#fffdf8] px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#e95224] hover:text-[#e95224]"
                         >
-                          Advanced Dedup
-                        </button>
+                          <SlidersHorizontal />
+                        </IconButton>
                       </>
                     )}
-                    {!query &&
-                      !isArchivePage &&
-                      !isHiddenPage &&
-                      tabView !== "groups" && (
-                        <button
-                          onClick={() => {
-                            setSelectionMode(current => !current);
-                            setSelectedResultIds(new Set());
-                          }}
-                          className={`rounded border px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.08em] transition ${selectionMode ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#d9d3c6] bg-[#fffdf8] text-[#687067] hover:border-[#e95224] hover:text-[#e95224]"}`}
-                        >
-                          {selectionMode ? "Done selecting" : "Select tabs"}
-                        </button>
-                      )}
+                    {!query && !isGroupBoard && (
+                      <IconButton
+                        label={selectionMode ? "Done selecting" : "Select tabs"}
+                        aria-pressed={selectionMode}
+                        onClick={toggleSelectionMode}
+                        className={
+                          selectionMode ? "bg-[#fff0ea] text-[#c84b26]" : ""
+                        }
+                      >
+                        {selectionMode ? <Check /> : <ListChecks />}
+                      </IconButton>
+                    )}
                   </div>
                 </div>
-                <label className="mt-5 flex h-12 items-center gap-3 border-b border-[#bcb6a8] bg-[#fffdf8] px-4 transition focus-within:border-[#e95224] focus-within:shadow-[0_8px_24px_rgba(24,38,31,0.04)]">
-                  <Search className="h-4 w-4 text-[#e95224]" />
-                  <input
-                    value={query}
-                    onChange={event => {
-                      setQuery(event.target.value);
-                      setActiveResultIndex(0);
-                    }}
-                    onKeyDown={handleSearchKeyDown}
-                    placeholder="Ask your links anything…"
-                    aria-label="Search your TabVault library"
-                    aria-activedescendant={
-                      query && visibleTabs[activeResultIndex]
-                        ? `search-result-${visibleTabs[activeResultIndex].id}`
-                        : undefined
-                    }
-                    className="min-w-0 flex-1 bg-transparent text-[13px] font-medium outline-none placeholder:text-[#a1a39b]"
-                  />
-                  <select
-                    value={searchGroupFilter}
-                    onChange={event =>
-                      setSearchGroupFilter(
-                        event.target.value as "all" | GroupId
-                      )
-                    }
-                    aria-label="Filter search by collection"
-                    className="max-w-[118px] bg-transparent font-mono text-[9px] uppercase tracking-[0.06em] text-[#6f756d] outline-none"
-                  >
-                    <option value="all">All shelves</option>
-                    {vaultGroups.map(group => (
-                      <option key={group.id} value={group.id}>
-                        {group.name}
-                      </option>
-                    ))}
-                  </select>
-                  <span
-                    className={`hidden items-center gap-1.5 border-l border-[#e3ded3] pl-3 font-mono text-[9px] uppercase tracking-[0.08em] sm:flex ${semanticLensTone}`}
-                    title="Semantic lens: local matching and meaning-based ranking when the index is ready"
-                  >
-                    <Sparkles
-                      className={`h-3 w-3 ${isRemoteSearching ? "animate-pulse" : ""}`}
+                <div
+                  data-testid="library-search-toolbar"
+                  className="sticky top-14 z-20 mt-3 bg-[#f6f3ec] py-2 lg:top-0"
+                >
+                  <label className="flex h-10 items-center gap-3 border-b border-[#bcb6a8] bg-[#fffdf8] px-4 transition focus-within:border-[#e95224] focus-within:shadow-[0_8px_24px_rgba(24,38,31,0.04)]">
+                    <Search className="h-4 w-4 text-[#e95224]" />
+                    <input
+                      value={query}
+                      onChange={event => {
+                        setQuery(event.target.value);
+                        setActiveResultIndex(0);
+                      }}
+                      onKeyDown={handleSearchKeyDown}
+                      placeholder="Search tabs, notes, and tags…"
+                      aria-label="Search your TabVault library"
+                      aria-activedescendant={
+                        query && visibleTabs[activeResultIndex]
+                          ? `search-result-${visibleTabs[activeResultIndex].id}`
+                          : undefined
+                      }
+                      className="min-w-0 flex-1 bg-transparent text-[13px] font-medium outline-none placeholder:text-[#a1a39b]"
                     />
-                    <span className="text-[#697068]">lens</span>
-                    <span>{semanticLensLabel}</span>
-                  </span>
-                  {query && (
-                    <span className="hidden rounded border border-[#ded9cd] px-1.5 py-1 font-mono text-[8px] text-[#858980] 2xl:inline">
-                      ↑↓ navigate · ↵ open
-                    </span>
-                  )}
-                </label>
-                {selectionActive && (
-                  <div className="flex flex-wrap items-center gap-2 border-b border-[#dfdbd0] bg-[#f9f7f1] px-3 py-2.5">
-                    <button
-                      onClick={() =>
-                        setSelectedResultIds(
-                          selectedResultIds.size === visibleTabs.length
-                            ? new Set()
-                            : new Set(visibleTabs.map(tab => tab.id))
+                    <select
+                      value={searchGroupFilter}
+                      onChange={event =>
+                        setSearchGroupFilter(
+                          event.target.value as "all" | GroupId
                         )
                       }
-                      className="rounded border border-[#d9d3c6] bg-[#fffdf8] px-2 py-1.5 font-mono text-[9px] uppercase tracking-[0.06em] text-[#617066] hover:border-[#e95224] hover:text-[#e95224]"
+                      aria-label="Filter search by collection"
+                      className="max-w-[118px] bg-transparent font-mono text-[9px] uppercase tracking-[0.06em] text-[#6f756d] outline-none"
                     >
-                      {selectedResultIds.size === visibleTabs.length &&
-                      visibleTabs.length
-                        ? "Clear"
-                        : "Select all"}
-                    </button>
-                    <span className="font-mono text-[9px] uppercase tracking-[0.06em] text-[#7b8078]">
-                      {selectedResultIds.size} marked
+                      <option value="all">All collections</option>
+                      {vaultGroups.map(group => (
+                        <option key={group.id} value={group.id}>
+                          {group.name}
+                        </option>
+                      ))}
+                    </select>
+                    <span
+                      className={`hidden items-center gap-1.5 pl-2 font-mono text-[9px] uppercase tracking-[0.08em] sm:flex ${semanticLensTone}`}
+                      title="Semantic lens: local matching and meaning-based ranking when the index is ready"
+                    >
+                      <Sparkles
+                        className={`h-3 w-3 ${isRemoteSearching ? "animate-pulse" : ""}`}
+                      />
+
+                      <span>{semanticLensLabel}</span>
                     </span>
-                    {selectedResultIds.size > 0 && (
-                      <>
-                        <select
-                          defaultValue=""
-                          aria-label="Move selected tabs to collection"
-                          onChange={event => {
-                            if (event.target.value)
-                              void bulkMoveSelected(event.target.value);
-                            event.currentTarget.value = "";
-                          }}
-                          className="rounded border border-[#d9d3c6] bg-[#fffdf8] px-2 py-1.5 font-mono text-[9px] uppercase tracking-[0.06em] text-[#617066] outline-none"
-                        >
-                          <option value="" disabled>
-                            Move to…
-                          </option>
-                          {vaultGroups
-                            .filter(group => group.category === "manual")
-                            .map(group => (
-                              <option key={group.id} value={group.id}>
-                                {group.name}
-                              </option>
-                            ))}
-                        </select>
-                        <div className="flex overflow-hidden rounded border border-[#d9d3c6] bg-[#fffdf8]">
-                          <input
-                            value={bulkTag}
-                            onChange={event => setBulkTag(event.target.value)}
-                            onKeyDown={event => {
-                              if (event.key === "Enter") void bulkTagSelected();
-                            }}
-                            placeholder="Add tag"
-                            className="w-20 bg-transparent px-2 py-1.5 text-[10px] outline-none placeholder:text-[#aaa9a1]"
-                          />
-                          <button
-                            onClick={() => void bulkTagSelected()}
-                            className="border-l border-[#d9d3c6] px-2 font-mono text-[9px] uppercase tracking-[0.06em] text-[#617066] hover:bg-[#fff0ea] hover:text-[#e95224]"
-                          >
-                            Tag
-                          </button>
-                        </div>
-                        <button
-                          onClick={() => void removeSelected()}
-                          className="rounded border border-[#e6b7a7] bg-[#fff8f4] px-2 py-1.5 font-mono text-[9px] uppercase tracking-[0.06em] text-[#bd4a29] hover:bg-[#fff0ea]"
-                        >
-                          Remove
-                        </button>
-                      </>
+                    {query && (
+                      <span className="hidden rounded border border-[#ded9cd] px-1.5 py-1 font-mono text-[8px] text-[#858980] 2xl:inline">
+                        ↑↓ navigate · ↵ open
+                      </span>
                     )}
-                  </div>
-                )}
+                  </label>
+                  {selectionActive && (
+                    <div className="flex flex-wrap items-center gap-2 border-b border-[#dfdbd0] bg-[#f9f7f1] px-3 py-2.5">
+                      <button
+                        onClick={toggleSelectAll}
+                        className="rounded border border-[#d9d3c6] bg-[#fffdf8] px-2 py-1.5 font-mono text-[9px] uppercase tracking-[0.06em] text-[#617066] hover:border-[#e95224] hover:text-[#e95224]"
+                      >
+                        {selectedResultIds.size === visibleTabs.length &&
+                        visibleTabs.length
+                          ? "Clear"
+                          : "Select all"}
+                      </button>
+                      <span className="font-mono text-[9px] uppercase tracking-[0.06em] text-[#7b8078]">
+                        {selectedResultIds.size} marked
+                      </span>
+                      {selectedResultIds.size > 0 && (
+                        <>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <IconButton label="Move selected tabs to collection">
+                                <FolderInput />
+                              </IconButton>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start">
+                              {vaultGroups
+                                .filter(group => group.category === "manual")
+                                .map(group => (
+                                  <DropdownMenuItem
+                                    key={group.id}
+                                    onSelect={() =>
+                                      void bulkMoveSelected(group.id)
+                                    }
+                                  >
+                                    {group.name}
+                                  </DropdownMenuItem>
+                                ))}
+                              {!vaultGroups.some(
+                                group => group.category === "manual"
+                              ) && (
+                                <DropdownMenuItem disabled>
+                                  No collections available
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          <div className="flex overflow-hidden rounded border border-[#d9d3c6] bg-[#fffdf8]">
+                            <input
+                              value={bulkTag}
+                              onChange={event => setBulkTag(event.target.value)}
+                              onKeyDown={event => {
+                                if (event.key === "Enter")
+                                  void bulkTagSelected();
+                              }}
+                              placeholder="Add tag"
+                              className="w-20 bg-transparent px-2 py-1.5 text-[10px] outline-none placeholder:text-[#aaa9a1]"
+                            />
+                            <button
+                              onClick={() => void bulkTagSelected()}
+                              className="border-l border-[#d9d3c6] px-2 font-mono text-[9px] uppercase tracking-[0.06em] text-[#617066] hover:bg-[#fff0ea] hover:text-[#e95224]"
+                            >
+                              Tag
+                            </button>
+                          </div>
+                          <IconButton
+                            label={
+                              isArchivePage
+                                ? "Permanently delete selected tabs"
+                                : "Archive selected tabs"
+                            }
+                            onClick={removeSelected}
+                            className="text-[#bd4a29] hover:bg-[#fff0ea] hover:text-[#bd4a29]"
+                          >
+                            <Trash2 />
+                          </IconButton>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
                 {query && (
                   <div className="flex flex-wrap items-center gap-2 border-b border-[#dfdbd0] bg-[#fffdf8] px-3 py-2">
                     <button
@@ -2458,11 +2441,8 @@ export default function Home() {
                     )}
                   </div>
                 )}
-                <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#dcd7cc] pt-3">
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                   <p className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[#838980]">
-                    {query
-                      ? `${visibleTabs.length} results`
-                      : `${visibleTabs.length} items`}
                     <ContextHelp
                       title="Tab views and reordering"
                       side="bottom"
@@ -2480,7 +2460,7 @@ export default function Home() {
                     role="group"
                     aria-label="Tab view mode"
                   >
-                    <button
+                    <IconButton
                       onClick={() => {
                         setSearchGroupFilter("all");
                         setSelectionMode(false);
@@ -2488,35 +2468,35 @@ export default function Home() {
                         setTabView("groups");
                       }}
                       className={`p-2 ${tabView === "groups" ? "bg-[#edf2ea] text-[#36533a]" : "text-[#858980] hover:bg-[#f7f4ed]"}`}
-                      aria-label="Collection-group board view"
+                      label="Collection-group board view"
                       aria-pressed={tabView === "groups"}
                     >
                       <Boxes className="h-3.5 w-3.5" />
-                    </button>
-                    <button
+                    </IconButton>
+                    <IconButton
                       onClick={() => setTabView("standard")}
                       className={`border-l border-[#d9d3c6] p-2 ${tabView === "standard" ? "bg-[#edf2ea] text-[#36533a]" : "text-[#858980] hover:bg-[#f7f4ed]"}`}
-                      aria-label="Standard tab view"
+                      label="Standard tab view"
                       aria-pressed={tabView === "standard"}
                     >
                       <LayoutList className="h-3.5 w-3.5" />
-                    </button>
-                    <button
+                    </IconButton>
+                    <IconButton
                       onClick={() => setTabView("compact")}
                       className={`border-l border-[#d9d3c6] p-2 ${tabView === "compact" ? "bg-[#edf2ea] text-[#36533a]" : "text-[#858980] hover:bg-[#f7f4ed]"}`}
-                      aria-label="Compact tab view"
+                      label="Compact tab view"
                       aria-pressed={tabView === "compact"}
                     >
                       <Rows3 className="h-3.5 w-3.5" />
-                    </button>
-                    <button
+                    </IconButton>
+                    <IconButton
                       onClick={() => setTabView("preview")}
                       className={`border-l border-[#d9d3c6] p-2 ${tabView === "preview" ? "bg-[#edf2ea] text-[#36533a]" : "text-[#858980] hover:bg-[#f7f4ed]"}`}
-                      aria-label="Instant-preview tab view"
+                      label="Instant-preview tab view"
                       aria-pressed={tabView === "preview"}
                     >
                       <Eye className="h-3.5 w-3.5" />
-                    </button>
+                    </IconButton>
                   </div>
                 </div>
                 {isGroupBoard ? (
@@ -2534,7 +2514,7 @@ export default function Home() {
                       setQuery("");
                       setTabView("standard");
                     }}
-                    onCreate={() => setShowGroupDialog(true)}
+                    onCreate={createGroup}
                     onHide={(groupId, duration) =>
                       void changeGroupVisibility(groupId, "hide", duration)
                     }
@@ -2542,9 +2522,11 @@ export default function Home() {
                 ) : visibleTabs.length ||
                   (!isArchivePage && !isHiddenPage && !query) ? (
                   <>
-                    {!isArchivePage && !isHiddenPage && (
-                      <CollectionDropShelf groups={vaultGroups} />
-                    )}
+                    {!isArchivePage &&
+                      !isHiddenPage &&
+                      tabView !== "preview" && (
+                        <CollectionDropShelf groups={vaultGroups} />
+                      )}
                     <TabList
                       tabs={visibleTabs}
                       viewMode={tabView === "groups" ? "standard" : tabView}
@@ -2629,7 +2611,6 @@ export default function Home() {
                           ? { url: localServerUrl, apiKey: serverApiKey }
                           : undefined
                       }
-                      activeDragHeight={activeDragHeight}
                     />
                   </>
                 ) : (
@@ -2653,17 +2634,6 @@ export default function Home() {
             </div>
           </div>
         </main>
-
-        {showGroupDialog && (
-          <CreateCollectionDialog
-            name={newGroupName}
-            description={newGroupDescription}
-            onNameChange={setNewGroupName}
-            onDescriptionChange={setNewGroupDescription}
-            onClose={() => setShowGroupDialog(false)}
-            onCreate={createGroup}
-          />
-        )}
 
         {editingCollection && (
           <EditCollectionDialog
@@ -2726,7 +2696,14 @@ export default function Home() {
         )}
       </div>
       <DragOverlay dropAnimation={null}>
-        {activeDragTab ? (
+        {activeDragTab && tabView === "groups" ? (
+          <div
+            className="grid h-9 w-9 place-items-center rounded-md bg-[#fffdf8] shadow-lg"
+            data-testid="tab-drag-preview"
+          >
+            <CollectionTabIcon tab={activeDragTab} />
+          </div>
+        ) : activeDragTab ? (
           <TabDragPreview
             tab={activeDragTab}
             viewMode={tabView === "groups" ? "standard" : tabView}

@@ -44,9 +44,6 @@ export function ContextHelp({
         sideOffset={6}
         className="w-[min(278px,calc(100vw-32px))] rounded-none border border-[#cfc8ba] bg-[#fffdf8] p-3.5 text-[#26342c] shadow-[0_14px_32px_rgba(24,38,31,0.16)]"
       >
-        <p className="font-mono text-[8px] uppercase tracking-[0.14em] text-[#e95224]">
-          First-use note
-        </p>
         <h3 className="mt-1.5 text-[13px] font-bold tracking-[-0.02em] text-[#26342c]">
           {title}
         </h3>

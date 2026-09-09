@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "wouter";
 import { ContextHelp } from "@/components/ContextHelp";
 import {
   buildAdvancedDedupePlan,
@@ -87,7 +86,6 @@ function applyMutation(vault: PersistedVault, mutation: DedupeMutation) {
 }
 
 export default function Deduplicator() {
-  const [, setLocation] = useLocation();
   const [vault, setVault] = useState<PersistedVault>();
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [generatedPlan, setGeneratedPlan] = useState<DedupePlan>();
@@ -154,24 +152,17 @@ export default function Deduplicator() {
     );
 
   return (
-    <main className="min-h-screen bg-[#f6f3ec] px-5 py-8 text-[#26342c] sm:px-8">
+    <main className="min-h-screen bg-[#f6f3ec] px-5 py-6 text-[#26342c] sm:px-8">
       <div className="mx-auto max-w-5xl">
-        <button
-          onClick={() => setLocation("/")}
-          className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#687067] hover:text-[#e95224]"
-        >
-          ← All tabs
-        </button>
-        <h1 className="mt-5 text-4xl font-bold tracking-[-0.05em]">
+        <h1 className="text-2xl font-bold tracking-[-0.05em]">
           Advanced Deduplicator
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-[#697068]">
-          This fixed preview clusters active visible records by the SHA-256 hash
-          of their exact saved URL. Hidden and archived records are excluded.
+          Merge tabs with identical URLs. Hidden and archived tabs are excluded.
         </p>
 
         <section
-          className={`mt-7 space-y-2 border-y border-[#dcd7cc] py-5 ${fixedPlan ? "pointer-events-none opacity-55" : ""}`}
+          className={`mt-5 space-y-2 ${fixedPlan ? "pointer-events-none opacity-55" : ""}`}
         >
           <Choice
             label="Survivor"

@@ -74,18 +74,14 @@ export default function CustomProperties() {
   };
 
   return (
-    <main className="mx-auto max-w-5xl px-5 py-10 sm:px-8">
-      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#e95224]">
-        Library schema
-      </p>
-      <h1 className="mt-2 font-['DM_Sans'] text-3xl font-bold tracking-[-0.04em]">
+    <main className="mx-auto max-w-5xl px-5 py-6 sm:px-8">
+      <h1 className="mt-2 font-['DM_Sans'] text-2xl font-bold tracking-[-0.04em]">
         Custom Properties
       </h1>
       <p className="mt-2 max-w-2xl text-sm text-[#687067]">
-        Define typed fields and defaults shared by every saved tab. Ordinary
-        reads never rewrite incompatible stored values.
+        Add fields and default values to saved tabs.
       </p>
-      <section className="mt-8 grid gap-3">
+      <section className="mt-5 grid gap-3">
         {Object.entries(schema).map(([propertyName, definition]) => (
           <article
             key={propertyName}
@@ -117,7 +113,7 @@ export default function CustomProperties() {
           </article>
         ))}
       </section>
-      <section className="mt-8 border border-[#ded9cd] bg-[#fffdf8] p-5">
+      <section className="mt-5 border border-[#ded9cd] bg-[#fffdf8] p-5">
         <h2 className="font-semibold">Add or update a property</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <input

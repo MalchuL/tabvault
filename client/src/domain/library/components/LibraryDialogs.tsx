@@ -2,61 +2,6 @@ import type { ReactNode } from "react";
 import { Plus, Save, Trash2, X } from "lucide-react";
 import type { CustomPropertySchema, VaultGroup, VaultTab } from "../types";
 
-type CreateCollectionDialogProps = {
-  name: string;
-  description: string;
-  onNameChange: (name: string) => void;
-  onDescriptionChange: (description: string) => void;
-  onClose: () => void;
-  onCreate: () => void;
-};
-
-export function CreateCollectionDialog({
-  name,
-  description,
-  onNameChange,
-  onDescriptionChange,
-  onClose,
-  onCreate,
-}: CreateCollectionDialogProps) {
-  return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-[#18261f]/30 p-5 backdrop-blur-[2px]"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Create collection"
-    >
-      <div className="w-full max-w-sm bg-[#fffdf8] p-5 shadow-[0_24px_70px_rgba(24,38,31,0.25)] rise-in">
-        <DialogHeading
-          eyebrow="Collection"
-          title="Name a new shelf"
-          onClose={onClose}
-        />
-        <input
-          autoFocus
-          value={name}
-          onChange={event => onNameChange(event.target.value)}
-          onKeyDown={event => event.key === "Enter" && onCreate()}
-          placeholder="e.g. Weekend reading"
-          className="mt-5 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[13px] font-semibold outline-none focus:border-[#e95224]"
-        />
-        <textarea
-          value={description}
-          onChange={event => onDescriptionChange(event.target.value)}
-          placeholder="Description for agents (optional)"
-          rows={3}
-          className="mt-4 w-full resize-none border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 text-[12px] leading-5 outline-none focus:border-[#e95224]"
-        />
-        <DialogActions
-          onCancel={onClose}
-          onConfirm={onCreate}
-          confirmLabel="Create collection"
-        />
-      </div>
-    </div>
-  );
-}
-
 type EditCollectionDialogProps = {
   collection: VaultGroup;
   categories: string[];
