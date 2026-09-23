@@ -9,8 +9,8 @@ import pytest
 from clients.web_capture.client import CaptureRejectedError, WebCaptureClient
 from config.settings import Settings
 from db.session import configure_database, dispose_database
-from domain.system.jobs import JobWorker
-from domain.system.preview import PreviewService
+from domain.jobs.worker import JobWorker
+from domain.previews.service import PreviewService
 from models import Base, Job, Tab
 
 

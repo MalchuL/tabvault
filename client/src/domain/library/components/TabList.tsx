@@ -27,9 +27,12 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { parseReadableArticle, type ReadableArticle } from "@/lib/readability";
 import { categoryColor } from "@/domain/library/categoryColor";
-import { HideDurationMenu } from "@/domain/library/components/HideDurationMenu";
+import { HideDurationMenu } from "./HideDurationMenu";
+import { createTabVaultApi } from "@/domain/server/client";
 
-export type TabViewMode = "standard" | "compact" | "preview";
+import type { TabViewMode } from "@/domain/library/types";
+
+export type { TabViewMode } from "@/domain/library/types";
 
 export type TabListItem = {
   id: string;
@@ -40,6 +43,7 @@ export type TabListItem = {
   note: string;
   agentReview: string;
   viewed: boolean;
+  customProperties: Record<string, unknown>;
   tags: string[];
   color: string;
   icon: string;
@@ -164,7 +168,8 @@ export function TabList({
         )?.category;
         const showGroupLabel = collapsibleGroups || tabGroups.length > 1;
         const isCollapsed = collapsedGroupIds.has(groupId);
-        const dropGapHeight = isCollapsed
+        const dragDisabled = isCollapsed || viewMode === "preview";
+        const dropGapHeight = dragDisabled
           ? 0
           : (activeDragHeight ?? (viewMode === "compact" ? 45 : 128));
         return (
@@ -173,6 +178,7 @@ export function TabList({
             groupId={groupId}
             groupName={groupName}
             dropGapHeight={dropGapHeight}
+            disabled={dragDisabled}
           >
             {showGroupLabel && (
               <GroupSeparator
@@ -247,16 +253,19 @@ function DroppableGroup({
   groupId,
   groupName,
   dropGapHeight,
+  disabled,
   children,
 }: {
   groupId: string;
   groupName: string;
   dropGapHeight: number;
+  disabled: boolean;
   children: ReactNode;
 }) {
   const { isOver, setNodeRef } = useDroppable({
     id: `group-container:${groupId}`,
     data: { groupId },
+    disabled,
   });
 
   return (
@@ -503,7 +512,10 @@ export function TabDragPreview({
 }
 
 function SortableTabRow(props: TabRowProps) {
-  const sortable = useSortable({ id: props.tab.id });
+  const sortable = useSortable({
+    id: props.tab.id,
+    disabled: props.viewMode === "preview",
+  });
   return <TabRowPresentation {...props} sortable={sortable} />;
 }
 
@@ -586,7 +598,7 @@ function TabRowPresentation({
         </label>
       )}
 
-      {!compact && (
+      {!compact && !instantPreview && (
         <button
           {...attributes}
           {...listeners}
@@ -823,7 +835,11 @@ function ManualGroupMoveSelect({
         Move to…
       </option>
       {manualGroups.map(group => (
-        <option key={group.id} value={group.id}>
+        <option
+          key={group.id}
+          value={group.id}
+          disabled={group.id === tab.groupId}
+        >
           {group.name}
         </option>
       ))}
@@ -1011,73 +1027,6 @@ type ReadabilityState =
     }
   | { status: "unavailable"; url: string; reason: string };
 
-async function loadServerArticle(
-  tab: Pick<TabListItem, "id" | "title" | "url">,
-  backend: { url: string; apiKey: string }
-) {
-  const root = backend.url.replace(/\/+$/, "");
-  const headers = { "X-API-Key": backend.apiKey };
-  const response = await fetch(
-    `${root}/api/v1/tabs/${encodeURIComponent(tab.id)}/preview`,
-    { headers }
-  );
-  if (!response.ok) throw new Error(`Preview returned ${response.status}`);
-  const payload = (await response.json()) as {
-    data: {
-      status: string;
-      title?: string | null;
-      byline?: string | null;
-      siteName?: string | null;
-      excerpt?: string | null;
-      contentHtml?: string | null;
-      length?: number;
-      sourceUrl?: string | null;
-      error?: string | null;
-    };
-  };
-  if (payload.data.status !== "ready" || !payload.data.contentHtml) {
-    throw new Error(
-      payload.data.error || "The cached server preview is not ready yet."
-    );
-  }
-  let content = payload.data.contentHtml;
-  const ids = Array.from(
-    new Set(
-      Array.from(
-        content.matchAll(/tabvault-asset:\/\/([\w-]+)/g),
-        match => match[1]
-      )
-    )
-  );
-  const objectUrls: string[] = [];
-  await Promise.all(
-    ids.map(async id => {
-      const asset = await fetch(
-        `${root}/api/v1/assets/${encodeURIComponent(id)}`,
-        {
-          headers,
-        }
-      );
-      if (!asset.ok) return;
-      const objectUrl = URL.createObjectURL(await asset.blob());
-      objectUrls.push(objectUrl);
-      content = content.replaceAll(`tabvault-asset://${id}`, objectUrl);
-    })
-  );
-  return {
-    article: {
-      title: payload.data.title || tab.title,
-      byline: payload.data.byline,
-      siteName: payload.data.siteName,
-      excerpt: payload.data.excerpt,
-      content,
-      length: payload.data.length || 0,
-      url: payload.data.sourceUrl || tab.url,
-    } satisfies ReadableArticle,
-    objectUrls,
-  };
-}
-
 function ReadableArticlePreview({
   tab,
   backend,
@@ -1104,10 +1053,14 @@ function ReadableArticlePreview({
     let loadedObjectUrls: string[] = [];
     const load =
       backendUrl && backendApiKey
-        ? loadServerArticle(
-            { id: tab.id, title: tab.title, url: tab.url },
-            { url: backendUrl, apiKey: backendApiKey }
-          )
+        ? createTabVaultApi({
+            baseUrl: backendUrl,
+            apiKey: backendApiKey,
+          }).previews.loadArticle({
+            id: tab.id,
+            title: tab.title,
+            url: tab.url,
+          })
         : parseReadableArticle(tab.url).then(article => ({
             article,
             objectUrls: [],

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from mcp_tabvault.client import get_client
-from mcp_tabvault.client.dto import TabListQueryDTO, TabListResponseDTO, TabResponseDTO
+from mcp_tabvault.client.dto import TabListQueryDTO
+from mcp_tabvault.domain.groups import utils as group_utils
 from mcp_tabvault.server import mcp
+
+from . import mapper, utils
+from .dto import TabListViewDTO, TabResponseViewDTO
 
 
 @mcp.resource(
@@ -13,11 +17,13 @@ from mcp_tabvault.server import mcp
     description="Most recently updated active visible Saved Tabs.",
     mime_type="application/json",
 )
-async def recent_tabs(limit: int = 50) -> TabListResponseDTO:
+async def recent_tabs(limit: int = 50) -> TabListViewDTO:
     """Return recently updated visible Saved Tabs using a compact projection."""
-    return await get_client().list_tabs(
-        TabListQueryDTO(sort_by="updatedAt", sort_dir="desc", limit=limit, fields="minimal")
+    groups = await group_utils.visible_groups()
+    response = await get_client().list_tabs(
+        TabListQueryDTO(sort_by="updatedAt", sort_dir="desc", limit=limit, fields="full")
     )
+    return mapper.to_page(response, groups)
 
 
 @mcp.resource(
@@ -26,19 +32,22 @@ async def recent_tabs(limit: int = 50) -> TabListResponseDTO:
     description="Active visible Saved Tabs that do not belong to a Group.",
     mime_type="application/json",
 )
-async def unassigned_tabs(limit: int = 50) -> TabListResponseDTO:
+async def unassigned_tabs(limit: int = 50) -> TabListViewDTO:
     """Return visible Unassigned Saved Tabs using a compact projection."""
-    return await get_client().list_tabs(
-        TabListQueryDTO(group_id="unassigned", limit=limit, fields="minimal")
+    response = await get_client().list_tabs(
+        TabListQueryDTO(group_id="unassigned", limit=limit, fields="full")
     )
+    return mapper.to_page(response, [])
 
 
 @mcp.resource(
-    "tabvault://tabs/{tabId}",
+    "tabvault://tabs{?url}",
     name="saved-tab",
     description="One complete active visible Saved Tab.",
     mime_type="application/json",
 )
-async def saved_tab(tabId: str) -> TabResponseDTO:
-    """Return one complete Saved Tab by its stable identifier."""
-    return await get_client().get_tab(tabId)
+async def saved_tab(url: str = "") -> TabResponseViewDTO:
+    """Return the oldest visible Saved Tab with one exact URL."""
+    tab = await utils.first_visible_tab(url)
+    groups = await group_utils.visible_groups()
+    return TabResponseViewDTO(data=mapper.to_view(tab, groups))

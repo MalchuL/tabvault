@@ -19,7 +19,7 @@ class TabMapper:
     """
 
     @staticmethod
-    def to_dto(tab: Tab) -> TabDTO:
+    def to_dto(tab: Tab, custom_properties: dict[str, Any]) -> TabDTO:
         """Convert a Saved Tab row to its complete response DTO.
 
         Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
@@ -28,6 +28,7 @@ class TabMapper:
 
         Args:
             tab (Tab): Tab value consumed by this operation.
+            custom_properties (dict[str, Any]): Declared values after default resolution.
 
         Returns:
             TabDTO: Result produced by the operation described above.
@@ -39,7 +40,7 @@ class TabMapper:
             favicon=f"/api/v1/assets/{tab.favicon_asset_id}" if tab.favicon_asset_id else None,
             note=tab.note,
             agent_review=tab.agent_review,
-            viewed=tab.viewed,
+            custom_properties=custom_properties,
             tags=[tag.name for tag in tab.tags],
             group_id=tab.group_id,
             position=tab.position,
@@ -51,7 +52,9 @@ class TabMapper:
         )
 
     @classmethod
-    def to_projection(cls, tab: Tab, fields: str) -> TabDTO | TabProjectionDTO:
+    def to_projection(
+        cls, tab: Tab, fields: str, custom_properties: dict[str, Any]
+    ) -> TabDTO | TabProjectionDTO:
         """Convert a Saved Tab to the requested field projection.
 
         Keeping this conversion explicit prevents SQLAlchemy models from leaking through the API
@@ -61,11 +64,12 @@ class TabMapper:
         Args:
             tab (Tab): Tab value consumed by this operation.
             fields (str): Requested response projection controlling which fields are serialized.
+            custom_properties (dict[str, Any]): Declared values after default resolution.
 
         Returns:
             TabDTO | TabProjectionDTO: Result produced by the operation described above.
         """
-        dto = cls.to_dto(tab)
+        dto = cls.to_dto(tab, custom_properties)
         if fields == "full":
             return dto
         allowed = (
@@ -102,7 +106,7 @@ class TabMapper:
             "title": dto.title or dto.url,
             "note": dto.note or "",
             "agent_review": dto.agent_review or "",
-            "viewed": dto.viewed,
+            "custom_properties": dict(dto.custom_properties),
             "group_id": group_id,
             "position": position,
             "archived": False,

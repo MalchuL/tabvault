@@ -15,6 +15,48 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      preserveEntrySignatures: "strict",
+      input: {
+        app: path.resolve(import.meta.dirname, "client", "index.html"),
+        "library-sync": path.resolve(
+          import.meta.dirname,
+          "client",
+          "src",
+          "extension",
+          "library-sync.ts"
+        ),
+        background: path.resolve(
+          import.meta.dirname,
+          "client",
+          "src",
+          "extension",
+          "background.ts"
+        ),
+        popup: path.resolve(
+          import.meta.dirname,
+          "client",
+          "src",
+          "extension",
+          "popup.ts"
+        ),
+        "popup-selection": path.resolve(
+          import.meta.dirname,
+          "client",
+          "src",
+          "extension",
+          "popup-selection.ts"
+        ),
+      },
+      output: {
+        entryFileNames: chunk =>
+          ["library-sync", "background", "popup", "popup-selection"].includes(
+            chunk.name
+          )
+            ? `${chunk.name}.js`
+            : "assets/[name]-[hash].js",
+      },
+    },
   },
   server: {
     port: 3000,

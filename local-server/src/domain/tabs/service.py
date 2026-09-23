@@ -7,6 +7,8 @@ import builtins
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from domain.custom_properties.repository import CustomPropertyRepository
+from domain.custom_properties.service import CustomPropertyService
 from lib.pagination import ListOptions
 from lib.responses import WarningDTO
 from lib.time import utc_now
@@ -44,7 +46,12 @@ class TabService:
     is assembled.
     """
 
-    def __init__(self, db: AsyncSession, repository: TabRepository) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        repository: TabRepository,
+        custom_properties: CustomPropertyService | None = None,
+    ) -> None:
         """Initialize the service and persistence dependency.
 
         This application-layer operation coordinates domain rules and persistence, then maps loaded
@@ -54,10 +61,28 @@ class TabService:
         Args:
             db (AsyncSession): Request-scoped asynchronous database session used by this operation.
             repository (TabRepository): Persistence adapter used to load and mutate domain records.
+            custom_properties (CustomPropertyService | None): Optional injected schema service;
+                tests may omit it to use the request session directly.
         """
         self.db = db
         self.repository = repository
+        self.custom_properties = custom_properties or CustomPropertyService(
+            db, CustomPropertyRepository(db)
+        )
         self.mapper = TabMapper()
+
+    async def _to_dto(self, tab: Tab) -> TabDTO:
+        """Resolve current schema defaults while mapping one Saved Tab.
+
+        Args:
+            tab (Tab): Persistent row whose raw overrides are resolved for public output.
+
+        Returns:
+            TabDTO: Complete Saved Tab with declared resolved properties.
+        """
+        definitions = await self.custom_properties.definitions()
+        resolved = self.custom_properties.resolve_values(tab.custom_properties, definitions)
+        return self.mapper.to_dto(tab, resolved)
 
     async def _tags(self, names: list[str]) -> list[Tag]:
         """Resolve caller-supplied tag names into persistent Tag records.
@@ -103,8 +128,15 @@ class TabService:
             visibility=options.visibility,
             now=now,
         )
+        definitions = await self.custom_properties.definitions()
         return TabListResponseDTO.from_page(
-            page.map(lambda row: self.mapper.to_projection(row, options.fields))
+            page.map(
+                lambda row: self.mapper.to_projection(
+                    row,
+                    options.fields,
+                    self.custom_properties.resolve_values(row.custom_properties, definitions),
+                )
+            )
         )
 
     async def get(self, tab_id: str) -> TabDTO:
@@ -127,7 +159,7 @@ class TabService:
         tab = await self.repository.get(tab_id)
         if tab is None:
             raise TabNotFoundError(f"Tab {tab_id!r} was not found")
-        return self.mapper.to_dto(tab)
+        return await self._to_dto(tab)
 
     async def reorder(self, dto: TabReorderDTO) -> TabReorderResultDTO:
         """Atomically apply one relative order within a Group or Unassigned.
@@ -189,6 +221,9 @@ class TabService:
         tab = self.mapper.from_create_dto(
             dto, group_id=dto.group_id, position=position, tags=await self._tags(dto.tags)
         )
+        self.custom_properties.validate_patch(
+            tab.custom_properties, await self.custom_properties.definitions()
+        )
         try:
             await self.repository.add_tab(tab)
             job = await self.repository.add_preview_job(tab.id)
@@ -199,7 +234,7 @@ class TabService:
         except Exception:
             await self.db.rollback()
             raise
-        return self.mapper.to_dto(tab), TabJobDTO(tab_id=tab.id, job_id=job.id)
+        return await self._to_dto(tab), TabJobDTO(tab_id=tab.id, job_id=job.id)
 
     async def create_batch(
         self, dto: TabBatchCreateDTO
@@ -245,6 +280,9 @@ class TabService:
                     position=position,
                     tags=await self._tags(item.tags),
                 )
+                self.custom_properties.validate_patch(
+                    tab.custom_properties, await self.custom_properties.definitions()
+                )
                 tabs.append(tab)
             await self.repository.add_tabs(tabs)
             persisted_jobs = await self.repository.add_preview_jobs([tab.id for tab in tabs])
@@ -259,7 +297,7 @@ class TabService:
             TabJobDTO(tab_id=tab.id, job_id=job.id)
             for tab, job in zip(tabs, persisted_jobs, strict=True)
         ]
-        return [self.mapper.to_dto(tab) for tab in tabs], jobs
+        return [await self._to_dto(tab) for tab in tabs], jobs
 
     async def update(self, tab_id: str, dto: TabUpdateDTO) -> TabDTO:
         """Patch one Saved Tab while preserving archive invariants.
@@ -295,6 +333,9 @@ class TabService:
             raise InvalidGroupError(f"Group {changes['group_id']!r} does not exist")
         if "tags" in changes:
             changes["tags"] = await self._tags(changes["tags"] or [])
+        if "custom_properties" in changes:
+            supplied = changes.pop("custom_properties") or {}
+            await self.custom_properties.patch_tab(tab, supplied)
         restoring = changes.get("archived") is False
         if changes.get("archived") is True:
             changes["group_id"] = None
@@ -310,7 +351,7 @@ class TabService:
         except Exception:
             await self.db.rollback()
             raise
-        return self.mapper.to_dto(tab)
+        return await self._to_dto(tab)
 
     async def delete(self, tab_id: str, hard: bool) -> TabDeleteResultDTO:
         """Archive one Saved Tab or permanently delete an archived one.
@@ -391,4 +432,52 @@ class TabService:
             await self.repository.detach_tag(tab, existing)
         await self.repository.apply_changes(tab, {"updated_at": utc_now()})
         await self.db.commit()
-        return self.mapper.to_dto(tab), warnings
+        return await self._to_dto(tab), warnings
+
+    async def patch_custom_properties(self, tab_id: str, values: dict[str, object]) -> TabDTO:
+        """Atomically merge a supplied subset of schema-defined values into one Saved Tab.
+
+        Args:
+            tab_id (str): Stable identity of the Saved Tab to update.
+            values (dict[str, object]): Property subset validated against the current schema.
+
+        Returns:
+            TabDTO: Updated Saved Tab with resolved properties.
+
+        Raises:
+            TabNotFoundError: The requested Saved Tab does not exist.
+        """
+        tab = await self.repository.get(tab_id)
+        if tab is None:
+            raise TabNotFoundError(f"Tab {tab_id!r} was not found")
+        try:
+            await self.custom_properties.patch_tab(tab, values)
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+        return await self._to_dto(tab)
+
+    async def unset_custom_properties(self, tab_id: str, names: builtins.list[str]) -> TabDTO:
+        """Atomically remove selected explicit overrides from one Saved Tab.
+
+        Args:
+            tab_id (str): Stable identity of the Saved Tab to update.
+            names (list[str]): Stored property names to remove idempotently.
+
+        Returns:
+            TabDTO: Updated Saved Tab with defaults resolved for unset names.
+
+        Raises:
+            TabNotFoundError: The requested Saved Tab does not exist.
+        """
+        tab = await self.repository.get(tab_id)
+        if tab is None:
+            raise TabNotFoundError(f"Tab {tab_id!r} was not found")
+        try:
+            await self.custom_properties.unset_tab(tab, names)
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+        return await self._to_dto(tab)

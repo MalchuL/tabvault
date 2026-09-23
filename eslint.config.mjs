@@ -12,6 +12,7 @@ export default tseslint.config(
       "mcp-server/**",
       "**/.venv/**",
       "**/htmlcov/**",
+      "**/coverage/**",
     ],
   },
   js.configs.recommended,

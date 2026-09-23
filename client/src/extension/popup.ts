@@ -1,22 +1,29 @@
-import { tabsForSelection } from "./popup-selection.js";
+import { tabsForSelection, type TabSelectionMode } from "./popup-selection";
 
-const state = {
+const state: {
+  allTabs: chrome.tabs.Tab[];
+  activeTab: chrome.tabs.Tab | null;
+  selectedTabs: chrome.tabs.Tab[];
+  mode: TabSelectionMode;
+} = {
   allTabs: [],
   activeTab: null,
   selectedTabs: [],
   mode: "all",
 };
 
-const tabCount = document.querySelector("#tab-count");
-const selectionCopy = document.querySelector("#selection-copy");
-const result = document.querySelector("#result");
-const directionButtons = [...document.querySelectorAll(".direction-button")];
+const tabCount = document.querySelector<HTMLElement>("#tab-count")!;
+const selectionCopy = document.querySelector<HTMLElement>("#selection-copy")!;
+const result = document.querySelector<HTMLElement>("#result")!;
+const directionButtons = [
+  ...document.querySelectorAll<HTMLButtonElement>(".direction-button"),
+];
 const selectionControls = [
   ...directionButtons,
-  document.querySelector("#use-chrome-selection"),
+  document.querySelector<HTMLButtonElement>("#use-chrome-selection")!,
 ];
 
-function setSelection(mode) {
+function setSelection(mode: TabSelectionMode) {
   state.mode = mode;
   state.selectedTabs = tabsForSelection(state.allTabs, state.activeTab, mode);
 
@@ -32,14 +39,16 @@ function setSelection(mode) {
 }
 
 function updateSelectionCounts() {
-  document.querySelectorAll("[data-selection-count]").forEach(element => {
-    const count = tabsForSelection(
-      state.allTabs,
-      state.activeTab,
-      element.dataset.selectionCount
-    ).length;
-    element.textContent = `{${count}}`;
-  });
+  document
+    .querySelectorAll<HTMLElement>("[data-selection-count]")
+    .forEach(element => {
+      const count = tabsForSelection(
+        state.allTabs,
+        state.activeTab,
+        element.dataset.selectionCount as TabSelectionMode
+      ).length;
+      element.textContent = `{${count}}`;
+    });
 }
 
 async function loadTabs() {
@@ -76,7 +85,13 @@ async function saveAndClose() {
   result.textContent = "Saving selected tabs…";
   result.hidden = false;
 
-  let response;
+  let response: {
+    error?: boolean;
+    savedCount?: number;
+    closedCount?: number;
+    skippedCount?: number;
+    failedCount?: number;
+  };
   try {
     response = await chrome.runtime.sendMessage({
       type: "TABVAULT_FAST_SAVE_AND_CLOSE",
@@ -110,21 +125,21 @@ async function saveAndClose() {
 
 directionButtons.forEach(button => {
   button.addEventListener("click", () => {
-    setSelection(button.dataset.selection);
+    setSelection(button.dataset.selection as TabSelectionMode);
     void saveAndClose();
   });
 });
 document
-  .querySelector("#use-chrome-selection")
+  .querySelector<HTMLButtonElement>("#use-chrome-selection")!
   .addEventListener("click", () => {
     setSelection("chrome");
     void saveAndClose();
   });
 document
-  .querySelector("#open-workspace")
+  .querySelector<HTMLButtonElement>("#open-workspace")!
   .addEventListener("click", () => void openWorkspace());
 document
-  .querySelector("#open-workspace-page")
+  .querySelector<HTMLButtonElement>("#open-workspace-page")!
   .addEventListener("click", () => void openWorkspacePage());
 void loadTabs().catch(() => {
   tabCount.textContent = "Tabs unavailable";

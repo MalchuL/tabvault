@@ -1,12 +1,12 @@
+import { IconButton } from "@/components/ui/icon-button";
 /**
  * Product UX redesign reminder: Dashboard is the calm operational companion to
  * the Library. It explains data safety and search readiness without inserting
  * maintenance controls into daily tab work.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import {
-  ArrowLeft,
   ArrowRight,
   Check,
   CloudOff,
@@ -15,20 +15,19 @@ import {
   HardDrive,
   RefreshCw,
   SearchCheck,
-  Settings2,
   ShieldCheck,
   Tags,
   Wifi,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CapabilityIssue } from "@/components/CapabilityIssue";
+import { useLibrary } from "@/domain/library/library-context";
 import {
   blockingSearchCapability,
   DEFAULT_TABVAULT_API_KEY,
   DEFAULT_TABVAULT_SERVER_URL,
   loadServerSearchState,
   readApiKey,
-  readExtensionVault,
   readLocalServerUrl,
   readSyncStatus,
   rebuildSemanticIndex,
@@ -36,13 +35,7 @@ import {
   type SemanticIndexStatus,
   type ServerCapabilities,
   type SyncStatus,
-} from "@/lib/extension";
-
-type LibrarySnapshot = {
-  tabs?: unknown[];
-  vaultGroups?: unknown[];
-  tagCatalog?: Record<string, string>;
-};
+} from "@/domain/server/synchronization";
 
 function formatTime(timestamp?: number) {
   if (!timestamp) return "No local save recorded yet";
@@ -60,7 +53,7 @@ function formatTime(timestamp?: number) {
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
-  const [snapshot, setSnapshot] = useState<LibrarySnapshot>({});
+  const { vault } = useLibrary();
   const [sync, setSync] = useState<SyncStatus>();
   const [serverUrl, setServerUrl] = useState(DEFAULT_TABVAULT_SERVER_URL);
   const [apiKey, setApiKey] = useState(DEFAULT_TABVAULT_API_KEY);
@@ -74,52 +67,56 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRebuilding, setIsRebuilding] = useState(false);
 
-  const applySearchState = (state: {
-    online: boolean;
-    capabilities: ServerCapabilities | null;
-    indexStatus: SemanticIndexStatus | null;
-  }) => {
-    setOnline(state.online);
-    setCapabilities(state.capabilities);
-    setIndexStatus(state.indexStatus);
-  };
+  const applySearchState = useCallback(
+    (state: {
+      online: boolean;
+      capabilities: ServerCapabilities | null;
+      indexStatus: SemanticIndexStatus | null;
+    }) => {
+      setOnline(state.online);
+      setCapabilities(state.capabilities);
+      setIndexStatus(state.indexStatus);
+    },
+    []
+  );
 
-  const loadStatus = async (announce = false) => {
-    setIsRefreshing(true);
-    try {
-      const [library, savedSync, url, key] = await Promise.all([
-        readExtensionVault(),
-        readSyncStatus(),
-        readLocalServerUrl(),
-        readApiKey(),
-      ]);
-      setSnapshot(library ?? {});
-      setSync(savedSync);
-      setServerUrl(url);
-      setApiKey(key);
+  const loadStatus = useCallback(
+    async (announce = false) => {
+      setIsRefreshing(true);
       try {
-        applySearchState(await loadServerSearchState(url, key));
-        if (announce) toast.success("Dashboard refreshed");
-      } catch {
-        setOnline(false);
-        setCapabilities(null);
-        setIndexStatus(null);
-        if (announce)
-          toast.message("Working from local storage", {
-            description: "The configured server is not currently available.",
-          });
+        const [savedSync, url, key] = await Promise.all([
+          readSyncStatus(),
+          readLocalServerUrl(),
+          readApiKey(),
+        ]);
+        setSync(savedSync);
+        setServerUrl(url);
+        setApiKey(key);
+        try {
+          applySearchState(await loadServerSearchState(url, key));
+          if (announce) toast.success("Dashboard refreshed");
+        } catch {
+          setOnline(false);
+          setCapabilities(null);
+          setIndexStatus(null);
+          if (announce)
+            toast.message("Working from local storage", {
+              description: "The configured server is not currently available.",
+            });
+        }
+      } finally {
+        setIsRefreshing(false);
       }
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
+    },
+    [applySearchState]
+  );
 
   useEffect(() => {
     const refreshTimer = window.setTimeout(() => {
       void loadStatus();
     }, 0);
     return () => window.clearTimeout(refreshTimer);
-  }, []);
+  }, [loadStatus]);
 
   useEffect(() => {
     if (!online) return;
@@ -133,7 +130,7 @@ export default function Dashboard() {
         });
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [online, serverUrl, apiKey]);
+  }, [online, serverUrl, apiKey, applySearchState]);
 
   const rebuild = async () => {
     if (!online) {
@@ -211,73 +208,43 @@ export default function Dashboard() {
   const healthNeedsAttention =
     indexStatus?.healthCheck?.lastResult === "needs_attention";
   const libraryMetrics = [
-    { Icon: Database, value: snapshot.tabs?.length ?? 0, label: "Saved tabs" },
+    { Icon: Database, value: vault.tabs.length, label: "Saved tabs" },
     {
       Icon: FolderTree,
-      value: snapshot.vaultGroups?.length ?? 0,
+      value: vault.vaultGroups.length,
       label: "Collections",
     },
     {
       Icon: Tags,
-      value: Object.keys(snapshot.tagCatalog ?? {}).length,
+      value: Object.keys(vault.tagCatalog).length,
       label: "Tags",
     },
   ];
 
   return (
-    <main className="min-h-screen bg-[#f6f3ec] px-5 py-6 text-[#18261f] paper-grain sm:px-8 lg:px-12">
+    <main className="min-h-dvh bg-[#f6f3ec] px-5 py-6 text-[#18261f] sm:px-8 lg:px-8">
       <div className="mx-auto max-w-6xl">
-        <header className="flex items-center justify-between border-b border-[#dcd7cc] pb-5">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setLocation("/")}
-              className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.1em] text-[#687067] transition hover:text-[#e95224] active:scale-[0.98]"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to library
-            </button>
-            <span className="hidden border-l border-[#d7d1c4] pl-4 font-['DM_Sans'] text-[15px] font-bold tracking-[-0.05em] text-[#29342d] sm:block">
-              tabvault
-            </span>
-          </div>
-          <button
-            onClick={() => setLocation("/settings")}
-            className="inline-flex items-center gap-2 rounded-md border border-[#d8d3c8] bg-[#fffdf8] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-[#59635a] transition hover:border-[#e95224] hover:text-[#e95224] active:scale-[0.98]"
-          >
-            <Settings2 className="h-3.5 w-3.5" /> Settings
-          </button>
-        </header>
-
-        <section className="mt-10 flex flex-col justify-between gap-6 border-b border-[#dcd7cc] pb-8 lg:flex-row lg:items-end">
+        <section className="flex flex-wrap items-center justify-between gap-4 pb-5">
           <div className="max-w-2xl">
-            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#858980]">
-              Library operations
-            </p>
-            <h1 className="mt-2 font-['DM_Sans'] text-4xl font-bold tracking-[-0.06em] sm:text-5xl">
-              System status, without the noise.
+            <h1 className="font-['DM_Sans'] text-2xl font-bold tracking-[-0.04em]">
+              Dashboard
             </h1>
-            <p className="mt-3 max-w-xl text-[14px] leading-6 text-[#697068]">
-              Check where your library is stored, whether it has synced, and
-              whether semantic search is ready to help.
-            </p>
           </div>
-          <button
+          <IconButton
+            label={isRefreshing ? "Refreshing status" : "Refresh status"}
             onClick={() => void loadStatus(true)}
             disabled={isRefreshing}
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-[#d8d3c8] bg-[#fffdf8] px-3.5 py-2.5 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-[#58615a] transition hover:border-[#bdb5a6] hover:bg-[#fffaf4] active:scale-[0.98] disabled:opacity-60"
           >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""}`}
-            />
-            {isRefreshing ? "Refreshing" : "Refresh status"}
-          </button>
+            <RefreshCw className={isRefreshing ? "animate-spin" : ""} />
+          </IconButton>
         </section>
 
         <section className="grid gap-px border border-[#ded9cd] bg-[#ded9cd] sm:grid-cols-3">
           {libraryMetrics.map(({ Icon, value, label }) => {
             return (
-              <div key={label} className="bg-[#fffdf8] px-5 py-5">
+              <div key={label} className="bg-[#fffdf8] px-4 py-3">
                 <Icon className="h-4 w-4 text-[#e95224]" />
-                <p className="mt-6 font-['DM_Sans'] text-3xl font-bold tracking-[-0.055em] tabular-nums">
+                <p className="mt-2 font-['DM_Sans'] text-3xl font-bold tracking-[-0.055em] tabular-nums">
                   {value}
                 </p>
                 <p className="mt-1 font-mono text-[9px] uppercase tracking-[0.1em] text-[#7c8179]">
@@ -288,7 +255,7 @@ export default function Dashboard() {
           })}
         </section>
 
-        <section className="mt-8 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+        <section className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
           <article className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -316,7 +283,7 @@ export default function Dashboard() {
               <span className="font-mono text-[9px] uppercase tracking-[0.08em] text-[#7c8179]">
                 {sync?.localSavedAt
                   ? formatTime(sync.localSavedAt)
-                  : (snapshot.tabs?.length ?? 0) > 0
+                  : vault.tabs.length > 0
                     ? "Library available locally"
                     : "No saved tabs yet"}
               </span>

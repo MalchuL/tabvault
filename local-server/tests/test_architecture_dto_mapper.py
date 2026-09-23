@@ -11,14 +11,14 @@ from config.settings import Settings
 from db.session import configure_database, dispose_database
 from domain.groups.dto import GroupCreateDTO, GroupUpdateDTO
 from domain.groups.mapper import GroupMapper
-from domain.system.dto import TransferGroupDTO, TransferTabDTO
-from domain.system.mapper import SystemMapper
 from domain.system.repository import SystemRepository
 from domain.tabs.dto import TabCreateDTO, TabListOptionsDTO, TabUpdateDTO
 from domain.tabs.mapper import TabMapper
 from domain.tabs.repository import TabRepository
 from domain.tags.dto import TagUpsertDTO
 from domain.tags.mapper import TagMapper
+from domain.transfer.dto import TransferGroupDTO, TransferTabDTO
+from domain.transfer.mapper import TransferMapper
 from lib.pagination import ListOptions, Page, PaginatedResponse
 from lib.responses import json_data, success
 from lib.time import utc_now
@@ -41,7 +41,7 @@ def test_single_tab_dto_preserves_url_and_uses_camel_case_aliases() -> None:
     assert body.group_id == "group"
     assert body.note == ""
     assert body.agent_review == ""
-    assert body.viewed is False
+    assert body.custom_properties == {}
     assert json_data(success(body))["data"]["groupId"] == "group"
 
 
@@ -74,33 +74,35 @@ def test_flat_group_and_core_mapper_conversions() -> None:
     )
     tab.created_at = tab.updated_at = utc_now()
     assert tab.url == "https://example.com/?x=1#anchor"
-    mapped = TabMapper.to_dto(tab)
+    mapped = TabMapper.to_dto(tab, {"viewed": False})
     assert mapped.tags == ["docs"]
     naive = tab.created_at.replace(tzinfo=None)
     tab.created_at = tab.updated_at = naive
-    serialized = TabMapper.to_dto(tab).model_dump(mode="json", by_alias=True)
+    serialized = TabMapper.to_dto(tab, {"viewed": False}).model_dump(mode="json", by_alias=True)
     assert serialized["createdAt"].endswith("Z")
     assert serialized["updatedAt"].endswith("Z")
     assert TabMapper.to_update_dict(TabUpdateDTO(note=None)) == {"note": ""}
     assert set(
-        TabMapper.to_projection(tab, "minimal").model_dump(exclude_unset=True, by_alias=True)
+        TabMapper.to_projection(tab, "minimal", {"viewed": False}).model_dump(
+            exclude_unset=True, by_alias=True
+        )
     ) == {"id", "url", "title", "favicon", "groupId", "tags"}
 
 
-def test_transfer_mapper_uses_schema_v2_fields() -> None:
-    mapper = SystemMapper()
+def test_transfer_mapper_uses_schema_v3_fields() -> None:
+    mapper = TransferMapper()
     group_dto = TransferGroupDTO(id="group", name="Group", category="session", position=2)
-    group = mapper.group_from_transfer(group_dto)
+    group = mapper.group_from_dto(group_dto)
     assert group.category == "session"
-    assert mapper.group_transfer_changes(group_dto)["category"] == "session"
+    assert mapper.group_changes(group_dto)["category"] == "session"
 
     tab_dto = TransferTabDTO(
         id="tab", url="https://example.com/?a=1#b", title="Tab", group_id="group", tags=[]
     )
-    tab = mapper.tab_from_transfer(tab_dto, [])
+    tab = mapper.tab_from_dto(tab_dto, [])
     assert tab.url == tab_dto.url
     assert tab.group_id == "group"
-    assert tab.note == "" and tab.agent_review == "" and tab.viewed is False
+    assert tab.note == "" and tab.agent_review == "" and tab.custom_properties == {}
 
     naive_group = TransferGroupDTO.model_validate(
         {
@@ -119,8 +121,8 @@ def test_services_and_controllers_keep_database_operations_in_repositories() -> 
     for path in [
         *source_root.glob("domain/*/service.py"),
         *source_root.glob("domain/*/controller.py"),
-        source_root / "domain/system/preview.py",
-        source_root / "domain/system/transfer.py",
+        source_root / "domain/previews/service.py",
+        source_root / "domain/transfer/service.py",
     ]:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         assert not any(

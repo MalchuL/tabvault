@@ -3,8 +3,19 @@ import {
   isVaultV2,
   orderKey,
   serverDocumentToVault,
+  upgradeVault,
   vaultToServerDocument,
-} from "./library-sync.js";
+} from "./library-sync";
+import type { VaultGroup, VaultTab } from "@/domain/library/types";
+
+type CapturableTab = chrome.tabs.Tab & { id: number; url: string };
+type HealthAlertSettings = {
+  enabled?: boolean;
+  notifyOnNeedsAttention?: boolean;
+  intervalMinutes?: number;
+  serverUrl?: string;
+  apiKey?: string;
+};
 
 chrome.runtime.onInstalled.addListener(() => {
   restoreHealthAlarm().catch(() => undefined);
@@ -15,14 +26,15 @@ const HEALTH_ALERT_KEY = "tabvault-health-alert";
 const HEALTH_ALARM_NAME = "tabvault-index-health";
 const LIBRARY_REFRESH_KEY = "tabvault-library-refresh";
 const LIBRARY_REFRESH_ALARM_NAME = "tabvault-library-refresh";
-const VAULT_STORAGE_KEY = "tabvault-v2";
+const VAULT_STORAGE_KEY = "tabvault-v3";
+const PREVIOUS_VAULT_STORAGE_KEY = "tabvault-v2";
 const SERVER_URL_KEY = "tabvault-local-server-url";
 const API_KEY_STORAGE_KEY = "tabvault-api-key";
 const STORAGE_MODE_KEY = "tabvault-storage-mode";
 const SYNC_STATUS_KEY = "tabvault-sync-status";
 const DEFAULT_SERVER_URL = "http://127.0.0.1:47821";
 
-function domainFor(url) {
+function domainFor(url: string) {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
   } catch {
@@ -30,7 +42,7 @@ function domainFor(url) {
   }
 }
 
-function buildSavedTab(tab) {
+function buildSavedTab(tab: CapturableTab): VaultTab {
   const now = new Date().toISOString();
   const url = tab.url;
   return {
@@ -42,6 +54,7 @@ function buildSavedTab(tab) {
     note: "",
     agentReview: "",
     viewed: false,
+    customProperties: { viewed: false },
     tags: [],
     color: "#F05A28",
     icon: "●",
@@ -68,11 +81,11 @@ function sessionName(date = new Date()) {
     "Nov",
     "Dec",
   ][date.getMonth()];
-  const pad = value => String(value).padStart(2, "0");
+  const pad = (value: number) => String(value).padStart(2, "0");
   return `Session ${month} ${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function buildSessionGroup() {
+function buildSessionGroup(): VaultGroup {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
@@ -85,19 +98,48 @@ function buildSessionGroup() {
   };
 }
 
-async function syncQuickCapture(group, tabs) {
+async function ensureViewedProperty(
+  baseUrl: string,
+  headers: Record<string, string>
+) {
+  const schemaUrl = `${baseUrl.replace(/\/+$/, "")}/api/v1/property-schema`;
+  const response = await fetch(schemaUrl, { headers });
+  if (!response.ok) return false;
+  const payload = await response.json();
+  const viewed = payload?.data?.properties?.viewed;
+  if (
+    viewed?.type === "boolean" &&
+    viewed.default === false &&
+    viewed.description === ""
+  )
+    return true;
+  const update = await fetch(schemaUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      name: "viewed",
+      description: "",
+      type: "boolean",
+      default: false,
+    }),
+  });
+  return update.ok;
+}
+
+async function syncQuickCapture(group: VaultGroup, tabs: VaultTab[]) {
   const stored = await chrome.storage.local.get([
     SERVER_URL_KEY,
     API_KEY_STORAGE_KEY,
     STORAGE_MODE_KEY,
   ]);
   if (stored[STORAGE_MODE_KEY] !== "backend") return false;
-  const baseUrl = stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL;
-  const apiKey = stored[API_KEY_STORAGE_KEY] || "admin";
+  const baseUrl = String(stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL);
+  const apiKey = String(stored[API_KEY_STORAGE_KEY] || "admin");
   const headers = {
     "Content-Type": "application/json",
     "X-API-Key": apiKey,
   };
+  if (!(await ensureViewedProperty(baseUrl, headers))) return false;
   const groupResponse = await fetch(
     `${baseUrl.replace(/\/+$/, "")}/api/v1/groups`,
     {
@@ -131,7 +173,7 @@ async function syncQuickCapture(group, tabs) {
           title: tab.title,
           note: tab.note,
           agentReview: tab.agentReview,
-          viewed: tab.viewed,
+          customProperties: { ...tab.customProperties, viewed: tab.viewed },
           tags: tab.tags,
           groupId: group.id,
         })),
@@ -149,14 +191,20 @@ async function syncQuickCapture(group, tabs) {
   return serverSynced;
 }
 
-async function saveAndCloseTabs(sourceTabs) {
+async function saveAndCloseTabs(sourceTabs: chrome.tabs.Tab[]) {
   const validTabs = sourceTabs.filter(
     tab =>
       tab.id && typeof tab.url === "string" && /^https?:\/\//i.test(tab.url)
-  );
+  ) as CapturableTab[];
   const skippedCount = sourceTabs.length - validTabs.length;
-  const stored = await chrome.storage.local.get(VAULT_STORAGE_KEY);
-  let vault = stored[VAULT_STORAGE_KEY] || defaultVault();
+  const stored = await chrome.storage.local.get([
+    VAULT_STORAGE_KEY,
+    PREVIOUS_VAULT_STORAGE_KEY,
+  ]);
+  const vault =
+    upgradeVault(
+      stored[VAULT_STORAGE_KEY] ?? stored[PREVIOUS_VAULT_STORAGE_KEY]
+    ) ?? defaultVault();
   if (!isVaultV2(vault))
     throw new Error(
       "Browser data is not schema v2; open TabVault to recover it."
@@ -216,7 +264,7 @@ async function saveAndCloseTabs(sourceTabs) {
   };
 }
 
-async function fetchReadablePage(url) {
+async function fetchReadablePage(url: string) {
   if (typeof url !== "string" || !/^https?:\/\//i.test(url))
     throw new Error("Only HTTP(S) pages can be fetched for reading preview.");
   const controller = new AbortController();
@@ -240,7 +288,7 @@ async function fetchReadablePage(url) {
   }
 }
 
-async function openVaultTabs(urls) {
+async function openVaultTabs(urls: string[]) {
   const validUrls = [...new Set(urls || [])].filter(url =>
     /^https?:\/\//i.test(url)
   );
@@ -264,7 +312,7 @@ async function openVaultTabs(urls) {
 
 async function restoreHealthAlarm() {
   const stored = await chrome.storage.local.get(HEALTH_ALERT_KEY);
-  const settings = stored[HEALTH_ALERT_KEY];
+  const settings = stored[HEALTH_ALERT_KEY] as HealthAlertSettings | undefined;
   if (
     !settings?.enabled ||
     !settings?.notifyOnNeedsAttention ||
@@ -280,7 +328,10 @@ async function restoreHealthAlarm() {
 
 async function restoreLibraryRefreshAlarm() {
   const stored = await chrome.storage.local.get(LIBRARY_REFRESH_KEY);
-  const intervalSeconds = Number(stored[LIBRARY_REFRESH_KEY]?.intervalSeconds);
+  const intervalSeconds = Number(
+    (stored[LIBRARY_REFRESH_KEY] as { intervalSeconds?: number } | undefined)
+      ?.intervalSeconds
+  );
   if (!Number.isFinite(intervalSeconds) || intervalSeconds < 60) {
     await chrome.alarms.clear(LIBRARY_REFRESH_ALARM_NAME);
     return;
@@ -293,18 +344,22 @@ async function restoreLibraryRefreshAlarm() {
 async function refreshStoredLibrary() {
   const stored = await chrome.storage.local.get([
     VAULT_STORAGE_KEY,
+    PREVIOUS_VAULT_STORAGE_KEY,
     SERVER_URL_KEY,
     API_KEY_STORAGE_KEY,
     STORAGE_MODE_KEY,
   ]);
   if (stored[STORAGE_MODE_KEY] !== "backend") return false;
-  let vault = stored[VAULT_STORAGE_KEY] || defaultVault();
-  if (!isVaultV2(vault)) throw new Error("Browser library is not schema v2");
-  const baseUrl = (stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL).replace(
+  let vault =
+    upgradeVault(
+      stored[VAULT_STORAGE_KEY] ?? stored[PREVIOUS_VAULT_STORAGE_KEY]
+    ) ?? defaultVault();
+  if (!isVaultV2(vault)) throw new Error("Browser library is not schema v3");
+  const baseUrl = String(stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL).replace(
     /\/+$/,
     ""
   );
-  const apiKey = stored[API_KEY_STORAGE_KEY] || "admin";
+  const apiKey = String(stored[API_KEY_STORAGE_KEY] || "admin");
   const headers = {
     "Content-Type": "application/json",
     "X-API-Key": apiKey,
@@ -434,7 +489,7 @@ chrome.alarms.onAlarm.addListener(async alarm => {
   }
   if (alarm.name !== HEALTH_ALARM_NAME) return;
   const stored = await chrome.storage.local.get(HEALTH_ALERT_KEY);
-  const settings = stored[HEALTH_ALERT_KEY];
+  const settings = stored[HEALTH_ALERT_KEY] as HealthAlertSettings | undefined;
   if (
     !settings?.enabled ||
     !settings?.notifyOnNeedsAttention ||

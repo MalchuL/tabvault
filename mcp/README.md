@@ -31,14 +31,14 @@ Add a stdio server with the settings in [misc/inspector.png](misc/inspector.png)
 
 ![MCP Inspector settings for local TabVault development](misc/inspector.png)
 
-| Field | Value |
-| --- | --- |
-| Server ID | `tabvault` |
-| Transport | `stdio (local process)` |
-| Command | `uv` |
-| Arguments | `run` then `tabvault-mcp` (one argument per line) |
-| Environment | `TABVAULT_SERVER_URL=http://127.0.0.1:47821` and `TABVAULT_API_KEY=change-me` |
-| Working directory | absolute path to this `mcp/` package |
+| Field             | Value                                                                         |
+| ----------------- | ----------------------------------------------------------------------------- |
+| Server ID         | `tabvault`                                                                    |
+| Transport         | `stdio (local process)`                                                       |
+| Command           | `uv`                                                                          |
+| Arguments         | `run` then `tabvault-mcp` (one argument per line)                             |
+| Environment       | `TABVAULT_SERVER_URL=http://127.0.0.1:47821` and `TABVAULT_API_KEY=change-me` |
+| Working directory | absolute path to this `mcp/` package                                          |
 
 ## Cursor
 
@@ -50,7 +50,12 @@ Settings → MCP → Add new MCP server uses the same fields as the Inspector sc
   "mcpServers": {
     "tabvault": {
       "command": "uv",
-      "args": ["--directory", "/absolute/path/to/tabvault/mcp", "run", "tabvault-mcp"],
+      "args": [
+        "--directory",
+        "/absolute/path/to/tabvault/mcp",
+        "run",
+        "tabvault-mcp"
+      ],
       "env": {
         "TABVAULT_SERVER_URL": "http://127.0.0.1:47821",
         "TABVAULT_API_KEY": "change-me"
@@ -91,24 +96,22 @@ In a Codex session, run `/mcp` to confirm the server connected.
 
 ## Tools
 
-The service exposes 20 annotated tools:
+The service exposes 15 annotated tools with no persisted IDs in their public contracts:
 
-- Tabs: `list_tabs`, `search_tabs`, `get_tab`, `save_tab`, `update_tab`, `delete_tab`, `move_tab`,
-  and `reorder_tabs`.
-- Exact URL operations: `get_tab_by_url`, `list_tabs_by_url`, `update_tabs_by_url`,
-  `tag_tabs_by_url`, and `untag_tabs_by_url`.
-- Groups: `list_groups`, `create_group`, `update_group`, and `delete_group`.
+- Tabs: `list_tabs`, `search_tabs`, `get_tab`, `save_tab`, `update_tab`, `delete_tab`, and
+  `move_tab`.
+- Groups: `list_groups`, `get_group`, `create_group`, `update_group`, and `delete_group`.
 - Tags: `list_tags`, `tag_tab`, and `untag_tab`.
 
-URL bulk mutations are best effort. Their result contains `matched`, successful updated objects in
-`data`, and failures as `{tabId, message}` entries in `errors`. MCP cannot read or mutate hidden or
-archived content.
+Tab tools select the oldest visible exact-URL match. Group tools match names without case and select
+the oldest match. IDs remain private to the REST bridge; MCP cannot read or mutate hidden or archived
+content.
 
 ## Resources and prompts
 
 Compact read-only context is available at `tabvault://groups`, `tabvault://tags`,
 `tabvault://recent{?limit}`, `tabvault://unassigned{?limit}`, and
-`tabvault://tabs/{tabId}`. The server also exposes the user-selected prompts
+`tabvault://tabs{?url}`. The server also exposes the user-selected prompts
 `organize_unassigned`, `research_digest`, and `weekly_tab_review`.
 
 These names follow TabVault's domain model: Unassigned is not an Inbox, Saved URLs remain unchanged,

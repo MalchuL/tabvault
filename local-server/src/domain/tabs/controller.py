@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query, Request
 
 from api.routes.service_dependencies import get_tab_service
+from domain.custom_properties.dto import CustomPropertiesPatchDTO, CustomPropertiesUnsetDTO
 from lib.pagination import MAX_LIST_PAGE_SIZE, ListOptions
 from lib.responses import SuccessResponseDTO, success
 
@@ -203,6 +204,44 @@ async def update_tab(
         SuccessResponseDTO[TabDTO]: Result produced by the operation described above.
     """
     return success(await service.update(tab_id, body))
+
+
+@router.patch("/{tab_id}/custom-properties", response_model=SuccessResponseDTO[TabDTO])
+async def patch_tab_custom_properties(
+    tab_id: str,
+    body: CustomPropertiesPatchDTO,
+    service: Annotated[TabService, Depends(get_tab_service)],
+) -> SuccessResponseDTO[TabDTO]:
+    """Atomically merge only the supplied schema-defined property values.
+
+    Args:
+        tab_id (str): Stable identity of the Saved Tab to update.
+        body (CustomPropertiesPatchDTO): Dynamic property subset supplied as the request object.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped tab service.
+
+    Returns:
+        SuccessResponseDTO[TabDTO]: Updated Saved Tab with resolved declared properties.
+    """
+    return success(await service.patch_custom_properties(tab_id, body.root))
+
+
+@router.post("/{tab_id}/custom-properties/unset", response_model=SuccessResponseDTO[TabDTO])
+async def unset_tab_custom_properties(
+    tab_id: str,
+    body: CustomPropertiesUnsetDTO,
+    service: Annotated[TabService, Depends(get_tab_service)],
+) -> SuccessResponseDTO[TabDTO]:
+    """Remove selected explicit overrides so schema defaults apply again.
+
+    Args:
+        tab_id (str): Stable identity of the Saved Tab to update.
+        body (CustomPropertiesUnsetDTO): Unique property names to remove atomically.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped tab service.
+
+    Returns:
+        SuccessResponseDTO[TabDTO]: Updated Saved Tab with defaults resolved for removed names.
+    """
+    return success(await service.unset_custom_properties(tab_id, body.properties))
 
 
 @router.delete("/{tab_id}", response_model=SuccessResponseDTO[TabDeleteResultDTO])

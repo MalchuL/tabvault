@@ -33,7 +33,7 @@ function chromeHarness({ failVaultWrite = false } = {}) {
           return { [keys]: storage[keys] };
         },
         set: async values => {
-          if ("tabvault-v2" in values) {
+          if ("tabvault-v3" in values) {
             vaultWrites += 1;
             if (failVaultWrite)
               throw new Error("simulated local write failure");
@@ -51,6 +51,11 @@ function chromeHarness({ failVaultWrite = false } = {}) {
   };
   globalThis.fetch = async (url, options = {}) => {
     fetches.push({ url, options });
+    if (url.endsWith("/api/v1/property-schema") && !options.method)
+      return {
+        ok: true,
+        json: async () => ({ success: true, data: { properties: {} } }),
+      };
     return { ok: true, json: async () => ({ success: true }) };
   };
 
@@ -76,7 +81,7 @@ async function capture(listener, tabs) {
 
 test("capture creates one Session and distinct exact-URL occurrences", async () => {
   const harness = chromeHarness();
-  await import(`../client/public/background.js?test=${Date.now()}-session`);
+  await import(`../dist/public/background.js?test=${Date.now()}-session`);
   const listener = harness.listener();
   assert.equal(typeof listener, "function");
 
@@ -93,8 +98,9 @@ test("capture creates one Session and distinct exact-URL occurrences", async () 
   assert.equal(response.failedCount, 0);
   assert.deepEqual(harness.closed, [41, 42]);
 
-  const vault = harness.storage["tabvault-v2"];
-  assert.equal(vault.schemaVersion, 2);
+  const vault = harness.storage["tabvault-v3"];
+  assert.equal(vault.schemaVersion, 3);
+  assert.equal(vault.propertySchema.viewed.default, false);
   assert.equal(vault.vaultGroups.length, 1);
   assert.equal(vault.vaultGroups[0].category, "session");
   assert.match(
@@ -109,9 +115,15 @@ test("capture creates one Session and distinct exact-URL occurrences", async () 
   assert.equal("quick save" in vault.tagCatalog, false);
 
   assert.equal(harness.vaultWrites(), 1);
-  assert.equal(harness.fetches.length, 2);
-  assert.match(harness.fetches[0].url, /\/api\/v1\/groups$/);
-  const batchRequest = harness.fetches[1];
+  assert.equal(harness.fetches.length, 4);
+  const groupRequest = harness.fetches.find(request =>
+    /\/api\/v1\/groups$/.test(request.url)
+  );
+  assert.ok(groupRequest);
+  const batchRequest = harness.fetches.find(request =>
+    /\/api\/v1\/tabs\/batch$/.test(request.url)
+  );
+  assert.ok(batchRequest);
   assert.match(batchRequest.url, /\/api\/v1\/tabs\/batch$/);
   const batch = JSON.parse(batchRequest.options.body);
   assert.equal(batch.tabs.length, 2);
@@ -125,9 +137,7 @@ test("capture creates one Session and distinct exact-URL occurrences", async () 
 
 test("an atomic local batch failure leaves every source tab open", async () => {
   const harness = chromeHarness({ failVaultWrite: true });
-  await import(
-    `../client/public/background.js?test=${Date.now()}-batch-failure`
-  );
+  await import(`../dist/public/background.js?test=${Date.now()}-batch-failure`);
   const response = await capture(harness.listener(), [
     { id: 1, url: "https://example.com/one", title: "One" },
     { id: 2, url: "https://example.com/two", title: "Two" },
@@ -136,20 +146,22 @@ test("an atomic local batch failure leaves every source tab open", async () => {
 
   assert.match(response.error, /simulated local write failure/);
   assert.deepEqual(harness.closed, []);
-  assert.equal(harness.storage["tabvault-v2"], undefined);
+  assert.equal(harness.storage["tabvault-v3"], undefined);
 });
 
 test("a capture with no eligible tabs still keeps its empty Session", async () => {
   const harness = chromeHarness();
-  await import(`../client/public/background.js?test=${Date.now()}-empty`);
+  await import(`../dist/public/background.js?test=${Date.now()}-empty`);
   const response = await capture(harness.listener(), [
     { id: 9, url: "chrome://settings", title: "Settings" },
   ]);
 
   assert.equal(response.savedCount, 0);
   assert.equal(response.skippedCount, 1);
-  assert.equal(harness.storage["tabvault-v2"].vaultGroups.length, 1);
-  assert.equal(harness.storage["tabvault-v2"].tabs.length, 0);
-  assert.equal(harness.fetches.length, 1);
-  assert.match(harness.fetches[0].url, /\/api\/v1\/groups$/);
+  assert.equal(harness.storage["tabvault-v3"].vaultGroups.length, 1);
+  assert.equal(harness.storage["tabvault-v3"].tabs.length, 0);
+  assert.equal(harness.fetches.length, 3);
+  assert.ok(
+    harness.fetches.some(request => /\/api\/v1\/groups$/.test(request.url))
+  );
 });

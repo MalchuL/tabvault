@@ -33,10 +33,29 @@ from mcp_tabvault.client.dto import (
 def install_transport(
     client: MCPClient, handler: Callable[[httpx.Request], httpx.Response]
 ) -> None:
+    def with_schema(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/property-schema":
+            return httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "data": {
+                        "properties": {
+                            "viewed": {
+                                "description": "",
+                                "type": "boolean",
+                                "default": False,
+                            }
+                        }
+                    },
+                },
+            )
+        return handler(request)
+
     client._http = httpx.AsyncClient(  # noqa: SLF001
         base_url=f"{client.base_url}/api/v1/",
         headers={"X-API-Key": client.api_key or ""},
-        transport=httpx.MockTransport(handler),
+        transport=httpx.MockTransport(with_schema),
     )
 
 
@@ -198,6 +217,32 @@ async def test_all_client_operations_are_typed_and_use_current_routes() -> None:
     assert create.content == b'{"url":"https://example.com"}'
     assert update.content == b'{"title":"Changed"}'
     assert seen[0].url.params["groupId"] == "unassigned"
+    await client.aclose()
+
+
+@pytest.mark.anyio
+async def test_first_connection_registers_viewed_property() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/api/v1/property-schema" and request.method == "GET":
+            return httpx.Response(200, json={"success": True, "data": {"properties": {}}})
+        if request.url.path == "/api/v1/property-schema" and request.method == "POST":
+            return httpx.Response(200, json={"success": True, "data": {"properties": {}}})
+        if request.url.path == "/api/v1/tabs":
+            return httpx.Response(200, json={"data": []})
+        raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+    client = MCPClient("http://server", "secret")
+    client._http = httpx.AsyncClient(  # noqa: SLF001
+        base_url="http://server/api/v1/", transport=httpx.MockTransport(handler)
+    )
+    assert not (await client.list_tabs(TabListQueryDTO())).data
+    assert [request.method for request in seen] == ["GET", "POST", "GET"]
+    assert seen[1].content == (
+        b'{"name":"viewed","description":"","type":"boolean","default":false}'
+    )
     await client.aclose()
 
 

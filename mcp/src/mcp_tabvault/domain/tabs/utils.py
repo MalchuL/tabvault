@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from mcp_tabvault.client import MCPClientError, get_client
 from mcp_tabvault.client.dto import (
     TabDTO,
     TabListQueryDTO,
-    TabResponseDTO,
-    UrlBulkErrorDTO,
-    UrlBulkResultDTO,
 )
-
-BulkOperation = Callable[[TabDTO], Awaitable[TabResponseDTO]]
 
 
 def is_hidden(tab: TabDTO) -> bool:
@@ -34,39 +28,20 @@ def is_hidden(tab: TabDTO) -> bool:
     return deadline > datetime.now(UTC)
 
 
-async def require_visible_tab(tab_id: str) -> TabResponseDTO:
-    """Load one Saved Tab only when MCP may access it.
-
-    Args:
-        tab_id (str): Stable Saved Tab identifier supplied by an MCP caller.
-
-    Returns:
-        TabResponseDTO: Typed API envelope for the visible Saved Tab.
-
-    Raises:
-        MCPClientError: The Saved Tab is archived or currently hidden.
-    """
-    response = await get_client().get_tab(tab_id)
-    if response.data.archived or is_hidden(response.data):
-        raise MCPClientError("Saved Tab is not accessible through MCP")
-    return response
-
-
-async def matching_tabs(url: str) -> list[TabDTO]:
-    """Collect every active visible Saved Tab with one exact stored URL.
+async def first_visible_tab(url: str) -> TabDTO:
+    """Return the oldest active visible Saved Tab with one exact stored URL.
 
     Args:
         url (str): Stored URL to match case-sensitively.
 
     Returns:
-        list[TabDTO]: Complete exact matches in ordinary API order.
+        TabDTO: Oldest exact visible match.
 
     Raises:
         MCPClientError: Pagination is invalid or a full projection is not returned.
     """
     client = get_client()
     offset = 0
-    matches: list[TabDTO] = []
     while True:
         response = await client.list_tabs(
             TabListQueryDTO(
@@ -75,6 +50,8 @@ async def matching_tabs(url: str) -> list[TabDTO]:
                 limit=100,
                 offset=offset,
                 fields="full",
+                sort_by="createdAt",
+                sort_dir="asc",
                 visibility="visible",
             )
         )
@@ -82,29 +59,9 @@ async def matching_tabs(url: str) -> list[TabDTO]:
             if not isinstance(item, TabDTO):
                 raise MCPClientError("TabVault API returned an incomplete Saved Tab")
             if item.url == url and not item.archived and not is_hidden(item):
-                matches.append(item)
+                return item
         if not response.has_next:
-            return matches
+            raise MCPClientError(f"Saved Tab with URL {url!r} is not accessible through MCP")
         if response.size <= 0:
             raise MCPClientError("TabVault API returned an invalid Saved Tab page size")
         offset += response.size
-
-
-async def best_effort(tabs: list[TabDTO], operation: BulkOperation) -> UrlBulkResultDTO:
-    """Apply one non-transactional operation to every matched Saved Tab.
-
-    Args:
-        tabs (list[TabDTO]): Exact visible URL matches to mutate.
-        operation (BulkOperation): Typed asynchronous per-tab API operation.
-
-    Returns:
-        UrlBulkResultDTO: Successful Tabs and typed per-tab failures.
-    """
-    data: list[TabDTO] = []
-    errors: list[UrlBulkErrorDTO] = []
-    for tab in tabs:
-        try:
-            data.append((await operation(tab)).data)
-        except MCPClientError as error:
-            errors.append(UrlBulkErrorDTO(tab_id=tab.id, message=str(error)))
-    return UrlBulkResultDTO(matched=len(tabs), data=data, errors=errors)

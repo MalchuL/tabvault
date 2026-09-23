@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { tabsForSelection } from "../client/public/popup-selection.js";
+import { tabsForSelection } from "../dist/public/popup-selection.js";
 
 test("popup resolves every immediate-save tab selection", () => {
   const tabs = [

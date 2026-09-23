@@ -2,14 +2,11 @@
  * Signal Library design reminder: transfer is a deliberate archival desk, not a transient dialog.
  * Warm paper, precise rules, and TabVault Orange distinguish write actions from local evidence.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "wouter";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowDownToLine,
   ArrowUpFromLine,
-  CheckCircle2,
-  ChevronLeft,
   FileJson2,
   FileText,
   RefreshCw,
@@ -24,14 +21,14 @@ import {
   readApiKey,
   readLibraryFromServer,
   readLocalServerUrl,
-} from "@/lib/extension";
+} from "@/domain/server/synchronization";
 import {
   emptyBrowserVault,
   fromServerDocument,
   isPersistedVault,
-  type PersistedVault,
 } from "@/lib/library";
-import { BrowserStorageAdapter } from "@/lib/persistence";
+import { useLibrary } from "@/domain/library/library-context";
+import { createTabVaultApi } from "@/domain/server/client";
 
 type ValidationError = {
   code?: string;
@@ -58,25 +55,17 @@ function timestamp() {
 }
 
 export default function Transfer() {
-  const [, setLocation] = useLocation();
-  const storage = useMemo(
-    () => new BrowserStorageAdapter<PersistedVault>(),
-    []
-  );
+  const { vault, dispatch } = useLibrary();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [vault, setVault] = useState<PersistedVault | null>(null);
   const [serverUrl, setServerUrl] = useState(DEFAULT_TABVAULT_SERVER_URL);
   const [apiKey, setApiKey] = useState(DEFAULT_TABVAULT_API_KEY);
   const [serverOnline, setServerOnline] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
   const [issues, setIssues] = useState<ValidationError[]>([]);
+  const api = createTabVaultApi({ baseUrl: serverUrl, apiKey });
 
   useEffect(() => {
-    void storage
-      .load()
-      .then(saved => setVault(saved ?? null))
-      .catch(() => setVault(null));
     void Promise.all([readLocalServerUrl(), readApiKey()]).then(
       ([configuredUrl, configuredKey]) => {
         setServerUrl(configuredUrl);
@@ -86,13 +75,9 @@ export default function Transfer() {
           .catch(() => setServerOnline(false));
       }
     );
-  }, [storage]);
+  }, []);
 
   const exportBrowserJson = () => {
-    if (!vault) {
-      toast.error("Your browser library is still loading");
-      return;
-    }
     downloadFile(
       `tabvault-browser-${timestamp()}.json`,
       JSON.stringify(vault, null, 2),
@@ -108,12 +93,7 @@ export default function Transfer() {
     }
     setIsWorking(true);
     try {
-      const response = await fetch(
-        `${serverUrl.replace(/\/+$/, "")}/api/v1/export?format=${format}`,
-        { headers: { "X-API-Key": apiKey } }
-      );
-      if (!response.ok)
-        throw new Error(`Server export returned ${response.status}`);
+      const response = await api.transfer.export(format);
       const content =
         format === "markdown"
           ? await response.text()
@@ -158,37 +138,23 @@ export default function Transfer() {
             "This file does not contain a recognizable TabVault library."
           );
         }
-        await storage.save(nextVault);
-        setVault(nextVault);
+        dispatch({ type: "replace", vault: nextVault });
         toast.success("Browser library imported", {
           description: "Open My library to organize the imported tabs.",
         });
         return;
       }
 
-      const response = await fetch(
-        `${serverUrl.replace(/\/+$/, "")}/api/v1/import`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": apiKey,
-          },
-          body: JSON.stringify({
-            format: markdown ? "markdown" : "json",
-            content: markdown ? source : parsedJson,
-            mode: importMode,
-          }),
-        }
-      );
-      if (!response.ok)
-        throw new Error(`Server import returned ${response.status}`);
-      const result = (await response.json()) as {
+      const result = await api.transfer.import<{
         success?: boolean;
         errors?: ValidationError[];
         warnings?: ValidationError[];
         document?: Record<string, unknown>;
-      };
+      }>({
+        format: markdown ? "markdown" : "json",
+        content: markdown ? source : parsedJson,
+        mode: importMode,
+      });
       if (!result.success) {
         setIssues(result.errors ?? []);
         toast.error("Import needs attention", {
@@ -197,12 +163,8 @@ export default function Transfer() {
         return;
       }
       const document = await readLibraryFromServer(serverUrl, apiKey);
-      const nextVault = fromServerDocument(
-        document,
-        vault ?? emptyBrowserVault()
-      );
-      await storage.save(nextVault);
-      setVault(nextVault);
+      const nextVault = fromServerDocument(document, vault);
+      dispatch({ type: "replace", vault: nextVault });
       setIssues(result.warnings ?? []);
       toast.success(
         importMode === "replace" ? "Library replaced" : "Library merged",
@@ -222,53 +184,29 @@ export default function Transfer() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f6f3ec] text-[#18261f]">
-      <header className="sticky top-0 z-10 flex h-[72px] items-center justify-between border-b border-[#ded9cd]/85 bg-[#f6f3ec]/88 px-5 backdrop-blur-xl sm:px-7 lg:px-9">
-        <button
-          onClick={() => setLocation("/")}
-          className="inline-flex items-center gap-2 text-[12px] font-semibold text-[#536057] hover:text-[#e95224]"
-        >
-          <ChevronLeft className="h-4 w-4" /> My library
-        </button>
-        <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-[#858980]">
-          Transfer desk / v1
-        </span>
-      </header>
-
-      <main className="mx-auto max-w-[1160px] px-5 py-8 sm:px-7 lg:px-9 lg:py-11">
-        <section className="border-b border-[#dcd7cc] pb-8">
-          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#e95224]">
-            Data transfer
-          </p>
-          <h1 className="mt-3 max-w-2xl font-['DM_Sans'] text-[38px] font-bold leading-[0.96] tracking-[-0.065em] sm:text-[54px]">
-            Move your library with intent.
+    <div className="min-h-dvh bg-[#f6f3ec] text-[#18261f]">
+      <main className="mx-auto max-w-[1160px] px-5 py-6 sm:px-8">
+        <section className="pb-5">
+          <h1 className="font-['DM_Sans'] text-2xl font-bold tracking-[-0.04em]">
+            Import & Export
           </h1>
-          <p className="mt-4 max-w-2xl text-[13px] leading-6 text-[#697068]">
-            Download a portable copy from browser storage or the connected API.
-            Import JSON locally, or use the authenticated server for validation,
-            merge, replace, and Markdown transfer.
-          </p>
         </section>
 
-        <div className="mt-8 grid gap-7 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2">
           <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_9px_25px_rgba(24,38,31,0.035)] sm:p-6">
             <div className="flex items-start gap-3">
               <div className="rounded-md bg-[#edf2ea] p-2 text-[#638569]">
                 <ArrowDownToLine className="h-4 w-4" />
               </div>
               <div>
-                <p className="font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
-                  Export
-                </p>
                 <h2 className="mt-1 font-['DM_Sans'] text-[21px] font-bold tracking-[-0.045em]">
-                  Keep a portable copy.
+                  Export
                 </h2>
               </div>
             </div>
             <p className="mt-4 text-[11px] leading-5 text-[#6f756d]">
-              Browser JSON preserves the library held on this device. Server
-              exports use the versioned transfer contract and can also produce
-              Markdown for reading and review.
+              Download this browser’s library, or export from the connected
+              server.
             </p>
             <div className="mt-5 grid gap-2 sm:grid-cols-2">
               <button
@@ -310,18 +248,14 @@ export default function Transfer() {
                 <ArrowUpFromLine className="h-4 w-4" />
               </div>
               <div>
-                <p className="font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
-                  Import
-                </p>
                 <h2 className="mt-1 font-['DM_Sans'] text-[21px] font-bold tracking-[-0.045em]">
-                  Bring records in carefully.
+                  Import
                 </h2>
               </div>
             </div>
             <p className="mt-4 text-[11px] leading-5 text-[#6f756d]">
-              Local JSON import replaces this browser copy. With the API
-              connected, choose merge or replace; the server returns field-level
-              issues before it writes invalid data.
+              Browser imports replace this device’s library. Server imports can
+              merge or replace.
             </p>
             <div className="mt-5 flex overflow-hidden border border-[#d7d1c4]">
               {(["merge", "replace"] as const).map(mode => (
@@ -360,18 +294,14 @@ export default function Transfer() {
           </section>
         </div>
 
-        <section className="mt-7 border border-[#ded9cd] bg-[#fffdf8] p-5 sm:p-6">
-          <div className="flex items-center gap-2">
-            {issues.length ? (
+        {issues.length > 0 && (
+          <section className="mt-5 border border-[#ded9cd] bg-[#fffdf8] p-5 sm:p-6">
+            <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-[#c84b26]" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4 text-[#6e9870]" />
-            )}
-            <p className="font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
-              Validation report
-            </p>
-          </div>
-          {issues.length ? (
+              <p className="font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
+                Validation report
+              </p>
+            </div>
             <div className="mt-4 space-y-3">
               {issues.map((issue, index) => (
                 <article
@@ -397,13 +327,8 @@ export default function Transfer() {
                 </article>
               ))}
             </div>
-          ) : (
-            <p className="mt-3 text-[11px] leading-5 text-[#6f756d]">
-              Choose a file to see import validation here. A connected server
-              validates its complete versioned document before writing it.
-            </p>
-          )}
-        </section>
+          </section>
+        )}
       </main>
     </div>
   );

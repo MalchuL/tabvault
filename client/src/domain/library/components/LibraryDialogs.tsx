@@ -1,61 +1,6 @@
 import type { ReactNode } from "react";
 import { Plus, Save, Trash2, X } from "lucide-react";
-import type { VaultGroup, VaultTab } from "../types";
-
-type CreateCollectionDialogProps = {
-  name: string;
-  description: string;
-  onNameChange: (name: string) => void;
-  onDescriptionChange: (description: string) => void;
-  onClose: () => void;
-  onCreate: () => void;
-};
-
-export function CreateCollectionDialog({
-  name,
-  description,
-  onNameChange,
-  onDescriptionChange,
-  onClose,
-  onCreate,
-}: CreateCollectionDialogProps) {
-  return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-[#18261f]/30 p-5 backdrop-blur-[2px]"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Create collection"
-    >
-      <div className="w-full max-w-sm bg-[#fffdf8] p-5 shadow-[0_24px_70px_rgba(24,38,31,0.25)] rise-in">
-        <DialogHeading
-          eyebrow="Collection"
-          title="Name a new shelf"
-          onClose={onClose}
-        />
-        <input
-          autoFocus
-          value={name}
-          onChange={event => onNameChange(event.target.value)}
-          onKeyDown={event => event.key === "Enter" && onCreate()}
-          placeholder="e.g. Weekend reading"
-          className="mt-5 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[13px] font-semibold outline-none focus:border-[#e95224]"
-        />
-        <textarea
-          value={description}
-          onChange={event => onDescriptionChange(event.target.value)}
-          placeholder="Description for agents (optional)"
-          rows={3}
-          className="mt-4 w-full resize-none border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 text-[12px] leading-5 outline-none focus:border-[#e95224]"
-        />
-        <DialogActions
-          onCancel={onClose}
-          onConfirm={onCreate}
-          confirmLabel="Create collection"
-        />
-      </div>
-    </div>
-  );
-}
+import type { CustomPropertySchema, VaultGroup, VaultTab } from "../types";
 
 type EditCollectionDialogProps = {
   collection: VaultGroup;
@@ -284,6 +229,7 @@ type EditTabDialogProps = {
   tagDraft: string;
   tagSuggestions: string[];
   tagCatalog: Record<string, string>;
+  propertySchema: CustomPropertySchema;
   onChange: (tab: VaultTab) => void;
   onTagDraftChange: (tag: string) => void;
   onAddTag: () => void;
@@ -297,6 +243,7 @@ export function EditTabDialog({
   tagDraft,
   tagSuggestions,
   tagCatalog,
+  propertySchema,
   onChange,
   onTagDraftChange,
   onAddTag,
@@ -376,6 +323,67 @@ export function EditTabDialog({
               Mark as viewed
             </label>
           </div>
+          {Object.entries(propertySchema)
+            .filter(([name]) => name !== "viewed")
+            .map(([name, definition]) => {
+              const value = tab.customProperties[name] ?? definition.default;
+              const update = (next: unknown) =>
+                onChange({
+                  ...tab,
+                  customProperties: {
+                    ...tab.customProperties,
+                    [name]: next,
+                  },
+                });
+              return (
+                <Field key={name} label={name}>
+                  {definition.type === "boolean" ? (
+                    <input
+                      type="checkbox"
+                      checked={Boolean(value)}
+                      onChange={event => update(event.target.checked)}
+                      className="mt-4 h-4 w-4 accent-[#e95224]"
+                    />
+                  ) : definition.type === "json" ? (
+                    <textarea
+                      defaultValue={JSON.stringify(value, null, 2)}
+                      onBlur={event => {
+                        try {
+                          update(JSON.parse(event.target.value));
+                        } catch {
+                          event.target.setCustomValidity("Enter valid JSON");
+                          event.target.reportValidity();
+                        }
+                      }}
+                      className="mt-2 w-full border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 font-mono text-[11px]"
+                    />
+                  ) : (
+                    <input
+                      type={
+                        definition.type === "int" || definition.type === "float"
+                          ? "number"
+                          : "text"
+                      }
+                      step={definition.type === "int" ? "1" : "any"}
+                      value={String(value)}
+                      onChange={event =>
+                        update(
+                          definition.type === "string"
+                            ? event.target.value
+                            : Number(event.target.value)
+                        )
+                      }
+                      className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[12px]"
+                    />
+                  )}
+                  {definition.description ? (
+                    <span className="mt-1 block text-[10px] text-[#858980]">
+                      {definition.description}
+                    </span>
+                  ) : null}
+                </Field>
+              );
+            })}
           <Field label="Collection">
             <select
               value={

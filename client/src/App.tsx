@@ -15,14 +15,17 @@ import {
   clearBrowserLibrary,
   inspectBrowserVault,
   type BrowserVaultInspection,
-} from "./lib/extension";
+} from "@/domain/server/synchronization";
 import { StorageRecovery } from "./pages/StorageRecovery";
+import { LibraryProvider } from "./domain/library/LibraryProvider";
+import { emptyBrowserVault } from "./lib/library";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Deduplicator = lazy(() => import("./pages/Deduplicator"));
 const Home = lazy(() => import("./pages/Home"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Settings = lazy(() => import("./pages/Settings"));
+const CustomProperties = lazy(() => import("./pages/CustomProperties"));
 const Transfer = lazy(() => import("./pages/Transfer"));
 
 function isExtensionPage() {
@@ -47,6 +50,7 @@ function AppRoutes() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/deduplicate" component={Deduplicator} />
       <Route path="/settings" component={Settings} />
+      <Route path="/custom-properties" component={CustomProperties} />
       <Route path="/transfer" component={Transfer} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
@@ -57,7 +61,22 @@ function AppRoutes() {
 function AppWorkspace() {
   return (
     <WorkspaceSidebar>
-      <AppRoutes />
+      <Suspense
+        fallback={
+          <div
+            role="status"
+            aria-label="Loading page"
+            className="mx-auto max-w-6xl space-y-5 p-6 sm:p-8"
+          >
+            <div className="h-8 w-40 rounded bg-muted motion-safe:animate-pulse" />
+            <div className="h-10 rounded bg-muted motion-safe:animate-pulse" />
+            <div className="h-48 rounded bg-muted motion-safe:animate-pulse" />
+            <span className="sr-only">Loading page…</span>
+          </div>
+        }
+      >
+        <AppRoutes />
+      </Suspense>
     </WorkspaceSidebar>
   );
 }
@@ -84,7 +103,17 @@ function BrowserSchemaGate({ children }: { children: ReactNode }) {
         }}
       />
     );
-  return children;
+  return (
+    <LibraryProvider
+      initialVault={
+        inspection.status === "compatible"
+          ? inspection.vault
+          : emptyBrowserVault()
+      }
+    >
+      {children}
+    </LibraryProvider>
+  );
 }
 
 export default function App() {
@@ -94,23 +123,15 @@ export default function App() {
         <TooltipProvider>
           <Toaster position="bottom-right" richColors />
           <BrowserSchemaGate>
-            <Suspense
-              fallback={
-                <main className="min-h-screen bg-[#f6f3ec] p-8 font-mono text-[10px] uppercase tracking-[0.12em] text-[#687067]">
-                  Opening library…
-                </main>
+            <Router
+              hook={
+                isExtensionPage()
+                  ? useHashLocation
+                  : useNormalizedBrowserLocation
               }
             >
-              <Router
-                hook={
-                  isExtensionPage()
-                    ? useHashLocation
-                    : useNormalizedBrowserLocation
-                }
-              >
-                <AppWorkspace />
-              </Router>
-            </Suspense>
+              <AppWorkspace />
+            </Router>
           </BrowserSchemaGate>
         </TooltipProvider>
       </ThemeProvider>

@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   Archive,
   ArrowDownToLine,
@@ -15,15 +9,18 @@ import {
   Plus,
   RefreshCw,
   Settings2,
+  SlidersHorizontal,
   Sparkles,
   Tag,
   X,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import type { PersistedVault, VaultTab } from "@/domain/library/types";
+import type { PersistedVault } from "@/domain/library/types";
 import { emptyBrowserVault } from "@/lib/library";
-import { BrowserStorageAdapter } from "@/lib/persistence";
+import { useLibrary } from "@/domain/library/library-context";
+import { vaultStorage } from "@/domain/library/storage";
+import { libraryStats } from "@/domain/library/selectors";
 import {
   checkLocalServer,
   isExtensionContext,
@@ -31,7 +28,7 @@ import {
   readLocalServerUrl,
   readStorageMode,
   refreshLibraryFromServer,
-} from "@/lib/extension";
+} from "@/domain/server/synchronization";
 import {
   LIBRARY_OPEN_TAGS_FLAG,
   WorkspaceSidebarContext,
@@ -45,24 +42,8 @@ type LibraryNavStats = {
   tagCount: number;
 };
 
-function isCurrentlyHidden(tab: VaultTab, now = Date.now()) {
-  return (
-    !tab.archived &&
-    Boolean(tab.hiddenUntil) &&
-    Date.parse(tab.hiddenUntil ?? "") > now
-  );
-}
-
 function countLibraryStats(vault: PersistedVault): LibraryNavStats {
-  const now = Date.now();
-  return {
-    activeCount: vault.tabs.filter(
-      tab => !tab.archived && !isCurrentlyHidden(tab, now)
-    ).length,
-    archivedCount: vault.tabs.filter(tab => tab.archived).length,
-    hiddenCount: vault.tabs.filter(tab => isCurrentlyHidden(tab, now)).length,
-    tagCount: Object.keys(vault.tagCatalog ?? {}).length,
-  };
+  return libraryStats(vault);
 }
 
 function browseClass(active: boolean) {
@@ -87,34 +68,21 @@ function libraryClass(active: boolean) {
  */
 export function WorkspaceSidebar({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
+  const { vault, dispatch } = useLibrary();
   const [open, setOpen] = useState(false);
   const [bridge, setBridge] = useState<LibrarySidebarBridge | null>(null);
-  const [fallbackStats, setFallbackStats] = useState<LibraryNavStats>({
-    activeCount: 0,
-    archivedCount: 0,
-    hiddenCount: 0,
-    tagCount: 0,
-  });
   const [isRefreshingFallback, setIsRefreshingFallback] = useState(false);
   const extensionContext = isExtensionContext();
-  const contextValue = useMemo(() => ({ setBridge }), []);
+  const contextValue = useMemo(
+    () => ({
+      setBridge: (next: LibrarySidebarBridge | null) => {
+        if (next) setBridge(next);
+      },
+    }),
+    []
+  );
 
-  useEffect(() => {
-    if (bridge) return;
-    let cancelled = false;
-    void new BrowserStorageAdapter<PersistedVault>()
-      .load()
-      .then(saved => {
-        if (cancelled || !saved?.tabs) return;
-        setFallbackStats(countLibraryStats(saved));
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [bridge, location]);
-
-  const stats = bridge ?? fallbackStats;
+  const stats = bridge ?? countLibraryStats(vault);
   const isRefreshing = bridge?.isRefreshing ?? isRefreshingFallback;
   const isAllTabsPage =
     location === "/" ||
@@ -169,11 +137,9 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
         );
         return;
       }
-      const storage = new BrowserStorageAdapter<PersistedVault>();
-      const current = (await storage.load()) ?? emptyBrowserVault();
+      const current = (await vaultStorage.load()) ?? emptyBrowserVault();
       const { vault } = await refreshLibraryFromServer(url, key, current);
-      await storage.save(vault);
-      setFallbackStats(countLibraryStats(vault));
+      dispatch({ type: "replace", vault });
       toast.success("Library refreshed", {
         description: `${vault.tabs.length} tabs merged with the server.`,
       });
@@ -186,7 +152,17 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
 
   return (
     <WorkspaceSidebarContext.Provider value={contextValue}>
-      <div className="min-h-screen bg-[#f6f3ec] text-[#18261f] lg:pl-[274px]">
+      <div className="min-h-dvh bg-[#f6f3ec] text-[#18261f] lg:pl-[224px]">
+        <a
+          href="#workspace-content"
+          onClick={event => {
+            event.preventDefault();
+            document.getElementById("workspace-content")?.focus();
+          }}
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded focus:bg-card focus:p-3"
+        >
+          Skip to content
+        </a>
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -197,7 +173,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
         </button>
         <aside
           data-testid="workspace-sidebar"
-          className={`fixed inset-y-0 left-0 z-50 flex w-[274px] flex-col border-r border-[#ded9cd] bg-[#f9f7f1]/95 px-4 py-5 backdrop-blur-xl transition-transform duration-200 lg:translate-x-0 ${open ? "translate-x-0 shadow-[16px_0_50px_rgba(24,38,31,0.14)]" : "-translate-x-full"}`}
+          className={`fixed inset-y-0 left-0 z-50 flex w-[224px] flex-col border-r border-[#ded9cd] bg-[#f9f7f1]/95 px-3 py-4 backdrop-blur-xl transition-transform duration-200 lg:translate-x-0 ${open ? "translate-x-0 shadow-[16px_0_50px_rgba(24,38,31,0.14)]" : "-translate-x-full"}`}
         >
           <div className="flex items-center justify-between px-2">
             <div className="flex items-center gap-2.5">
@@ -209,9 +185,6 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
               <div>
                 <span className="block font-['DM_Sans'] text-[19px] font-bold leading-none tracking-[-0.055em]">
                   tabvault
-                </span>
-                <span className="mt-1 block font-mono text-[9px] uppercase tracking-[0.16em] text-[#83867e]">
-                  local link library
                 </span>
               </div>
             </div>
@@ -226,7 +199,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
           </div>
 
           {extensionContext && (
-            <div className="mt-8 px-2">
+            <div className="mt-5 px-2">
               <button
                 type="button"
                 onClick={() => {
@@ -253,12 +226,9 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
           )}
 
           <nav
-            className="thin-scrollbar mt-7 flex-1 overflow-y-auto px-1"
+            className="thin-scrollbar mt-5 flex-1 overflow-y-auto px-1"
             aria-label="Workspace"
           >
-            <p className="mb-2 px-2 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#8e9189]">
-              Browse
-            </p>
             <div className="space-y-1">
               <button
                 type="button"
@@ -271,7 +241,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
                   {stats.activeCount}
                 </span>
               </button>
-              {stats.archivedCount > 0 && (
+              {(stats.archivedCount > 0 || location === "/archive") && (
                 <button
                   type="button"
                   onClick={() => closeAndGo("/archive")}
@@ -284,7 +254,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
                   </span>
                 </button>
               )}
-              {stats.hiddenCount > 0 && (
+              {(stats.hiddenCount > 0 || location === "/hidden") && (
                 <button
                   type="button"
                   onClick={() => closeAndGo("/hidden")}
@@ -311,13 +281,10 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
                 aria-current={location === "/deduplicate" ? "page" : undefined}
                 className={browseClass(location === "/deduplicate")}
               >
-                <Sparkles className="h-3.5 w-3.5" /> Advanced Deduplication
+                <Sparkles className="h-3.5 w-3.5" /> Deduplicate
               </button>
             </div>
-            <div className="mt-8 border-t border-[#e3ded3] pt-6">
-              <p className="mb-2 px-2 font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-[#8e9189]">
-                Library
-              </p>
+            <div className="mt-4">
               <button
                 type="button"
                 onClick={openTags}
@@ -338,6 +305,19 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
                 <ArrowDownToLine className="h-3.5 w-3.5" />
                 <span className="text-[13px] font-semibold">
                   Import & Export
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => closeAndGo("/custom-properties")}
+                aria-current={
+                  location === "/custom-properties" ? "page" : undefined
+                }
+                className={libraryClass(location === "/custom-properties")}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                <span className="text-[13px] font-semibold">
+                  Custom Properties
                 </span>
               </button>
               <button
@@ -373,7 +353,13 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
             aria-label="Close navigation overlay"
           />
         ) : null}
-        <div className="min-h-screen pt-14 lg:pt-0">{children}</div>
+        <div
+          id="workspace-content"
+          tabIndex={-1}
+          className="min-h-dvh pt-14 lg:pt-0"
+        >
+          {children}
+        </div>
       </div>
     </WorkspaceSidebarContext.Provider>
   );

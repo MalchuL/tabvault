@@ -6,9 +6,9 @@ import {
   serverDocumentToVault,
   utcTimestamp,
   vaultToServerDocument,
-} from "../client/public/library-sync.js";
+} from "../dist/public/library-sync.js";
 
-test("schema-v2 conversion preserves occurrence identity, exact URL, and Unassigned", () => {
+test("schema-v3 conversion preserves occurrence identity, exact URL, and Unassigned", () => {
   const vault = defaultVault();
   const now = "2026-08-23T12:00:00.000Z";
   vault.tabs = [
@@ -21,6 +21,7 @@ test("schema-v2 conversion preserves occurrence identity, exact URL, and Unassig
       note: "note",
       agentReview: "Useful agent summary",
       viewed: true,
+      customProperties: { viewed: true },
       tags: ["reference"],
       color: "#F05A28",
       icon: "E",
@@ -41,7 +42,8 @@ test("schema-v2 conversion preserves occurrence identity, exact URL, and Unassig
 
   assert.equal(isVaultV2(vault), true);
   const document = vaultToServerDocument(vault);
-  assert.equal(document.schemaVersion, 2);
+  assert.equal(document.schemaVersion, 3);
+  assert.equal(document.tabs[0].customProperties.viewed, true);
   assert.equal(document.tabs[0].id, "tab-1");
   assert.equal(document.tabs[0].groupId, null);
   assert.equal(document.tabs[0].url, vault.tabs[0].url);
@@ -113,7 +115,7 @@ test("schema guard rejects v1, hierarchy, Inbox-shaped, and normalized data", ()
   assert.equal(isVaultV2(vault), false);
 });
 
-test("browser tombstones suppress server resurrection until deletion syncs", () => {
+test("schema-v2 server data migrates and tombstones suppress resurrection", () => {
   const vault = defaultVault();
   vault.tombstones = { tabs: ["deleted-tab"], groups: ["deleted-group"] };
   const hydrated = serverDocumentToVault(
@@ -149,8 +151,14 @@ test("browser tombstones suppress server resurrection until deletion syncs", () 
 });
 
 test("portable timestamps without a timezone are treated as UTC", () => {
-  assert.equal(utcTimestamp("2026-08-29T20:37:37.346680"), "2026-08-29T20:37:37.346Z");
-  assert.equal(utcTimestamp("2026-08-29T20:37:37.346680Z"), "2026-08-29T20:37:37.346Z");
+  assert.equal(
+    utcTimestamp("2026-08-29T20:37:37.346680"),
+    "2026-08-29T20:37:37.346Z"
+  );
+  assert.equal(
+    utcTimestamp("2026-08-29T20:37:37.346680Z"),
+    "2026-08-29T20:37:37.346Z"
+  );
   const vault = defaultVault();
   vault.vaultGroups.push({
     id: "group-1",

@@ -9,10 +9,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from domain.custom_properties.error import CustomPropertyError
 from domain.groups.error import GroupError
-from domain.system.error import ImportValidationError, SystemDomainError
+from domain.system.error import SystemDomainError
 from domain.tabs.error import TabError
 from domain.tags.error import TagError
+from domain.transfer.error import ImportValidationError
 from lib.responses import IssueDTO, failure, issue, json_data
 
 logger = logging.getLogger(__name__)
@@ -118,7 +120,7 @@ def register_error_handlers(app: FastAPI) -> None:
             status_code=value.status_code,
         )
 
-    for error_type in (TabError, GroupError, TagError, SystemDomainError):
+    for error_type in (CustomPropertyError, TabError, GroupError, TagError, SystemDomainError):
         app.add_exception_handler(error_type, domain_error)
 
     @app.exception_handler(Exception)

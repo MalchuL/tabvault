@@ -13,6 +13,9 @@ from urllib.parse import urlsplit
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import Settings
+from domain.jobs.dto import JobQueuedDTO
+from domain.jobs.mapper import JobMapper
+from domain.jobs.repository import JobRepository
 from lib.responses import IssueDTO, WarningDTO, issue
 from lib.time import iso, stored_utc, utc_now
 
@@ -24,6 +27,7 @@ from .dto import (
     ImportCountsDTO,
     ImportMode,
     ImportValidationDTO,
+    LibraryClearDTO,
     MinimalTransferDocumentDTO,
     MinimalTransferTabDTO,
     TransferDocumentDTO,
@@ -31,8 +35,9 @@ from .dto import (
     TransferFormat,
     TransferGroupDTO,
 )
-from .mapper import SystemMapper
-from .repository import SystemRepository
+from .error import BackupNotFoundError
+from .mapper import TransferMapper
+from .repository import TransferRepository
 
 
 def empty_document() -> dict[str, Any]:
@@ -45,7 +50,37 @@ def empty_document() -> dict[str, Any]:
     Returns:
         dict[str, Any]: Result produced by the operation described above.
     """
-    return {"schemaVersion": 2, "exportedAt": iso(utc_now()), "tags": [], "groups": [], "tabs": []}
+    return {
+        "schemaVersion": 3,
+        "exportedAt": iso(utc_now()),
+        "propertySchema": {"viewed": {"description": "", "type": "boolean", "default": False}},
+        "tags": [],
+        "groups": [],
+        "tabs": [],
+    }
+
+
+def migrate_v2_document(document: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade one portable v2 document to schema-driven v3 in memory.
+
+    Args:
+        document (dict[str, Any]): Parsed document that may use portable schema v2.
+
+    Returns:
+        dict[str, Any]: Deep-copied v3 document, or an unchanged-version copy when migration does
+            not apply.
+    """
+    migrated = copy.deepcopy(document)
+    if migrated.get("schemaVersion") != 2:
+        return migrated
+    migrated["schemaVersion"] = 3
+    migrated["propertySchema"] = {
+        "viewed": {"description": "", "type": "boolean", "default": False}
+    }
+    for tab in migrated.get("tabs", []):
+        if isinstance(tab, dict):
+            tab["customProperties"] = {"viewed": bool(tab.pop("viewed", False))}
+    return migrated
 
 
 def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
@@ -74,12 +109,13 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
                 422,
             )
         ], warnings
-    if document.get("schemaVersion") != 2:
+    document = migrate_v2_document(document)
+    if document.get("schemaVersion") != 3:
         errors.append(
             issue(
                 "E_UNKNOWN_SCHEMA_VERSION",
                 "$.schemaVersion",
-                "2",
+                "3",
                 document.get("schemaVersion"),
                 "Unsupported schema version.",
                 422,
@@ -280,7 +316,7 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
                 "title": link.group(1),
                 "note": "",
                 "agentReview": "",
-                "viewed": False,
+                "customProperties": {"viewed": False},
                 "tags": [],
                 "groupId": active_group,
                 "position": len(document["tabs"]),
@@ -297,7 +333,7 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
             elif key == "agentReview":
                 active_tab["agentReview"] = value
             elif key == "viewed":
-                active_tab["viewed"] = value.lower() == "true"
+                active_tab["customProperties"]["viewed"] = value.lower() == "true"
         elif metadata and active_group_record is not None:
             key, value = metadata.groups()
             if key == "description":
@@ -324,7 +360,13 @@ class TransferService:
     deterministic ordering for stable backups.
     """
 
-    def __init__(self, db: AsyncSession, settings: Settings, repository: SystemRepository) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        settings: Settings,
+        repository: TransferRepository,
+        jobs: JobRepository,
+    ) -> None:
         """Initialize the service and its persistence dependency.
 
         The operation handles the versioned portable-library boundary. Imported content is treated
@@ -334,13 +376,16 @@ class TransferService:
         Args:
             db (AsyncSession): Request-scoped asynchronous database session used by this operation.
             settings (Settings): Validated process settings that control this component.
-            repository (SystemRepository): Persistence adapter used to load and mutate domain
+            repository (TransferRepository): Persistence adapter used to load and mutate domain
                 records.
+            jobs (JobRepository): Durable job persistence for queued restores.
         """
         self.db = db
         self.settings = settings
         self.repository = repository
-        self.mapper = SystemMapper()
+        self.jobs = jobs
+        self.mapper = TransferMapper()
+        self.job_mapper = JobMapper()
 
     async def document(self, *, include_hidden: bool = True) -> TransferDocumentDTO:
         """Build the complete portable library document.
@@ -359,11 +404,13 @@ class TransferService:
             include_hidden=include_hidden,
             now=utc_now() if not include_hidden else None,
         )
+        schema = await self.repository.get_property_schema()
         return TransferDocumentDTO(
             exported_at=utc_now(),
-            tags=[self.mapper.tag_to_transfer(tag) for tag in tags],
-            groups=[self.mapper.group_to_transfer(group) for group in groups],
-            tabs=[self.mapper.tab_to_transfer(tab) for tab in tabs],
+            property_schema=dict(schema.properties or {}) if schema is not None else {},
+            tags=[self.mapper.tag_to_dto(tag) for tag in tags],
+            groups=[self.mapper.group_to_dto(group) for group in groups],
+            tabs=[self.mapper.tab_to_dto(tab) for tab in tabs],
         )
 
     async def create_backup(self, reason: str) -> BackupDTO:
@@ -428,6 +475,7 @@ class TransferService:
         if fields == "minimal":
             content = MinimalTransferDocumentDTO(
                 exported_at=document.exported_at,
+                property_schema=document.property_schema,
                 tags=document.tags,
                 groups=document.groups,
                 tabs=[
@@ -464,7 +512,10 @@ class TransferService:
                     if fields != "minimal":
                         lines.append(f"  note: {tab.note or ''}")
                         lines.append(f"  agentReview: {tab.agent_review or ''}")
-                        lines.append(f"  viewed: {str(tab.viewed).lower()}")
+                        lines.append(
+                            "  customProperties: "
+                            + json.dumps(tab.custom_properties, ensure_ascii=False, sort_keys=True)
+                        )
                     lines.append("")
 
         def write_group(group: TransferGroupDTO) -> None:
@@ -512,10 +563,10 @@ class TransferService:
         if format == "markdown":
             return markdown_import(str(content))
         if isinstance(content, dict):
-            return copy.deepcopy(content), []
+            return migrate_v2_document(content), []
         try:
             value = json.loads(str(content))
-            return value if isinstance(value, dict) else None, []
+            return migrate_v2_document(value) if isinstance(value, dict) else None, []
         except json.JSONDecodeError as error:
             return None, [
                 issue(
@@ -609,6 +660,7 @@ class TransferService:
         if errors:
             return ImportApplyResultDTO(success=False, errors=errors, warnings=warnings)
         dto = TransferDocumentDTO.model_validate(document)
+        await self.repository.replace_property_schema(dict(dto.property_schema))
         backup_id: str | None = None
         if mode == "replace":
             backup = await self.create_backup("pre_replace_import")
@@ -625,10 +677,10 @@ class TransferService:
             incoming_updated = stored_utc(tag_dto.updated_at)
             existing_updated = stored_utc(tag.updated_at) if tag is not None else None
             if tag is None:
-                await self.repository.save_model(self.mapper.tag_from_transfer(tag_dto))
+                await self.repository.save_model(self.mapper.tag_from_dto(tag_dto))
                 created.tags += 1
             elif incoming_updated and existing_updated and incoming_updated > existing_updated:
-                await self.repository.apply_changes(tag, self.mapper.tag_transfer_changes(tag_dto))
+                await self.repository.apply_changes(tag, self.mapper.tag_changes(tag_dto))
                 updated.tags += 1
         for group_dto in dto.groups:
             if await self.repository.tombstone_exists("group", group_dto.id):
@@ -637,12 +689,10 @@ class TransferService:
             incoming_updated = stored_utc(group_dto.updated_at)
             existing_updated = stored_utc(group.updated_at) if group is not None else None
             if group is None:
-                await self.repository.save_model(self.mapper.group_from_transfer(group_dto))
+                await self.repository.save_model(self.mapper.group_from_dto(group_dto))
                 created.groups += 1
             elif incoming_updated and existing_updated and incoming_updated > existing_updated:
-                await self.repository.apply_changes(
-                    group, self.mapper.group_transfer_changes(group_dto)
-                )
+                await self.repository.apply_changes(group, self.mapper.group_changes(group_dto))
                 updated.groups += 1
         skipped = 0
         for tab_dto in dto.tabs:
@@ -654,12 +704,12 @@ class TransferService:
             existing_updated = stored_utc(tab.updated_at) if tab is not None else None
             if tab is None:
                 tags = await self.repository.resolve_tags(tab_dto.tags)
-                await self.repository.save_model(self.mapper.tab_from_transfer(tab_dto, tags))
+                await self.repository.save_model(self.mapper.tab_from_dto(tab_dto, tags))
                 created.tabs += 1
             elif incoming_updated and existing_updated and incoming_updated > existing_updated:
                 await self.repository.apply_changes(
                     tab,
-                    self.mapper.tab_transfer_changes(
+                    self.mapper.tab_changes(
                         tab_dto, await self.repository.resolve_tags(tab_dto.tags)
                     ),
                 )
@@ -693,11 +743,29 @@ class TransferService:
         backup = await self.repository.get_backup(backup_id)
         if backup is None or not Path(backup.path).exists():
             return None
-        job = self.mapper.job(
+        job = self.job_mapper.create(
             "backup_restore",
             target_id=backup_id,
             result={"content": json.loads(Path(backup.path).read_text(encoding="utf-8"))},
         )
-        await self.repository.add_job(job)
+        await self.jobs.add(job)
         await self.db.commit()
         return job.id
+
+    async def backups(self) -> list[BackupDTO]:
+        """List available backup snapshots."""
+        return [self.mapper.backup_to_dto(row) for row in await self.repository.backups()]
+
+    async def queue_restore(self, backup_id: str) -> JobQueuedDTO:
+        """Queue restoration of an existing backup."""
+        job_id = await self.restore_backup(backup_id)
+        if job_id is None:
+            raise BackupNotFoundError(f"Backup {backup_id!r} was not found")
+        return JobQueuedDTO(job_id=job_id)
+
+    async def clear_library(self) -> LibraryClearDTO:
+        """Back up and clear the complete local library atomically."""
+        backup = await self.create_backup("clear_library")
+        await self.repository.clear_library()
+        await self.db.commit()
+        return LibraryClearDTO(cleared=True, backup_snapshot_id=backup.id)

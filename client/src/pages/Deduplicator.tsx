@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "wouter";
 import { ContextHelp } from "@/components/ContextHelp";
 import {
   buildAdvancedDedupePlan,
@@ -15,14 +14,13 @@ import {
   type DedupeMutation,
 } from "@/domain/deduplication/execution";
 import type { PersistedVault, VaultTab } from "@/domain/library/types";
+import { useLibrary } from "@/domain/library/library-context";
 import {
   readApiKey,
-  readExtensionVault,
   readLocalServerUrl,
   readStorageMode,
   updateTabOnLocalServer,
-  writeExtensionVault,
-} from "@/lib/extension";
+} from "@/domain/server/synchronization";
 
 const DEFAULT_OPTIONS: AdvancedDedupeOptions = {
   survivor: "OLDEST_CREATED",
@@ -87,19 +85,14 @@ function applyMutation(vault: PersistedVault, mutation: DedupeMutation) {
 }
 
 export default function Deduplicator() {
-  const [, setLocation] = useLocation();
-  const [vault, setVault] = useState<PersistedVault>();
+  const { vault, dispatch } = useLibrary();
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [generatedPlan, setGeneratedPlan] = useState<DedupePlan>();
   const [fixedPlan, setFixedPlan] = useState<DedupePlan>();
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ succeeded: number; failed: number }>();
 
-  useEffect(() => {
-    void readExtensionVault().then(setVault);
-  }, []);
-
-  const candidates = useMemo(() => (vault ? visibleTabs(vault) : []), [vault]);
+  const candidates = useMemo(() => visibleTabs(vault), [vault]);
   useEffect(() => {
     let cancelled = false;
     void buildAdvancedDedupePlan(candidates, options).then(next => {
@@ -112,7 +105,7 @@ export default function Deduplicator() {
   const plan = fixedPlan ?? generatedPlan;
 
   const execute = async () => {
-    if (!vault || !plan) return;
+    if (!plan) return;
     setRunning(true);
     setResult(undefined);
     const executionPlan = plan;
@@ -134,19 +127,17 @@ export default function Deduplicator() {
             apiKey
           );
       },
-      async mutation => {
-        const candidate = applyMutation(nextVault, mutation);
-        await writeExtensionVault(candidate);
-        nextVault = candidate;
+      mutation => {
+        nextVault = applyMutation(nextVault, mutation);
       }
     );
-    setVault(nextVault);
+    dispatch({ type: "replace", vault: nextVault });
     setResult(completed);
     if (!completed.failed) setFixedPlan(undefined);
     setRunning(false);
   };
 
-  if (!vault || !plan)
+  if (!plan)
     return (
       <main className="min-h-screen bg-[#f6f3ec] p-8">
         Building duplicate plan…
@@ -154,24 +145,17 @@ export default function Deduplicator() {
     );
 
   return (
-    <main className="min-h-screen bg-[#f6f3ec] px-5 py-8 text-[#26342c] sm:px-8">
+    <main className="min-h-screen bg-[#f6f3ec] px-5 py-6 text-[#26342c] sm:px-8">
       <div className="mx-auto max-w-5xl">
-        <button
-          onClick={() => setLocation("/")}
-          className="font-mono text-[10px] uppercase tracking-[0.1em] text-[#687067] hover:text-[#e95224]"
-        >
-          ← All tabs
-        </button>
-        <h1 className="mt-5 text-4xl font-bold tracking-[-0.05em]">
+        <h1 className="text-2xl font-bold tracking-[-0.05em]">
           Advanced Deduplicator
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-[#697068]">
-          This fixed preview clusters active visible records by the SHA-256 hash
-          of their exact saved URL. Hidden and archived records are excluded.
+          Merge tabs with identical URLs. Hidden and archived tabs are excluded.
         </p>
 
         <section
-          className={`mt-7 space-y-2 border-y border-[#dcd7cc] py-5 ${fixedPlan ? "pointer-events-none opacity-55" : ""}`}
+          className={`mt-5 space-y-2 ${fixedPlan ? "pointer-events-none opacity-55" : ""}`}
         >
           <Choice
             label="Survivor"

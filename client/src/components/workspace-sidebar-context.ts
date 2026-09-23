@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef } from "react";
-import type { StorageMode } from "@/lib/extension";
+import type { StorageMode } from "@/domain/server/synchronization";
 
 /** Session flag that opens the tag manager after navigating back to All Tabs. */
 export const LIBRARY_OPEN_TAGS_FLAG = "tabvault-open-tags";
