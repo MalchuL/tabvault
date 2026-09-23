@@ -19,7 +19,16 @@ async def reindex(
     request: Request,
     service: Annotated[IndexingService, Depends(get_indexing_service)],
 ) -> SuccessResponseDTO[JobQueuedDTO]:
-    """Queue a vector-index rebuild."""
+    """Queue a vector-index rebuild.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        service (Annotated[IndexingService, Depends(get_indexing_service)]): Request-scoped
+            service for this use case.
+
+    Returns:
+        SuccessResponseDTO[JobQueuedDTO]: Response envelope containing the job queued.
+    """
     result = await service.queue_reindex()
     request.app.state.worker.wake()
     return success(result)
@@ -29,7 +38,15 @@ async def reindex(
 async def index_status(
     service: Annotated[IndexingService, Depends(get_indexing_service)],
 ) -> SuccessResponseDTO[IndexStatusDTO]:
-    """Return vector-index status."""
+    """Return vector-index status.
+
+    Args:
+        service (Annotated[IndexingService, Depends(get_indexing_service)]): Request-scoped
+            service for this use case.
+
+    Returns:
+        SuccessResponseDTO[IndexStatusDTO]: Response envelope containing the index status.
+    """
     return success(await service.index_status())
 
 
@@ -37,7 +54,15 @@ async def index_status(
 async def health_schedule(
     service: Annotated[IndexingService, Depends(get_indexing_service)],
 ) -> SuccessResponseDTO[HealthScheduleDTO]:
-    """Return vector-index health scheduling state."""
+    """Return vector-index health scheduling state.
+
+    Args:
+        service (Annotated[IndexingService, Depends(get_indexing_service)]): Request-scoped
+            service for this use case.
+
+    Returns:
+        SuccessResponseDTO[HealthScheduleDTO]: Response envelope containing the health schedule.
+    """
     return success(await service.health_schedule())
 
 
@@ -46,7 +71,16 @@ async def configure_health(
     body: HealthConfigDTO,
     service: Annotated[IndexingService, Depends(get_indexing_service)],
 ) -> SuccessResponseDTO[HealthScheduleDTO]:
-    """Configure vector-index health scheduling."""
+    """Configure vector-index health scheduling.
+
+    Args:
+        body (HealthConfigDTO): Validated HTTP request body.
+        service (Annotated[IndexingService, Depends(get_indexing_service)]): Request-scoped
+            service for this use case.
+
+    Returns:
+        SuccessResponseDTO[HealthScheduleDTO]: Response envelope containing the health schedule.
+    """
     return success(
         await service.configure_health(body.interval_seconds, body.notify_on_needs_attention)
     )
@@ -56,5 +90,13 @@ async def configure_health(
 async def run_health(
     service: Annotated[IndexingService, Depends(get_indexing_service)],
 ) -> SuccessResponseDTO[HealthScheduleDTO]:
-    """Run a vector-index health check now."""
+    """Run a vector-index health check now.
+
+    Args:
+        service (Annotated[IndexingService, Depends(get_indexing_service)]): Request-scoped
+            service for this use case.
+
+    Returns:
+        SuccessResponseDTO[HealthScheduleDTO]: Response envelope containing the health schedule.
+    """
     return success(await service.run_health())

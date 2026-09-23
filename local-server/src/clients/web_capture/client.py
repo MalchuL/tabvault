@@ -27,6 +27,9 @@ class WebCaptureClient:
 
     The client applies the backend's outbound-network safety policy before returning bounded
     response data to preview capture. It does not persist results or own database transactions.
+
+    Attributes:
+        settings (Settings): Validated process settings shared for this instance lifetime.
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -50,8 +53,8 @@ class WebCaptureClient:
             url (str): Absolute HTTP or HTTPS URL used by the operation.
 
         Raises:
-            CaptureRejectedError: Propagated when its documented validation or operation condition
-                occurs.
+            CaptureRejectedError: The URL is not absolute HTTP(S) or resolves to a blocked
+                private, loopback, link-local, or reserved address.
         """
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -81,15 +84,15 @@ class WebCaptureClient:
 
         Args:
             url (str): Absolute HTTP or HTTPS URL used by the operation.
-            accepted (tuple[str, ...]): Accepted value consumed by this operation.
-            limit (int): Maximum number of matching records to return.
+            accepted (tuple[str, ...]): Allowed MIME types for this resource.
+            limit (int): Maximum response body size in bytes.
 
         Returns:
-            CapturedResponse: Result produced by the operation described above.
+            CapturedResponse: Validated response bytes, final URL, and media type after redirects.
 
         Raises:
-            CaptureRejectedError: Propagated when its documented validation or operation condition
-                occurs.
+            CaptureRejectedError: The URL, redirect, media type, response status, or byte
+                count violates the capture policy.
         """
         current = url
         async with httpx.AsyncClient(timeout=self.settings.preview_timeout_seconds) as client:
@@ -136,7 +139,7 @@ class WebCaptureClient:
             url (str): Absolute HTTP or HTTPS URL used by the operation.
 
         Returns:
-            CapturedResponse: Result produced by the operation described above.
+            CapturedResponse: Validated HTML content and its final source URL.
         """
         return await self._fetch(
             url, ("text/html", "application/xhtml+xml"), self.settings.preview_max_html_bytes
@@ -152,6 +155,6 @@ class WebCaptureClient:
             url (str): Absolute HTTP or HTTPS URL used by the operation.
 
         Returns:
-            CapturedResponse: Result produced by the operation described above.
+            CapturedResponse: Validated image bytes and their final source URL.
         """
         return await self._fetch(url, ("image/*",), self.settings.preview_max_image_bytes)

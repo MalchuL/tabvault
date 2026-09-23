@@ -8,17 +8,17 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Route, Router, Switch, type BaseLocationHook } from "wouter";
 import { useBrowserLocation } from "wouter/use-browser-location";
 import { useHashLocation } from "wouter/use-hash-location";
-import ErrorBoundary from "./components/ErrorBoundary";
-import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
+import ErrorBoundary from "@/components/shell/ErrorBoundary";
+import { WorkspaceSidebar } from "@/components/shell/WorkspaceSidebar";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import {
   clearBrowserLibrary,
   inspectBrowserVault,
   type BrowserVaultInspection,
-} from "@/domain/server/synchronization";
+} from "@/domain/server/browserStorage";
 import { StorageRecovery } from "./pages/StorageRecovery";
 import { LibraryProvider } from "./domain/library/LibraryProvider";
-import { emptyBrowserVault } from "./lib/library";
+import { emptyBrowserVault } from "@/domain/library/codec";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Deduplicator = lazy(() => import("./pages/Deduplicator"));
@@ -28,16 +28,29 @@ const Settings = lazy(() => import("./pages/Settings"));
 const CustomProperties = lazy(() => import("./pages/CustomProperties"));
 const Transfer = lazy(() => import("./pages/Transfer"));
 
+/**
+ * Detect the extension page, which needs hash routes under its fixed URL.
+ * @returns {boolean} Whether the current page uses the extension protocol.
+ */
 function isExtensionPage() {
   return window.location.protocol === "chrome-extension:";
 }
 
+/**
+ * Keep the web route stable when a static host exposes `/index.html`.
+ *
+ * @returns {[string, <S = any>(to: string | URL, options?: { replace?: boolean; state?: S; }) => void]} Normalized location and navigation callback.
+ */
 const useNormalizedBrowserLocation: BaseLocationHook = () => {
   const [location, setLocation] = useBrowserLocation();
   const path = location.replace(/\/index\.html\/?$/, "") || "/";
   return [path, setLocation];
 };
 
+/**
+ * Map workspace paths to lazily loaded pages.
+ * @returns {JSX.Element} The route switch, including the fallback page.
+ */
 function AppRoutes() {
   return (
     <Switch>
@@ -58,6 +71,10 @@ function AppRoutes() {
   );
 }
 
+/**
+ * Keep the shared sidebar visible while a route bundle loads.
+ * @returns {JSX.Element} Workspace shell and current route.
+ */
 function AppWorkspace() {
   return (
     <WorkspaceSidebar>
@@ -81,6 +98,12 @@ function AppWorkspace() {
   );
 }
 
+/**
+ * Inspect browser storage before allowing the library provider to start.
+ * Incompatible data stays untouched until the user downloads or clears it.
+ * @param {{ children: ReactNode }} props - Workspace rendered after inspection.
+ * @returns {JSX.Element} Loading, recovery, or initialized library UI.
+ */
 function BrowserSchemaGate({ children }: { children: ReactNode }) {
   const [inspection, setInspection] = useState<BrowserVaultInspection>();
   useEffect(() => {
@@ -116,6 +139,10 @@ function BrowserSchemaGate({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Mount application providers and choose routing for web or extension pages.
+ * @returns {JSX.Element} Root application UI.
+ */
 export default function App() {
   return (
     <ErrorBoundary>

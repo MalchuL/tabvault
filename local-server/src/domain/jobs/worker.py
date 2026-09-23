@@ -29,6 +29,12 @@ class JobWorker:
 
     The operation participates in the single-process background worker. Durable Job rows remain the
     source of truth, while the in-memory wake signal only reduces polling latency.
+
+    Attributes:
+        settings (Settings): Validated process settings shared for this instance lifetime.
+        vectors (LocalVectorIndex): Shared local vector index used for semantic search and indexing.
+        _task (asyncio.Task[None] | None): Worker task while running, or None before start and after stop.
+        _wake (asyncio.Event): In-memory event that wakes the worker between polling cycles.
     """
 
     def __init__(self, settings: Settings, vectors: LocalVectorIndex) -> None:
@@ -39,7 +45,7 @@ class JobWorker:
 
         Args:
             settings (Settings): Validated process settings that control this component.
-            vectors (LocalVectorIndex): Vectors value consumed by this operation.
+            vectors (LocalVectorIndex): Vector index used for semantic search.
         """
         self.settings = settings
         self.vectors = vectors
@@ -97,7 +103,7 @@ class JobWorker:
         the source of truth, while the in-memory wake signal only reduces polling latency.
 
         Returns:
-            bool: Result produced by the operation described above.
+            bool: True when a pending job was claimed and processed; otherwise False.
         """
         async with get_session_factory()() as db:
             repository = JobRepository(db)

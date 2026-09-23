@@ -20,9 +20,9 @@ export type LibraryAction =
 /**
  * Apply one atomic vault replacement or field update.
  *
- * @param state - Current schema-v3 library state.
- * @param action - Replacement or typed field update.
- * @returns The next immutable library state.
+ * @param {LibraryState} state - Current schema-v3 library state.
+ * @param {LibraryAction} action - Replacement or typed field update.
+ * @returns {LibraryState} The next immutable library state.
  */
 export function libraryReducer(
   state: LibraryState,

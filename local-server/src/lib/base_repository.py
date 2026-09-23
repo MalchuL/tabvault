@@ -15,17 +15,10 @@ ModelT = TypeVar("ModelT", bound=Base)
 
 
 class BaseRepository(SQLAlchemyAsyncRepository[ModelT], Generic[ModelT]):  # type: ignore[type-var]
-    """Configure repositories for explicit service-owned transactions.
-
-    This shared backend helper centralizes the behavior so API, domain, and infrastructure code use
-    the same representation and edge-case handling.
-    """
+    """Configure repositories for explicit service-owned transactions."""
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialize Advanced Alchemy without automatic commits.
-
-        This shared backend helper centralizes the behavior so API, domain, and infrastructure code
-        use the same representation and edge-case handling.
 
         Args:
             session (AsyncSession): Request-scoped asynchronous database session used by this
@@ -40,7 +33,17 @@ class BaseRepository(SQLAlchemyAsyncRepository[ModelT], Generic[ModelT]):  # typ
         order_by: Any = None,
         load: Any = None,
     ) -> Page[ModelT]:
-        """List and count rows using repository-local Advanced Alchemy filters."""
+        """List and count rows using repository-local Advanced Alchemy filters.
+
+        Args:
+            *filters (Any): SQL filters applied before counting and paginating rows.
+            list_options (ListOptions): Page size and row offset for the query.
+            order_by (Any): SQL expressions controlling result ordering.
+            load (Any): Optional ORM loader strategy for related rows.
+
+        Returns:
+            Page[ModelT]: Matching records and pagination metadata.
+        """
         rows, total = await self.get_many_and_count(
             *filters,
             LimitOffset(offset=list_options.offset, limit=list_options.limit),

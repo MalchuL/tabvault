@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from domain.tabs.visibility import TabVisibility
 from lib.pagination import ListOptions, Page
 from lib.time import utc_now
+from models import Group
 
 from .dto import (
     GroupCreateDTO,
@@ -19,28 +20,41 @@ from .repository import GroupRepository
 
 
 class GroupService:
-    """Orchestrate flat Group use cases.
+    """Apply flat Group lifecycle rules and own their database transactions.
 
-    This application-layer operation coordinates domain rules and persistence, then maps loaded ORM
-    state into transport DTOs. Callers do not need to know how records are queried or related data
-    is assembled.
+    Attributes:
+        db (AsyncSession): Request-scoped session used until the service commits or rolls back.
+        repository (GroupRepository): Persistence adapter retained for this service instance.
+        mapper (GroupMapper): Stateless converter between ORM rows and API DTOs.
     """
 
     def __init__(self, db: AsyncSession, repository: GroupRepository) -> None:
-        """Initialize the service and persistence dependency.
-
-        This application-layer operation coordinates domain rules and persistence, then maps loaded
-        ORM state into transport DTOs. Callers do not need to know how records are queried or
-        related data is assembled.
+        """Create a Group service using one request-scoped database session.
 
         Args:
-            db (AsyncSession): Request-scoped asynchronous database session used by this operation.
-            repository (GroupRepository): Persistence adapter used to load and mutate domain
-                records.
+            db (AsyncSession): Request-scoped asynchronous database session.
+            repository (GroupRepository): Persistence adapter used by this service.
         """
         self.db = db
         self.repository = repository
         self.mapper = GroupMapper()
+
+    async def _required_group(self, group_id: str) -> Group:
+        """Load a Group or raise the shared missing-ID domain error.
+
+        Args:
+            group_id (str): Collection ID or null for Unassigned.
+
+        Returns:
+            Group: Group row read or staged by this operation.
+
+        Raises:
+            GroupNotFoundError: No group has the requested ID.
+        """
+        group = await self.repository.get(group_id)
+        if group is None:
+            raise GroupNotFoundError(f"Group {group_id!r} was not found")
+        return group
 
     async def list(
         self,
@@ -48,19 +62,15 @@ class GroupService:
         category: str | None,
         list_options: ListOptions,
     ) -> GroupListResponseDTO:
-        """List Groups relevant to one mutually exclusive visibility page.
-
-        This application-layer operation coordinates domain rules and persistence, then maps loaded
-        ORM state into transport DTOs. Callers do not need to know how records are queried or
-        related data is assembled.
+        """List Groups for one visibility page; Archive has no Groups.
 
         Args:
-            visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
-            category (str | None): Optional free-form Group category used to restrict results.
-            list_options (ListOptions): Validated page size and row offset.
+            visibility (TabVisibility): Visible, hidden, or archived tab scope.
+            category (str | None): Optional collection category filter.
+            list_options (ListOptions): Page size and row offset for the query.
 
         Returns:
-            GroupListResponseDTO: Result produced by the operation described above.
+            GroupListResponseDTO: Matching groups, tab counts, and pagination metadata.
         """
         if visibility == "archived":
             return GroupListResponseDTO.from_page(Page(data=[], has_next=False, total=0))
@@ -70,40 +80,26 @@ class GroupService:
         )
 
     async def get(self, group_id: str) -> GroupDTO:
-        """Return one Group or fail without hierarchy semantics.
-
-        This application-layer operation coordinates domain rules and persistence, then maps loaded
-        ORM state into transport DTOs. Callers do not need to know how records are queried or
-        related data is assembled.
+        """Return a Group with its current visible Saved Tab count.
 
         Args:
-            group_id (str): Stable identifier of the group targeted by the operation.
+            group_id (str): Collection ID or null for Unassigned.
 
         Returns:
-            GroupDTO: Result produced by the operation described above.
-
-        Raises:
-            GroupNotFoundError: Propagated when its documented validation or operation condition
-                occurs.
+            GroupDTO: Current group name, category, color, and timestamps.
         """
-        group = await self.repository.get(group_id)
-        if group is None:
-            raise GroupNotFoundError(f"Group {group_id!r} was not found")
+        group = await self._required_group(group_id)
         visible, _hidden = await self.repository.tab_counts(utc_now())
         return self.mapper.to_dto(group, visible.get(group.id, 0))
 
     async def create(self, dto: GroupCreateDTO) -> GroupDTO:
-        """Create one Group.
-
-        This application-layer operation coordinates validated domain input with repository
-        operations. It owns the transaction boundary for mutations so related changes commit
-        together and failures can be rolled back without exposing ORM rows to callers.
+        """Create a Group at the requested or next available position.
 
         Args:
-            dto (GroupCreateDTO): Validated data-transfer object supplied to the operation.
+            dto (GroupCreateDTO): Validated request data for the operation.
 
         Returns:
-            GroupDTO: Result produced by the operation described above.
+            GroupDTO: Current group name, category, color, and timestamps.
         """
         position = (
             dto.position if dto.position is not None else await self.repository.next_position()
@@ -118,28 +114,19 @@ class GroupService:
         return self.mapper.to_dto(group)
 
     async def update(self, group_id: str, dto: GroupUpdateDTO) -> GroupDTO:
-        """Patch one Group.
-
-        This application-layer operation coordinates validated domain input with repository
-        operations. It owns the transaction boundary for mutations so related changes commit
-        together and failures can be rolled back without exposing ORM rows to callers.
+        """Reject empty patches and commit one Group update atomically.
 
         Args:
-            group_id (str): Stable identifier of the group targeted by the operation.
-            dto (GroupUpdateDTO): Validated data-transfer object supplied to the operation.
+            group_id (str): Collection ID or null for Unassigned.
+            dto (GroupUpdateDTO): Validated request data for the operation.
 
         Returns:
-            GroupDTO: Result produced by the operation described above.
+            GroupDTO: Current group name, category, color, and timestamps.
 
         Raises:
-            EmptyGroupUpdateError: Propagated when its documented validation or operation condition
-                occurs.
-            GroupNotFoundError: Propagated when its documented validation or operation condition
-                occurs.
+            EmptyGroupUpdateError: The patch contains no group fields.
         """
-        group = await self.repository.get(group_id)
-        if group is None:
-            raise GroupNotFoundError(f"Group {group_id!r} was not found")
+        group = await self._required_group(group_id)
         changes = self.mapper.to_update_dict(dto)
         if not changes:
             raise EmptyGroupUpdateError("At least one Group field is required")
@@ -153,24 +140,15 @@ class GroupService:
         return self.mapper.to_dto(group)
 
     async def delete(self, group_id: str) -> GroupDeleteResultDTO:
-        """Archive and Unassign all members, then permanently delete the Group.
-
-        This application-layer operation coordinates validated domain input with repository
-        operations. It owns the transaction boundary for mutations so related changes commit
-        together and failures can be rolled back without exposing ORM rows to callers.
+        """Archive and Unassign member tabs before deleting the Group atomically.
 
         Args:
-            group_id (str): Stable identifier of the group targeted by the operation.
+            group_id (str): Collection ID or null for Unassigned.
 
         Returns:
-            GroupDeleteResultDTO: Result produced by the operation described above.
-
-        Raises:
-            GroupNotFoundError: Propagated when its documented validation or operation condition
-                occurs.
+            GroupDeleteResultDTO: Deleted group ID and number of archived member tabs.
         """
-        if await self.repository.get(group_id) is None:
-            raise GroupNotFoundError(f"Group {group_id!r} was not found")
+        await self._required_group(group_id)
         now = utc_now()
         try:
             archived_tab_count = await self.repository.delete_with_tabs(group_id, now)

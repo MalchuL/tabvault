@@ -25,11 +25,11 @@ class GroupMapper:
         transfer records.
 
         Args:
-            group (Group): Group value consumed by this operation.
-            tab_count (int): Tab count value consumed by this operation.
+            group (Group): Group row being converted or persisted.
+            tab_count (int): Number of tabs associated with this record.
 
         Returns:
-            GroupDTO: Result produced by the operation described above.
+            GroupDTO: Serializable group fields for the API response.
         """
         return GroupDTO(
             id=group.id,
@@ -53,10 +53,10 @@ class GroupMapper:
 
         Args:
             dto (GroupCreateDTO): Validated data-transfer object supplied to the operation.
-            position (float): Position value consumed by this operation.
+            position (float): Display position assigned within the target group.
 
         Returns:
-            Group: Result produced by the operation described above.
+            Group: Unsaved Group model initialized from the request.
         """
         values: dict[str, Any] = {
             "name": dto.name,
@@ -83,7 +83,7 @@ class GroupMapper:
             dto (GroupUpdateDTO): Validated data-transfer object supplied to the operation.
 
         Returns:
-            dict[str, Any]: Result produced by the operation described above.
+            dict[str, Any]: Explicitly supplied fields keyed by ORM attribute name.
         """
         values = dto.model_dump(exclude_unset=True)
         if "description" in values and values["description"] is None:

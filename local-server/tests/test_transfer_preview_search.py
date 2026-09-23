@@ -12,7 +12,8 @@ from db.session import configure_database
 from domain.indexing.vector_index import LocalVectorIndex
 from domain.previews.repository import PreviewRepository
 from domain.previews.service import PreviewService
-from domain.transfer.service import markdown_import, validate_document
+from domain.transfer.document import markdown_import, validate_document
+from domain.transfer.service import TransferService
 from models import Base, Tab
 
 
@@ -51,6 +52,15 @@ def test_import_validate_export_replace_backup_and_clear(
     assert cleared.status_code == 200
     assert cleared.json()["data"]["backupSnapshotId"]
     assert client.get("/api/v1/backups", headers=headers).json()["data"]["backups"]
+
+
+async def test_import_rejects_non_object_json_with_a_useful_error() -> None:
+    service = object.__new__(TransferService)
+    preview = await service.validate([], "json")
+    applied = await service.apply([], "json", "upload")
+    assert preview.valid is False
+    assert applied.success is False
+    assert preview.errors[0].code == applied.errors[0].code == "E_INVALID_DOCUMENT"
 
 
 def test_merge_import_accepts_naive_updated_at(client: TestClient, headers: dict[str, str]) -> None:

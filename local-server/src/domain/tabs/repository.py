@@ -21,19 +21,17 @@ from .visibility import TabVisibility, tabs_for_visibility
 class TabRepository(BaseRepository[Tab]):
     """Persist Saved Tabs and directly related records.
 
-    This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-    session. It reads or stages database state without committing; the calling service owns the
-    surrounding transaction.
+    Methods read or stage rows in the request-scoped asynchronous session. They do
+    not commit; the calling service controls the transaction boundary.
+
+    Attributes:
+        session (AsyncSession): Session shared by tab and related-record operations.
     """
 
     model_type = Tab
 
     def __init__(self, session: AsyncSession) -> None:
         """Initialize with a request-scoped session.
-
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
 
         Args:
             session (AsyncSession): Request-scoped asynchronous database session used by this
@@ -45,15 +43,11 @@ class TabRepository(BaseRepository[Tab]):
     async def get(self, tab_id: str) -> Tab | None:  # type: ignore[override]
         """Load one Saved Tab with tags.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
             tab_id (str): Stable identifier of the tab targeted by the operation.
 
         Returns:
-            Tab | None: Result produced by the operation described above.
+            Tab | None: Saved tab with tags loaded, or None if the ID is absent.
         """
         return await self.session.scalar(  # type: ignore[no-any-return]
             select(Tab).where(Tab.id == tab_id).options(selectinload(Tab.tags))
@@ -75,18 +69,14 @@ class TabRepository(BaseRepository[Tab]):
     ) -> Page[Tab]:
         """List and count filtered Saved Tabs using database pagination.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
             group_id (str | None | object): Stable identifier of the group targeted by the
                 operation.
             category (str | None): Optional free-form Group category used to restrict results.
-            tags_any (list[str]): Tags any value consumed by this operation.
-            tags_all (list[str]): Tags all value consumed by this operation.
-            search (str | None): Search value consumed by this operation.
-            sort_by (TabSortBy): Sort by value consumed by this operation.
+            tags_any (list[str]): Tag names of which matching tabs need at least one.
+            tags_all (list[str]): Tag names all matching tabs must contain.
+            search (str | None): Optional case-insensitive text query.
+            sort_by (TabSortBy): Saved-tab field used for ordering.
             sort_dir (SortDirection): Directory used to store sort data.
             list_options (ListOptions): Validated page size and row offset.
             visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
@@ -137,15 +127,11 @@ class TabRepository(BaseRepository[Tab]):
     async def active_group_exists(self, group_id: str | None) -> bool:
         """Return whether a nullable Group target is valid.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
             group_id (str | None): Stable identifier of the group targeted by the operation.
 
         Returns:
-            bool: Result produced by the operation described above.
+            bool: True for Unassigned or an existing group ID.
         """
         if group_id is None:
             return True
@@ -154,15 +140,11 @@ class TabRepository(BaseRepository[Tab]):
     async def resolve_tags(self, names: list[str]) -> list[Tag]:
         """Load or create case-insensitive tags.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
-            names (list[str]): Names value consumed by this operation.
+            names (list[str]): Input tag names, trimmed and deduplicated in first-seen order.
 
         Returns:
-            list[Tag]: Result produced by the operation described above.
+            list[Tag]: Distinct tag rows in first-seen input order.
         """
         result: list[Tag] = []
         for raw in dict.fromkeys(name.strip() for name in names if name.strip()):
@@ -173,15 +155,11 @@ class TabRepository(BaseRepository[Tab]):
     async def get_or_create_tag(self, name: str) -> tuple[Tag, bool]:
         """Load a tag case-insensitively or create it.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
             name (str): Human-readable name used by the operation.
 
         Returns:
-            tuple[Tag, bool]: Result produced by the operation described above.
+            tuple[Tag, bool]: Tag row and whether it was newly created.
         """
         tag = await self.session.scalar(select(Tag).where(func.lower(Tag.name) == name.lower()))
         if tag is not None:
@@ -194,15 +172,11 @@ class TabRepository(BaseRepository[Tab]):
     async def next_position(self, group_id: str | None) -> float:
         """Find the next display position in a Group or Unassigned.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
             group_id (str | None): Stable identifier of the group targeted by the operation.
 
         Returns:
-            float: Result produced by the operation described above.
+            float: Position immediately after the last active tab in the group.
         """
         condition = Tab.group_id.is_(None) if group_id is None else Tab.group_id == group_id
         maximum = await self.session.scalar(
@@ -255,15 +229,11 @@ class TabRepository(BaseRepository[Tab]):
     async def add_tab(self, tab: Tab) -> Tab:
         """Persist one Saved Tab occurrence.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
-            tab (Tab): Tab value consumed by this operation.
+            tab (Tab): Saved-tab row being converted or persisted.
 
         Returns:
-            Tab: Result produced by the operation described above.
+            Tab: Newly staged tab row after assigning its position and tags.
         """
         self.session.add(tab)
         await self.session.flush()
@@ -284,15 +254,11 @@ class TabRepository(BaseRepository[Tab]):
     async def add_preview_job(self, tab_id: str) -> Job:
         """Create a preview-capture job for a Saved Tab.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
             tab_id (str): Stable identifier of the tab targeted by the operation.
 
         Returns:
-            Job: Result produced by the operation described above.
+            Job: Newly staged preview-capture job for the tab.
         """
         job = Job(kind="preview_capture", target_id=tab_id)
         self.session.add(job)
@@ -316,13 +282,9 @@ class TabRepository(BaseRepository[Tab]):
     async def apply_changes(self, tab: Tab, changes: dict[str, object]) -> None:
         """Apply mapped field values to a Saved Tab.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
-            tab (Tab): Tab value consumed by this operation.
-            changes (dict[str, object]): Changes value consumed by this operation.
+            tab (Tab): Saved-tab row being converted or persisted.
+            changes (dict[str, object]): Validated field values to apply to the existing row.
         """
         for key, value in changes.items():
             setattr(tab, key, value)
@@ -330,35 +292,23 @@ class TabRepository(BaseRepository[Tab]):
     async def attach_tag(self, tab: Tab, tag: Tag) -> None:
         """Attach a loaded tag to a Saved Tab.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
-            tab (Tab): Tab value consumed by this operation.
-            tag (Tag): Tag value consumed by this operation.
+            tab (Tab): Saved-tab row being converted or persisted.
+            tag (Tag): Tag row being converted or persisted.
         """
         tab.tags.append(tag)
 
     async def detach_tag(self, tab: Tab, tag: Tag) -> None:
         """Detach a loaded tag from a Saved Tab.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
-            tab (Tab): Tab value consumed by this operation.
-            tag (Tag): Tag value consumed by this operation.
+            tab (Tab): Saved-tab row being converted or persisted.
+            tag (Tag): Tag row being converted or persisted.
         """
         tab.tags.remove(tag)
 
     async def hard_delete(self, tab_id: str) -> None:
         """Permanently delete a Saved Tab and record its tombstone.
-
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
 
         Args:
             tab_id (str): Stable identifier of the tab targeted by the operation.
@@ -369,12 +319,8 @@ class TabRepository(BaseRepository[Tab]):
     async def archive(self, tab: Tab) -> None:
         """Archive and Unassign a Saved Tab.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
-
         Args:
-            tab (Tab): Tab value consumed by this operation.
+            tab (Tab): Saved-tab row being converted or persisted.
         """
         now = utc_now()
         tab.group_id = None

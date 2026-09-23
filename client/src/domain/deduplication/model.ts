@@ -50,6 +50,12 @@ export type DedupePlan = {
   clusters: DedupeClusterPlan[];
 };
 
+/**
+ * Encode fields with length prefixes before hashing a duplicate signature.
+ * Prefixes keep adjacent values distinct from a single concatenated value.
+ * @param {string[]} fields - Ordered values included in the signature.
+ * @returns {Uint8Array} UTF-8 bytes with a four-byte length before each value.
+ */
 function bytesForFields(fields: string[]) {
   const encoder = new TextEncoder();
   const encoded = fields.map(field => encoder.encode(field));
@@ -66,6 +72,11 @@ function bytesForFields(fields: string[]) {
   return output;
 }
 
+/**
+ * Hash an ordered set of tab fields into a stable duplicate key.
+ * @param {string[]} fields - Values to encode in their current order.
+ * @returns {Promise<string>} Lowercase hexadecimal SHA-256 digest.
+ */
 async function sha256(fields: string[]) {
   const digest = await crypto.subtle.digest("SHA-256", bytesForFields(fields));
   return Array.from(new Uint8Array(digest), byte =>
@@ -73,11 +84,22 @@ async function sha256(fields: string[]) {
   ).join("");
 }
 
+/**
+ * Parse a timestamp for deterministic sorting, treating invalid values as epoch zero.
+ * @param {string} value - Stored timestamp string.
+ * @returns {number} Milliseconds since the epoch, or zero when parsing fails.
+ */
 function instant(value: string) {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/**
+ * Order tabs by creation time, breaking ties by stable ID.
+ * @param {DedupeTab} left - First tab to compare.
+ * @param {DedupeTab} right - Second tab to compare.
+ * @returns {number} Comparator result for ascending sort order.
+ */
 function oldestFirst(left: DedupeTab, right: DedupeTab) {
   return (
     instant(left.createdAt) - instant(right.createdAt) ||
@@ -85,6 +107,11 @@ function oldestFirst(left: DedupeTab, right: DedupeTab) {
   );
 }
 
+/**
+ * Combine tags case-insensitively while keeping the oldest tab's spelling.
+ * @param {DedupeTab[]} tabs - Cluster members whose tags are merged.
+ * @returns {string[]} Distinct tags ordered by their first occurrence.
+ */
 function caseInsensitiveUnion(tabs: DedupeTab[]) {
   const result = new Map<string, string>();
   for (const tab of [...tabs].sort(oldestFirst))
@@ -95,6 +122,11 @@ function caseInsensitiveUnion(tabs: DedupeTab[]) {
   return Array.from(result.values());
 }
 
+/**
+ * Keep tags present on every tab, using the first tab's spelling and order.
+ * @param {DedupeTab[]} tabs - Cluster members to compare.
+ * @returns {string[]} Tags common to every member.
+ */
 function caseInsensitiveIntersection(tabs: DedupeTab[]) {
   const first = caseInsensitiveUnion(tabs.slice(0, 1));
   return first.filter(tag =>
@@ -108,6 +140,13 @@ function caseInsensitiveIntersection(tabs: DedupeTab[]) {
   );
 }
 
+/**
+ * Group tabs by a selected field signature and omit unique signatures.
+ * Hashing runs concurrently; each retained cluster has at least two members.
+ * @param {DedupeTab[]} tabs - Candidate tabs for duplicate detection.
+ * @param {(tab: DedupeTab) => string[]} fields - Ordered signature fields per tab.
+ * @returns {Promise<Array<[string, DedupeTab[]]>>} Duplicate hashes and their members.
+ */
 async function clustersBy(
   tabs: DedupeTab[],
   fields: (tab: DedupeTab) => string[]
@@ -124,6 +163,13 @@ async function clustersBy(
   );
 }
 
+/**
+ * Plan exact-content duplicate removal without mutating tabs.
+ * The oldest tab survives; tags are unioned and viewed state is true if any
+ * member was viewed. The plan can be reviewed before execution.
+ * @param {DedupeTab[]} tabs - Tabs eligible for quick cleanup.
+ * @returns {Promise<DedupePlan>} Clusters, survivor IDs, and patches to apply.
+ */
 export async function buildQuickCleanPlan(
   tabs: DedupeTab[]
 ): Promise<DedupePlan> {
@@ -151,6 +197,13 @@ export async function buildQuickCleanPlan(
   };
 }
 
+/**
+ * Select one cluster survivor by the requested timestamp rule.
+ * Equal timestamps resolve by ID so repeated planning chooses the same tab.
+ * @param {DedupeTab[]} tabs - Nonempty duplicate cluster.
+ * @param {SurvivorRule} rule - Creation or update ordering to apply.
+ * @returns {DedupeTab} Tab retained by the plan.
+ */
 function selectSurvivor(tabs: DedupeTab[], rule: SurvivorRule) {
   return [...tabs].sort((left, right) => {
     const comparison =
@@ -163,6 +216,17 @@ function selectSurvivor(tabs: DedupeTab[], rule: SurvivorRule) {
   })[0];
 }
 
+/**
+ * Merge one text field according to the configured reducer.
+ * Concatenation follows oldest-first order; equal-length choices favor the
+ * survivor, then the oldest matching tab.
+ * @param {DedupeTab[]} tabs - Nonempty duplicate cluster.
+ * @param {DedupeTab} survivor - Tab retained by the plan.
+ * @param {"title" | "note" | "agentReview"} field - Text field being merged.
+ * @param {StringReducer} reducer - Merge rule for that field.
+ * @param {string} separator - Text inserted between concatenated values.
+ * @returns {string} Text to store on the survivor.
+ */
 function reduceString(
   tabs: DedupeTab[],
   survivor: DedupeTab,
@@ -189,6 +253,13 @@ function reduceString(
   );
 }
 
+/**
+ * Resolve a cluster's viewed state, using the survivor to break majority ties.
+ * @param {DedupeTab[]} tabs - Nonempty duplicate cluster.
+ * @param {DedupeTab} survivor - Tab retained by the plan.
+ * @param {ViewedReducer} reducer - Boolean merge rule.
+ * @returns {boolean} Viewed state to store on the survivor.
+ */
 function reduceViewed(
   tabs: DedupeTab[],
   survivor: DedupeTab,
@@ -202,6 +273,14 @@ function reduceViewed(
   return viewed === unviewed ? survivor.viewed : viewed > unviewed;
 }
 
+/**
+ * Plan URL-based duplicate removal with independent merge rules per field.
+ * The plan preserves every cluster's chosen survivor and lists the other IDs
+ * for deletion; it does not change storage until executed separately.
+ * @param {DedupeTab[]} tabs - Tabs eligible for advanced cleanup.
+ * @param {AdvancedDedupeOptions} options - Survivor and field merge rules.
+ * @returns {Promise<DedupePlan>} Reviewable clusters and survivor patches.
+ */
 export async function buildAdvancedDedupePlan(
   tabs: DedupeTab[],
   options: AdvancedDedupeOptions

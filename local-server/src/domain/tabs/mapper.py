@@ -27,11 +27,11 @@ class TabMapper:
         transfer records.
 
         Args:
-            tab (Tab): Tab value consumed by this operation.
+            tab (Tab): Saved-tab row being converted or persisted.
             custom_properties (dict[str, Any]): Declared values after default resolution.
 
         Returns:
-            TabDTO: Result produced by the operation described above.
+            TabDTO: Complete API representation of the saved tab.
         """
         return TabDTO(
             id=tab.id,
@@ -62,12 +62,12 @@ class TabMapper:
         transfer records.
 
         Args:
-            tab (Tab): Tab value consumed by this operation.
+            tab (Tab): Saved-tab row being converted or persisted.
             fields (str): Requested response projection controlling which fields are serialized.
             custom_properties (dict[str, Any]): Declared values after default resolution.
 
         Returns:
-            TabDTO | TabProjectionDTO: Result produced by the operation described above.
+            TabDTO | TabProjectionDTO: Complete or requested-field tab representation.
         """
         dto = cls.to_dto(tab, custom_properties)
         if fields == "full":
@@ -95,11 +95,11 @@ class TabMapper:
         Args:
             dto (TabCreateDTO): Validated data-transfer object supplied to the operation.
             group_id (str | None): Stable identifier of the group targeted by the operation.
-            position (float): Position value consumed by this operation.
-            tags (list[Tag]): Tags value consumed by this operation.
+            position (float): Display position assigned within the target group.
+            tags (list[Tag]): Tags associated with the saved tab.
 
         Returns:
-            Tab: Result produced by the operation described above.
+            Tab: Unsaved saved-tab model initialized from the request.
         """
         values: dict[str, Any] = {
             "url": dto.url,
@@ -130,7 +130,7 @@ class TabMapper:
             dto (TabUpdateDTO): Validated data-transfer object supplied to the operation.
 
         Returns:
-            dict[str, Any]: Result produced by the operation described above.
+            dict[str, Any]: Explicitly supplied tab fields keyed by ORM attribute name.
         """
         values = dto.model_dump(exclude_unset=True)
         for field in ("note", "agent_review"):

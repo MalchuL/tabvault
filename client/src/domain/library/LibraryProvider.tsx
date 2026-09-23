@@ -8,15 +8,18 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { libraryReducer } from "./state";
-import { vaultStorage } from "./storage";
+import { writeBrowserVault } from "@/domain/server/browserStorage";
 import type { PersistedVault } from "./types";
 import { LibraryContext } from "./library-context";
 
 /**
  * Own the hydrated vault and persist every committed reducer transition.
  *
- * @param props - Initial compatible vault and routed descendants.
- * @returns Shared library state provider.
+ * @param {{
+  initialVault: PersistedVault;
+  children: ReactNode;
+}} props - Initial compatible vault and routed descendants.
+ * @returns {JSX.Element} Shared library state provider.
  */
 export function LibraryProvider({
   initialVault,
@@ -38,7 +41,7 @@ export function LibraryProvider({
       .catch(() => undefined)
       .then(() => {
         setPersistenceStatus("saving");
-        return vaultStorage.save(vault);
+        return writeBrowserVault(vault);
       })
       .then(() => {
         if (revision.current === currentRevision) setPersistenceStatus("saved");

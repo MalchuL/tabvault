@@ -23,26 +23,20 @@ logger = logging.getLogger(__name__)
 def register_error_handlers(app: FastAPI) -> None:
     """Register validation, HTTP, domain, and fallback handlers.
 
-    This application-boundary helper configures or protects the FastAPI process while keeping domain
-    use cases in their dedicated services.
-
     Args:
-        app (FastAPI): App value consumed by this operation.
+        app (FastAPI): FastAPI application being configured.
     """
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, error: RequestValidationError) -> JSONResponse:
         """Translate Pydantic request errors into the common envelope.
 
-        This application-boundary helper configures or protects the FastAPI process while keeping
-        domain use cases in their dedicated services.
-
         Args:
-            _request (Request): Request value consumed by this operation.
+            _request (Request): Incoming request, kept in the handler signature for FastAPI.
             error (RequestValidationError): Exception being translated or recorded.
 
         Returns:
-            JSONResponse: Result produced by the operation described above.
+            JSONResponse: HTTP 422 response with field-level validation details.
         """
         errors: list[IssueDTO] = []
         for item in error.errors():
@@ -58,15 +52,12 @@ def register_error_handlers(app: FastAPI) -> None:
     async def http_error(_request: Request, error: HTTPException) -> JSONResponse:
         """Translate FastAPI HTTP errors into the common envelope.
 
-        This application-boundary helper configures or protects the FastAPI process while keeping
-        domain use cases in their dedicated services.
-
         Args:
-            _request (Request): Request value consumed by this operation.
+            _request (Request): Incoming request, kept in the handler signature for FastAPI.
             error (HTTPException): Exception being translated or recorded.
 
         Returns:
-            JSONResponse: Result produced by the operation described above.
+            JSONResponse: HTTP response preserving the original status and safe error message.
         """
         detail: Any = error.detail
         if isinstance(detail, dict) and "code" in detail:
@@ -89,15 +80,12 @@ def register_error_handlers(app: FastAPI) -> None:
     async def domain_error(_request: Request, error: Exception) -> JSONResponse:
         """Translate framework-free domain errors into HTTP responses.
 
-        This application-boundary helper configures or protects the FastAPI process while keeping
-        domain use cases in their dedicated services.
-
         Args:
-            _request (Request): Request value consumed by this operation.
+            _request (Request): Incoming request, kept in the handler signature for FastAPI.
             error (Exception): Exception being translated or recorded.
 
         Returns:
-            JSONResponse: Result produced by the operation described above.
+            JSONResponse: HTTP response mapped from the domain error and its context.
         """
         if isinstance(error, ImportValidationError):
             return JSONResponse(json_data(failure(error.errors)), status_code=422)
@@ -127,15 +115,12 @@ def register_error_handlers(app: FastAPI) -> None:
     async def unhandled(_request: Request, error: Exception) -> JSONResponse:
         """Log unexpected failures without leaking internal details.
 
-        This application-boundary helper configures or protects the FastAPI process while keeping
-        domain use cases in their dedicated services.
-
         Args:
-            _request (Request): Request value consumed by this operation.
+            _request (Request): Incoming request, kept in the handler signature for FastAPI.
             error (Exception): Exception being translated or recorded.
 
         Returns:
-            JSONResponse: Result produced by the operation described above.
+            JSONResponse: HTTP 500 response with a safe public message.
         """
         logger.exception("Unhandled API error", exc_info=error)
         return JSONResponse(

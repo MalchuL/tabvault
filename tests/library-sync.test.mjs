@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   defaultVault,
-  isVaultV2,
+  isPersistedVault,
   serverDocumentToVault,
   utcTimestamp,
   vaultToServerDocument,
@@ -40,7 +40,7 @@ test("schema-v3 conversion preserves occurrence identity, exact URL, and Unassig
     updatedAt: now,
   });
 
-  assert.equal(isVaultV2(vault), true);
+  assert.equal(isPersistedVault(vault), true);
   const document = vaultToServerDocument(vault);
   assert.equal(document.schemaVersion, 3);
   assert.equal(document.tabs[0].customProperties.viewed, true);
@@ -80,7 +80,7 @@ test("schema-v3 conversion preserves occurrence identity, exact URL, and Unassig
 
 test("schema guard rejects v1, hierarchy, Inbox-shaped, and normalized data", () => {
   assert.equal(
-    isVaultV2({ schemaVersion: 1, tabs: [], vaultGroups: [] }),
+    isPersistedVault({ schemaVersion: 1, tabs: [], vaultGroups: [] }),
     false
   );
   const vault = defaultVault();
@@ -94,7 +94,7 @@ test("schema guard rejects v1, hierarchy, Inbox-shaped, and normalized data", ()
     updatedAt: "now",
     parent: "other",
   });
-  assert.equal(isVaultV2(vault), false);
+  assert.equal(isPersistedVault(vault), false);
   vault.vaultGroups = [];
   vault.tabs.push({
     id: "bad",
@@ -112,7 +112,7 @@ test("schema guard rejects v1, hierarchy, Inbox-shaped, and normalized data", ()
     updatedAt: "now",
     normalizedUrl: "https://example.com",
   });
-  assert.equal(isVaultV2(vault), false);
+  assert.equal(isPersistedVault(vault), false);
 });
 
 test("schema-v2 server data migrates and tombstones suppress resurrection", () => {

@@ -24,13 +24,13 @@ def _validate_saved_url(value: str) -> str:
     DTO configuration serializes public field names in camelCase and rejects unknown input fields.
 
     Args:
-        value (str): Value to validate, convert, or persist.
+        value (str): URL supplied for a saved tab.
 
     Returns:
-        str: Result produced by the operation described above.
+        str: Original URL after confirming it uses HTTP or HTTPS.
 
     Raises:
-        ValueError: Propagated when its documented validation or operation condition occurs.
+        ValueError: The URL lacks an HTTP(S) scheme or network location.
     """
     parsed = urlsplit(value)
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
@@ -96,13 +96,13 @@ class TabListOptionsDTO(BaseModel):
     Attributes:
         group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
         category (str | None): Free-form Group category, such as ``session`` or ``manual``.
-        tags_any (list[str]): Typed tags any value carried by this object.
-        tags_all (list[str]): Typed tags all value carried by this object.
-        search (str | None): Typed search value carried by this object.
-        sort_by (TabSortBy): Typed sort by value carried by this object.
-        sort_dir (SortDirection): Typed sort dir value carried by this object.
-        fields (str): Typed fields value carried by this object.
-        visibility (TabVisibility): Typed visibility value carried by this object.
+        tags_any (list[str]): Tag names of which matching tabs need at least one.
+        tags_all (list[str]): Tag names all matching tabs must have.
+        search (str | None): Optional text filter for saved tabs.
+        sort_by (TabSortBy): Saved-tab field used for sorting.
+        sort_dir (SortDirection): Ascending or descending sort direction.
+        fields (str): Comma-separated projection fields requested by the caller.
+        visibility (TabVisibility): Visible, hidden, or archived tab scope.
     """
 
     group_id: str | None = "all"
@@ -208,7 +208,7 @@ class TabTagDTO(BaseModel):
     DTO configuration serializes public field names in camelCase and rejects unknown input fields.
 
     Attributes:
-        tag_name (str): Typed tag name value carried by this object.
+        tag_name (str): Name of the tag to attach or remove.
     """
 
     tag_name: str = Field(min_length=1, max_length=256)
@@ -225,7 +225,7 @@ class TabDTO(DTO):
         id (str): Stable identifier for this record.
         url (str): Original saved URL, preserved without canonicalization.
         title (str): Human-readable title.
-        favicon (str | None): Typed favicon value carried by this object.
+        favicon (str | None): Favicon URL or asset reference when available.
         note (str): User-authored note stored with the Saved Tab.
         agent_review (str): Agent-authored review text stored with the Saved Tab.
         custom_properties (dict[str, Any]): Resolved declared values, including defaults.
@@ -266,7 +266,7 @@ class TabProjectionDTO(DTO):
         id (str | None): Stable identifier for this record.
         url (str | None): Original saved URL, preserved without canonicalization.
         title (str | None): Human-readable title.
-        favicon (str | None): Typed favicon value carried by this object.
+        favicon (str | None): Favicon URL or asset reference when available.
         note (str | None): User-authored note stored with the Saved Tab.
         agent_review (str | None): Agent-authored review text stored with the Saved Tab.
         custom_properties (dict[str, Any] | None): Resolved declared property values.
@@ -321,7 +321,7 @@ class TabCreateMetaDTO(BaseModel):
     DTO configuration serializes public field names in camelCase and rejects unknown input fields.
 
     Attributes:
-        job (TabJobDTO): Typed job value carried by this object.
+        job (TabJobDTO): Background job created for preview capture.
     """
 
     job: TabJobDTO
@@ -355,7 +355,7 @@ class TabDeleteResultDTO(DTO):
     Attributes:
         id (str): Stable identifier for this record.
         deleted_at (datetime): UTC instant associated with deleted.
-        hard (bool): Typed hard value carried by this object.
+        hard (bool): Whether deletion removes the archived record permanently.
     """
 
     id: str

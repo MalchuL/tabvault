@@ -1,4 +1,4 @@
-"""Persistence operations for flat Group use cases."""
+"""Queries and staged writes for flat groups and their member tabs."""
 
 from datetime import datetime
 
@@ -13,41 +13,35 @@ from models import Group, Tab, Tombstone
 
 
 class GroupRepository(BaseRepository[Group]):
-    """Persist Groups and transactional Group deletion.
+    """Query groups and stage their mutations through one async session.
 
-    This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-    session. It reads or stages database state without committing; the calling service owns the
-    surrounding transaction.
+    The service commits or rolls back the session, including tab changes and the tombstone
+    staged when a group is deleted.
+
+    Attributes:
+        session (AsyncSession): Request-scoped session used to read or stage rows without committing.
     """
 
     model_type = Group
 
     def __init__(self, session: AsyncSession) -> None:
-        """Initialize with a request-scoped session.
-
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
+        """Bind group operations to the service's request-scoped transaction.
 
         Args:
-            session (AsyncSession): Request-scoped asynchronous database session used by this
-                operation.
+            session (AsyncSession): Session shared with the calling service, which owns commit
+                and rollback.
         """
         super().__init__(session)
         self.session = session
 
     async def get(self, group_id: str) -> Group | None:  # type: ignore[override]
-        """Load a Group by ID.
-
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
+        """Load a group by its primary key without filtering by tab visibility.
 
         Args:
-            group_id (str): Stable identifier of the group targeted by the operation.
+            group_id (str): Stable group identifier to look up.
 
         Returns:
-            Group | None: Result produced by the operation described above.
+            Group | None: The group row, or ``None`` if the identifier does not exist.
         """
         return await self.session.get(Group, group_id)
 
@@ -58,20 +52,23 @@ class GroupRepository(BaseRepository[Group]):
         category: str | None,
         list_options: ListOptions,
     ) -> Page[tuple[Group, int]]:
-        """List relevant Groups newest first using database pagination.
+        """Page groups relevant to the requested active-tab visibility.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
+        Hidden groups have at least one hidden active tab. The other view includes groups
+        with visible active tabs and groups with no hidden active tabs. Counts match the
+        selected view. Results sort by creation time and then ID, both descending; total
+        counts matching groups before limit and offset are applied.
 
         Args:
-            now (datetime): Current instant used for tab visibility predicates.
-            visibility (str): Visible or hidden Group scope.
-            category (str | None): Optional free-form Group category used to restrict results.
-            list_options (ListOptions): Validated page size and row offset.
+            now (datetime): Instant at which tab hide deadlines are evaluated.
+            visibility (str): ``"hidden"`` for hidden groups; other values use the visible
+                view. The service handles archived visibility separately.
+            category (str | None): Exact category filter, or ``None`` for all categories.
+            list_options (ListOptions): Validated limit and offset for the database query.
 
         Returns:
-            Page[tuple[Group, int]]: Group rows, relevant tab counts, and page metadata.
+            Page[tuple[Group, int]]: Group rows paired with their selected-view tab counts,
+                plus total and next-page metadata.
         """
         visible_count = (
             select(func.count(Tab.id))
@@ -114,31 +111,27 @@ class GroupRepository(BaseRepository[Group]):
         )
 
     async def tab_counts(self, now: datetime) -> tuple[dict[str, int], dict[str, int]]:
-        """Count visible and hidden active tabs assigned to each Group.
+        """Count visible and hidden active tabs by group ID.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
+        Each visibility uses its own grouped query. Archived and unassigned tabs are
+        excluded; groups with zero matching tabs have no entry in that dictionary.
 
         Args:
-            now (datetime): Current absolute UTC instant used for consistent visibility decisions.
+            now (datetime): Instant at which tab hide deadlines are evaluated.
 
         Returns:
-            tuple[dict[str, int], dict[str, int]]: Result produced by the operation described above.
+            tuple[dict[str, int], dict[str, int]]: Visible counts followed by hidden counts,
+                keyed by group ID.
         """
 
         async def counts(predicate: ColumnElement[bool]) -> dict[str, int]:
-            """Accumulate visible and hidden member counts for one Group row.
-
-            This persistence-layer operation executes through the request-scoped asynchronous
-            SQLAlchemy session. It reads or stages database state without committing; the calling
-            service owns the surrounding transaction.
+            """Count assigned tabs matching one visibility predicate.
 
             Args:
-                predicate (ColumnElement[bool]): Predicate value consumed by this operation.
+                predicate (ColumnElement[bool]): SQL condition for visible or hidden active tabs.
 
             Returns:
-                dict[str, int]: Result produced by the operation described above.
+                dict[str, int]: Matching tab counts keyed by non-null group ID.
             """
             return {
                 str(group_id): int(count)
@@ -154,62 +147,58 @@ class GroupRepository(BaseRepository[Group]):
         return await counts(visible_tabs(now)), await counts(hidden_tabs(now))
 
     async def next_position(self) -> float:
-        """Find the next flat display position.
+        """Place a new group after the current highest flat display position.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
+        Existing gaps are not reused. An empty groups table starts at position zero.
 
         Returns:
-            float: Result produced by the operation described above.
+            float: Maximum stored position plus one, or ``0.0`` when there are no groups.
         """
         maximum = await self.session.scalar(select(func.coalesce(func.max(Group.position), -1)))
         return float(maximum if maximum is not None else -1) + 1
 
     async def add_group(self, group: Group) -> Group:
-        """Persist one Group.
+        """Add a group and flush it so database-generated values are available.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
+        The row remains in the caller's open transaction until the service commits.
 
         Args:
-            group (Group): Group value consumed by this operation.
+            group (Group): New mapped group row to stage.
 
         Returns:
-            Group: Result produced by the operation described above.
+            Group: The same row after the session flush.
         """
         self.session.add(group)
         await self.session.flush()
         return group
 
     async def apply_changes(self, group: Group, changes: dict[str, object]) -> None:
-        """Apply mapped values to a Group row.
+        """Assign service-approved changes to a loaded group row.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
+        SQLAlchemy tracks these assignments for the service's later commit. This method
+        does not validate field names, flush, or commit.
 
         Args:
-            group (Group): Group value consumed by this operation.
-            changes (dict[str, object]): Changes value consumed by this operation.
+            group (Group): Persistent group row to update.
+            changes (dict[str, object]): Mapped attribute names and replacement values.
         """
         for key, value in changes.items():
             setattr(group, key, value)
 
     async def delete_with_tabs(self, group_id: str, now: datetime) -> int:
-        """Archive and Unassign members, then permanently delete the Group.
+        """Archive and unassign every member before deleting its group.
 
-        This persistence-layer operation executes through the request-scoped asynchronous SQLAlchemy
-        session. It reads or stages database state without committing; the calling service owns the
-        surrounding transaction.
+        All assigned tabs, regardless of current visibility or archive state, receive the
+        archive and update timestamps. The group row is deleted and a group tombstone is
+        staged in the same service-owned transaction.
 
         Args:
-            group_id (str): Stable identifier of the group targeted by the operation.
-            now (datetime): Current absolute UTC instant used for consistent visibility decisions.
+            group_id (str): Identifier of the group whose members are archived and unassigned.
+            now (datetime): Timestamp stored on affected tabs when the group is deleted.
 
         Returns:
-            int: Result produced by the operation described above.
+            int: Number of tabs assigned to the group before deletion, including tabs that
+                were already archived.
         """
         archived_tab_count = int(
             await self.session.scalar(select(func.count(Tab.id)).where(Tab.group_id == group_id))

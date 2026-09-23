@@ -33,11 +33,22 @@ class Page(Generic[ItemT]):
 
     @property
     def size(self) -> int:
-        """Return the number of rows in this page."""
+        """Return the number of rows in this page.
+
+        Returns:
+            int: Number of items in this page.
+        """
         return len(self.data)
 
     def map(self, mapper: Callable[[ItemT], MappedT]) -> Page[MappedT]:
-        """Map page rows without changing pagination metadata."""
+        """Map page rows without changing pagination metadata.
+
+        Args:
+            mapper (Callable[[ItemT], MappedT]): Function used to convert each page item.
+
+        Returns:
+            Page[MappedT]: Converted records with the same pagination metadata.
+        """
         return Page(
             data=[mapper(item) for item in self.data], has_next=self.has_next, total=self.total
         )
@@ -54,5 +65,12 @@ class PaginatedResponse(BaseModel, Generic[ItemT]):
 
     @classmethod
     def from_page(cls, page: Page[ItemT]) -> Self:
-        """Build an HTTP response from a repository page."""
+        """Build an HTTP response from a repository page.
+
+        Args:
+            page (Page[ItemT]): Source page and its pagination metadata.
+
+        Returns:
+            Self: New response object preserving the page metadata.
+        """
         return cls(data=page.data, has_next=page.has_next, size=page.size, total=page.total)

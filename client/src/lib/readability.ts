@@ -2,7 +2,7 @@
  * Signal Library implementation reminder: reader content is derived, ephemeral evidence.
  * It never replaces the saved URL, title, note, tags, or other canonical library metadata.
  */
-import { fetchReadablePageSource } from "@/domain/server/synchronization";
+import { fetchReadablePageSource } from "@/extension/bridge";
 
 export type ReadableArticle = {
   title: string;
@@ -14,6 +14,14 @@ export type ReadableArticle = {
   url: string;
 };
 
+/**
+ * Resolve article links and media against the source page before sanitization.
+ * Fragment, data, mail, and telephone references are retained; malformed
+ * relative URLs are removed so the reader does not inherit a wrong base URL.
+ * @param {string} content - Extracted article HTML.
+ * @param {string} baseUrl - Final URL of the fetched source page.
+ * @returns {string} HTML with resolvable links converted to absolute URLs.
+ */
 function resolveArticleUrls(content: string, baseUrl: string) {
   const contentDocument = new DOMParser().parseFromString(content, "text/html");
   contentDocument
@@ -32,6 +40,13 @@ function resolveArticleUrls(content: string, baseUrl: string) {
   return contentDocument.body.innerHTML;
 }
 
+/**
+ * Fetch, extract, and sanitize an ephemeral reader view of a saved URL.
+ * The result is for display only and never replaces canonical tab metadata.
+ * @param {string} url - Saved page URL to fetch through the extension bridge.
+ * @returns {Promise<ReadableArticle>} Safe article content and source metadata.
+ * @throws {Error} When extraction yields no readable or safe content.
+ */
 export async function parseReadableArticle(
   url: string
 ): Promise<ReadableArticle> {

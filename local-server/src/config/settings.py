@@ -13,26 +13,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Load validated TabVault settings from environment variables.
 
-    The value is derived from validated runtime configuration so startup, HTTP handling, and
-    background work share one interpretation of environment settings.
-
     Attributes:
-        api_prefix (str): Typed api prefix value carried by this object.
-        host (str): Typed host value carried by this object.
-        port (int): Typed port value carried by this object.
-        api_key (str | None): Typed api key value carried by this object.
-        data_dir (Path): Typed data dir value carried by this object.
+        api_prefix (str): URL prefix for API routes.
+        host (str): Network interface on which the API listens.
+        port (int): TCP port on which the API listens.
+        api_key (str | None): Bearer key required for non-loopback access.
+        data_dir (Path): Directory containing the local database and assets.
         database_url (str | None): URL used for database.
-        cors_origins (list[str]): Typed cors origins value carried by this object.
-        log_level (str): Typed log level value carried by this object.
-        preview_timeout_seconds (float): Typed preview timeout seconds value carried by this object.
-        preview_max_html_bytes (int): Typed preview max html bytes value carried by this object.
-        preview_max_image_bytes (int): Typed preview max image bytes value carried by this object.
-        preview_max_total_bytes (int): Typed preview max total bytes value carried by this object.
-        preview_allow_private_hosts (bool): Typed preview allow private hosts value carried by this
-            object.
-        embedding_model (str): Typed embedding model value carried by this object.
-        embedding_batch_size (int): Typed embedding batch size value carried by this object.
+        cors_origins (list[str]): Allowed cross-origin request origins.
+        log_level (str): Minimum log severity emitted by the server.
+        preview_timeout_seconds (float): Timeout for fetching remote preview content.
+        preview_max_html_bytes (int): Maximum HTML response size accepted for previews.
+        preview_max_image_bytes (int): Maximum image response size accepted for previews.
+        preview_max_total_bytes (int): Maximum aggregate response size accepted for previews.
+        preview_allow_private_hosts (bool): Whether preview capture may access private network hosts.
+        embedding_model (str): Sentence-transformer model used for semantic search.
+        embedding_batch_size (int): Maximum number of tabs embedded per batch.
     """
 
     model_config = SettingsConfigDict(env_prefix="TABVAULT_", env_file=".env", extra="ignore")
@@ -58,11 +54,11 @@ class Settings(BaseSettings):
     def split_origins(cls, value: object) -> object:
         """Accept CORS origins as a comma-separated environment value.
 
-        The value is derived from validated runtime configuration so startup, HTTP handling, and
-        background work share one interpretation of environment settings.
-
         Args:
             value (object): Value to validate, convert, or persist.
+
+        Returns:
+            object: Normalized value accepted by the validator.
         """
         if isinstance(value, str):
             return [part.strip() for part in value.split(",") if part.strip()] or ["*"]
@@ -72,14 +68,11 @@ class Settings(BaseSettings):
     def validate_remote_auth(self) -> Settings:
         """Require authentication when listening beyond loopback.
 
-        The value is derived from validated runtime configuration so startup, HTTP handling, and
-        background work share one interpretation of environment settings.
-
         Returns:
-            Settings: Result produced by the operation described above.
+            Settings: The validated settings instance for continued model validation.
 
         Raises:
-            ValueError: Propagated when its documented validation or operation condition occurs.
+            ValueError: The server binds beyond loopback without an API key.
         """
         if self.host not in {"127.0.0.1", "localhost", "::1"} and not self.api_key:
             raise ValueError("TABVAULT_API_KEY is required when binding beyond loopback")
@@ -89,11 +82,8 @@ class Settings(BaseSettings):
     def effective_database_url(self) -> str:
         """Return the configured database URL or local SQLite default.
 
-        The value is derived from validated runtime configuration so startup, HTTP handling, and
-        background work share one interpretation of environment settings.
-
         Returns:
-            str: Result produced by the operation described above.
+            str: Configured database URL, or the SQLite URL under ``data_dir``.
         """
         if self.database_url:
             return self.database_url
@@ -103,11 +93,8 @@ class Settings(BaseSettings):
     def asset_dir(self) -> Path:
         """Return the directory used for captured preview assets.
 
-        The value is derived from validated runtime configuration so startup, HTTP handling, and
-        background work share one interpretation of environment settings.
-
         Returns:
-            Path: Result produced by the operation described above.
+            Path: Path under ``data_dir`` for captured preview assets.
         """
         return self.data_dir / "assets"
 
@@ -115,11 +102,8 @@ class Settings(BaseSettings):
     def model_dir(self) -> Path:
         """Return the directory used for downloaded embedding models.
 
-        The value is derived from validated runtime configuration so startup, HTTP handling, and
-        background work share one interpretation of environment settings.
-
         Returns:
-            Path: Result produced by the operation described above.
+            Path: Path under ``data_dir`` for downloaded embedding models.
         """
         return self.data_dir / "models"
 
@@ -128,11 +112,8 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return the process-cached runtime settings.
 
-    The value is derived from validated runtime configuration so startup, HTTP handling, and
-    background work share one interpretation of environment settings.
-
     Returns:
-        Settings: Result produced by the operation described above.
+        Settings: Process-cached, environment-validated settings instance.
     """
     return Settings()
 

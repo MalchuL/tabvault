@@ -6,11 +6,11 @@ record the individual decisions.
 
 ## Storage modes
 
-TabVault writes browser-local schema-v2 data immediately. In backend mode, routine mutations use
+TabVault writes browser-local schema-v3 data immediately. In backend mode, routine mutations use
 single-resource API requests; a failed backend request does not make browser-local data unreadable.
 Browser capture is the bounded exception: it writes one complete Session locally and sends its tabs
 through one transactional batch endpoint. Explicit synchronization may also use the transactional
-schema-v2 transfer command. Saved Tab IDs—not URL equality—identify the same occurrence across
+schema-v3 transfer command. Saved Tab IDs—not URL equality—identify the same occurrence across
 browser and server storage, and record-level `updatedAt` last-write-wins resolves supported
 synchronization conflicts.
 

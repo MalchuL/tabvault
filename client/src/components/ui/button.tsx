@@ -35,6 +35,11 @@ const buttonVariants = cva(
   }
 );
 
+/**
+ * Render a button variant, or style a child element when `asChild` is set.
+ * @param {React.ComponentProps<"button"> & VariantProps<typeof buttonVariants> & { asChild?: boolean }} props - Component properties and children.
+ * @returns {React.ReactElement} Styled button or slotted child.
+ */
 function Button({
   className,
   variant,

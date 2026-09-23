@@ -3,18 +3,33 @@ import * as PopoverPrimitive from "@radix-ui/react-popover";
 
 import { cn } from "@/lib/utils";
 
+/**
+ * Own the open state and accessibility behavior of a popover.
+ * @param {React.ComponentProps<typeof PopoverPrimitive.Root>} props - Component properties and children.
+ * @returns {React.ReactElement} Popover root.
+ */
 function Popover({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />;
 }
 
+/**
+ * Expose the control that toggles a popover.
+ * @param {React.ComponentProps<typeof PopoverPrimitive.Trigger>} props - Component properties and children.
+ * @returns {React.ReactElement} Popover trigger.
+ */
 function PopoverTrigger({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />;
 }
 
+/**
+ * Portal and position the styled popover panel.
+ * @param {React.ComponentProps<typeof PopoverPrimitive.Content>} props - Component properties and children.
+ * @returns {React.ReactElement} Popover panel.
+ */
 function PopoverContent({
   className,
   align = "center",
@@ -37,6 +52,11 @@ function PopoverContent({
   );
 }
 
+/**
+ * Anchor popover positioning to a separate element.
+ * @param {React.ComponentProps<typeof PopoverPrimitive.Anchor>} props - Component properties and children.
+ * @returns {React.ReactElement} Popover anchor.
+ */
 function PopoverAnchor({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {

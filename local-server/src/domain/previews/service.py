@@ -31,6 +31,13 @@ class PreviewService:
     The operation participates in the local preview pipeline, where remote content is bounded,
     sanitized, and converted into database metadata without exposing unsanitized markup to API
     consumers.
+
+    Attributes:
+        db (AsyncSession): Request-scoped session used until the service commits or rolls back.
+        settings (Settings): Validated process settings shared for this instance lifetime.
+        capture (WebCaptureProtocol): Outbound capture client used to retrieve preview resources.
+        repository (PreviewRepository): Persistence adapter retained for this service instance.
+        mapper (PreviewMapper): Stateless converter between ORM rows and API DTOs.
     """
 
     def __init__(
@@ -49,7 +56,7 @@ class PreviewService:
         Args:
             db (AsyncSession): Request-scoped asynchronous database session used by this operation.
             settings (Settings): Validated process settings that control this component.
-            capture (WebCaptureProtocol): Capture value consumed by this operation.
+            capture (WebCaptureProtocol): Capture client used to fetch preview resources.
             repository (PreviewRepository): Persistence adapter used to load and mutate domain
                 records.
         """
@@ -73,13 +80,13 @@ class PreviewService:
         consumers.
 
         Args:
-            kind (AssetKind): Kind value consumed by this operation.
+            kind (AssetKind): Asset kind used to choose its storage location.
             content (bytes): Untrusted serialized content to parse or validate.
-            content_type (str): Content type value consumed by this operation.
-            source_url (str): Source url value consumed by this operation.
+            content_type (str): Validated media type of the captured resource.
+            source_url (str): Final URL from which the resource was captured.
 
         Returns:
-            Asset: Result produced by the operation described above.
+            Asset: Existing or newly persisted asset for the captured bytes.
         """
         checksum = hashlib.sha256(content).hexdigest()
         existing = await self.repository.find_asset_checksum(checksum)
@@ -121,11 +128,11 @@ class PreviewService:
 
         Args:
             content (bytes): Untrusted serialized content to parse or validate.
-            base_url (str): Base url value consumed by this operation.
+            base_url (str): Base URL used to resolve captured resource links.
 
         Returns:
-            tuple[ExtractedArticleDTO, list[str], str | None]: Result produced by the operation
-                described above.
+            tuple[ExtractedArticleDTO, list[str], str | None]: Sanitized article, discovered image
+                URLs, and optional favicon URL.
         """
         source = content.decode("utf-8", errors="replace")
         doc = Document(source)
@@ -198,7 +205,7 @@ class PreviewService:
             tab_id (str): Stable identifier of the tab targeted by the operation.
 
         Returns:
-            PreviewCaptureResultDTO: Result produced by the operation described above.
+            PreviewCaptureResultDTO: Capture status and persisted preview identifiers for the tab.
         """
         tab = await self.repository.get_tab(tab_id)
         if tab is None:

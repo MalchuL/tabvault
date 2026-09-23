@@ -23,16 +23,12 @@ def configure_database(
 ) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
     """Create the process engine and request-scoped session factory.
 
-    This database infrastructure helper manages process-wide engine configuration or one
-    request-scoped session; domain services remain responsible for committing application
-    transactions.
-
     Args:
-        settings (Settings | None): Validated process settings that control this component.
+        settings (Settings | None): Settings for the engine, or ``None`` to load process defaults.
 
     Returns:
-        tuple[AsyncEngine, async_sessionmaker[AsyncSession]]: Result produced by the operation
-            described above.
+        tuple[AsyncEngine, async_sessionmaker[AsyncSession]]: Engine and factory for new sessions;
+            callers own their transaction commits.
     """
     global _engine, _session_factory
     settings = settings or get_settings()
@@ -45,13 +41,9 @@ def configure_database(
         def configure_sqlite(dbapi_connection: object, _record: object) -> None:
             """Enable SQLite integrity and bounded lock waits.
 
-            This database infrastructure helper manages process-wide engine configuration or one
-            request-scoped session; domain services remain responsible for committing application
-            transactions.
-
             Args:
-                dbapi_connection (object): Dbapi connection value consumed by this operation.
-                _record (object): Record value consumed by this operation.
+                dbapi_connection (object): SQLite DB-API connection receiving PRAGMA settings.
+                _record (object): SQLAlchemy connection record, unused by this hook.
             """
             cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
             cursor.execute("PRAGMA foreign_keys=ON")
@@ -65,12 +57,8 @@ def configure_database(
 def get_engine() -> AsyncEngine:
     """Return the configured engine, initializing it if needed.
 
-    This database infrastructure helper manages process-wide engine configuration or one
-    request-scoped session; domain services remain responsible for committing application
-    transactions.
-
     Returns:
-        AsyncEngine: Result produced by the operation described above.
+        AsyncEngine: Reusable async engine configured for the current settings.
     """
     global _engine
     if _engine is None:
@@ -82,12 +70,8 @@ def get_engine() -> AsyncEngine:
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
     """Return the configured session factory, initializing it if needed.
 
-    This database infrastructure helper manages process-wide engine configuration or one
-    request-scoped session; domain services remain responsible for committing application
-    transactions.
-
     Returns:
-        async_sessionmaker[AsyncSession]: Result produced by the operation described above.
+        async_sessionmaker[AsyncSession]: Factory that opens request-scoped asynchronous sessions.
     """
     global _session_factory
     if _session_factory is None:
@@ -99,24 +83,15 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 async def get_async_session() -> AsyncIterator[AsyncSession]:
     """Yield one request-scoped async database session.
 
-    This database infrastructure helper manages process-wide engine configuration or one
-    request-scoped session; domain services remain responsible for committing application
-    transactions.
-
     Returns:
-        AsyncIterator[AsyncSession]: Result produced by the operation described above.
+        AsyncIterator[AsyncSession]: One async session, closed after the request finishes.
     """
     async with get_session_factory()() as session:
         yield session
 
 
 async def dispose_database() -> None:
-    """Dispose the engine and clear process database state.
-
-    This database infrastructure helper manages process-wide engine configuration or one
-    request-scoped session; domain services remain responsible for committing application
-    transactions.
-    """
+    """Dispose the engine and clear process database state."""
     global _engine, _session_factory
     if _engine is not None:
         await _engine.dispose()

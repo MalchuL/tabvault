@@ -1,29 +1,28 @@
 import {
+  configureHealthAlerts,
+  HEALTH_ALARM_NAME,
+  restoreHealthAlarm,
+  runIndexHealthAlert,
+} from "./healthAlerts";
+import {
   defaultVault,
-  isVaultV2,
+  isPersistedVault,
   orderKey,
   serverDocumentToVault,
   upgradeVault,
   vaultToServerDocument,
 } from "./library-sync";
 import type { VaultGroup, VaultTab } from "@/domain/library/types";
+import { createSessionGroup } from "@/domain/library/session";
+import { domainFromUrl } from "@/domain/library/codec";
+import { ensureViewedProperty } from "@/domain/server/propertySchema";
 
 type CapturableTab = chrome.tabs.Tab & { id: number; url: string };
-type HealthAlertSettings = {
-  enabled?: boolean;
-  notifyOnNeedsAttention?: boolean;
-  intervalMinutes?: number;
-  serverUrl?: string;
-  apiKey?: string;
-};
-
 chrome.runtime.onInstalled.addListener(() => {
   restoreHealthAlarm().catch(() => undefined);
   restoreLibraryRefreshAlarm().catch(() => undefined);
 });
 
-const HEALTH_ALERT_KEY = "tabvault-health-alert";
-const HEALTH_ALARM_NAME = "tabvault-index-health";
 const LIBRARY_REFRESH_KEY = "tabvault-library-refresh";
 const LIBRARY_REFRESH_ALARM_NAME = "tabvault-library-refresh";
 const VAULT_STORAGE_KEY = "tabvault-v3";
@@ -34,23 +33,22 @@ const STORAGE_MODE_KEY = "tabvault-storage-mode";
 const SYNC_STATUS_KEY = "tabvault-sync-status";
 const DEFAULT_SERVER_URL = "http://127.0.0.1:47821";
 
-function domainFor(url: string) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
-}
-
+/**
+ * Turn a capturable browser tab into a new local saved-tab record.
+ * The browser title falls back to its domain; capture starts unviewed and active.
+ * @param {CapturableTab} tab - HTTP(S) tab with an ID and URL.
+ * @returns {VaultTab} New saved tab with a stable ID and timestamps.
+ */
 function buildSavedTab(tab: CapturableTab): VaultTab {
   const now = new Date().toISOString();
   const url = tab.url;
+  const domain = domainFromUrl(url);
   return {
     id: crypto.randomUUID(),
     groupId: null,
-    title: tab.title?.trim() || domainFor(url) || "Saved tab",
+    title: tab.title?.trim() || domain || "Saved tab",
     url,
-    domain: domainFor(url),
+    domain,
     note: "",
     agentReview: "",
     viewed: false,
@@ -66,66 +64,14 @@ function buildSavedTab(tab: CapturableTab): VaultTab {
   };
 }
 
-function sessionName(date = new Date()) {
-  const month = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ][date.getMonth()];
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `Session ${month} ${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function buildSessionGroup(): VaultGroup {
-  const now = new Date().toISOString();
-  return {
-    id: crypto.randomUUID(),
-    name: sessionName(),
-    description: "Captured from the browser",
-    category: "session",
-    accent: "#829b65",
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-async function ensureViewedProperty(
-  baseUrl: string,
-  headers: Record<string, string>
-) {
-  const schemaUrl = `${baseUrl.replace(/\/+$/, "")}/api/v1/property-schema`;
-  const response = await fetch(schemaUrl, { headers });
-  if (!response.ok) return false;
-  const payload = await response.json();
-  const viewed = payload?.data?.properties?.viewed;
-  if (
-    viewed?.type === "boolean" &&
-    viewed.default === false &&
-    viewed.description === ""
-  )
-    return true;
-  const update = await fetch(schemaUrl, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      name: "viewed",
-      description: "",
-      type: "boolean",
-      default: false,
-    }),
-  });
-  return update.ok;
-}
-
+/**
+ * Mirror a locally saved session to the server when backend mode is enabled.
+ * A group ID doubles as the batch idempotency key so retries do not duplicate
+ * tabs. A failed server attempt leaves the browser copy available for retry.
+ * @param {VaultGroup} group - Session group already stored locally.
+ * @param {VaultTab[]} tabs - Captured members assigned to that group.
+ * @returns {Promise<boolean>} Whether the server accepted the session.
+ */
 async function syncQuickCapture(group: VaultGroup, tabs: VaultTab[]) {
   const stored = await chrome.storage.local.get([
     SERVER_URL_KEY,
@@ -139,7 +85,11 @@ async function syncQuickCapture(group: VaultGroup, tabs: VaultTab[]) {
     "Content-Type": "application/json",
     "X-API-Key": apiKey,
   };
-  if (!(await ensureViewedProperty(baseUrl, headers))) return false;
+  try {
+    await ensureViewedProperty(baseUrl, apiKey);
+  } catch {
+    return false;
+  }
   const groupResponse = await fetch(
     `${baseUrl.replace(/\/+$/, "")}/api/v1/groups`,
     {
@@ -191,6 +141,14 @@ async function syncQuickCapture(group: VaultGroup, tabs: VaultTab[]) {
   return serverSynced;
 }
 
+/**
+ * Save supported tabs locally before asking Chrome to close them.
+ * Unsupported internal tabs remain open, and local storage is the recovery
+ * copy if the optional server sync fails.
+ * @param {chrome.tabs.Tab[]} sourceTabs - Popup-selected browser tabs.
+ * @returns {Promise<{ savedCount: number; closedCount: number; skippedCount: number; failedCount: number; serverSynced: boolean }>} Capture and close counts.
+ * @throws {Error} When stored browser data is incompatible with schema v3.
+ */
 async function saveAndCloseTabs(sourceTabs: chrome.tabs.Tab[]) {
   const validTabs = sourceTabs.filter(
     tab =>
@@ -205,12 +163,12 @@ async function saveAndCloseTabs(sourceTabs: chrome.tabs.Tab[]) {
     upgradeVault(
       stored[VAULT_STORAGE_KEY] ?? stored[PREVIOUS_VAULT_STORAGE_KEY]
     ) ?? defaultVault();
-  if (!isVaultV2(vault))
+  if (!isPersistedVault(vault))
     throw new Error(
-      "Browser data is not schema v2; open TabVault to recover it."
+      "Browser data is not schema v3; open TabVault to recover it."
     );
 
-  const group = buildSessionGroup();
+  const group = createSessionGroup();
   const savedTabs = validTabs.map(sourceTab => ({
     ...buildSavedTab(sourceTab),
     groupId: group.id,
@@ -224,6 +182,7 @@ async function saveAndCloseTabs(sourceTabs: chrome.tabs.Tab[]) {
       [orderKey(group.id)]: savedTabs.map(tab => tab.id),
     },
   };
+  // Persist before closing source tabs so a failed close or server sync cannot lose them.
   await chrome.storage.local.set({ [VAULT_STORAGE_KEY]: persistedVault });
 
   const closeResults = await Promise.allSettled(
@@ -264,6 +223,14 @@ async function saveAndCloseTabs(sourceTabs: chrome.tabs.Tab[]) {
   };
 }
 
+/**
+ * Fetch limited HTML for the reader without changing the saved tab.
+ * Rejects non-HTTP URLs and aborts after twelve seconds; response content is
+ * capped before crossing the extension messaging boundary.
+ * @param {string} url - Page URL requested by the reader.
+ * @returns {Promise<{ html: string; url: string }>} Bounded HTML and final URL.
+ * @throws {Error} When the URL, response, or content is unusable.
+ */
 async function fetchReadablePage(url: string) {
   if (typeof url !== "string" || !/^https?:\/\//i.test(url))
     throw new Error("Only HTTP(S) pages can be fetched for reading preview.");
@@ -288,6 +255,12 @@ async function fetchReadablePage(url: string) {
   }
 }
 
+/**
+ * Open distinct HTTP(S) vault URLs as background tabs.
+ * A failed tab creation does not prevent later URLs from opening.
+ * @param {string[]} urls - Requested saved URLs, possibly duplicated.
+ * @returns {Promise<{ openedCount: number; requestedCount: number; openedUrls: string[] }>} Attempted and completed openings.
+ */
 async function openVaultTabs(urls: string[]) {
   const validUrls = [...new Set(urls || [])].filter(url =>
     /^https?:\/\//i.test(url)
@@ -310,22 +283,11 @@ async function openVaultTabs(urls: string[]) {
   };
 }
 
-async function restoreHealthAlarm() {
-  const stored = await chrome.storage.local.get(HEALTH_ALERT_KEY);
-  const settings = stored[HEALTH_ALERT_KEY] as HealthAlertSettings | undefined;
-  if (
-    !settings?.enabled ||
-    !settings?.notifyOnNeedsAttention ||
-    !settings?.intervalMinutes
-  ) {
-    await chrome.alarms.clear(HEALTH_ALARM_NAME);
-    return;
-  }
-  chrome.alarms.create(HEALTH_ALARM_NAME, {
-    periodInMinutes: Math.max(1, settings.intervalMinutes),
-  });
-}
-
+/**
+ * Recreate or clear the library refresh alarm from its stored interval.
+ * Intervals below one minute disable the alarm.
+ * @returns {Promise<void>} Resolves after the alarm state is updated.
+ */
 async function restoreLibraryRefreshAlarm() {
   const stored = await chrome.storage.local.get(LIBRARY_REFRESH_KEY);
   const intervalSeconds = Number(
@@ -341,6 +303,13 @@ async function restoreLibraryRefreshAlarm() {
   });
 }
 
+/**
+ * Refresh the browser vault through the backend only in server storage mode.
+ * Replays pending tombstones before upload and retains unresolved deletions
+ * locally so the next refresh can retry them.
+ * @returns {Promise<boolean>} Whether a backend refresh was attempted and completed.
+ * @throws {Error} When stored data is incompatible or server import fails.
+ */
 async function refreshStoredLibrary() {
   const stored = await chrome.storage.local.get([
     VAULT_STORAGE_KEY,
@@ -354,7 +323,8 @@ async function refreshStoredLibrary() {
     upgradeVault(
       stored[VAULT_STORAGE_KEY] ?? stored[PREVIOUS_VAULT_STORAGE_KEY]
     ) ?? defaultVault();
-  if (!isVaultV2(vault)) throw new Error("Browser library is not schema v3");
+  if (!isPersistedVault(vault))
+    throw new Error("Browser library is not schema v3");
   const baseUrl = String(stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL).replace(
     /\/+$/,
     ""
@@ -420,10 +390,7 @@ async function refreshStoredLibrary() {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "TABVAULT_CONFIGURE_HEALTH_ALERTS") {
-    chrome.storage.local
-      .set({ [HEALTH_ALERT_KEY]: message.settings })
-      .then(restoreHealthAlarm)
-      .catch(() => undefined);
+    void configureHealthAlerts(message.settings).catch(() => undefined);
     return;
   }
   if (message?.type === "TABVAULT_CONFIGURE_LIBRARY_REFRESH") {
@@ -487,37 +454,7 @@ chrome.alarms.onAlarm.addListener(async alarm => {
     await refreshStoredLibrary().catch(() => undefined);
     return;
   }
-  if (alarm.name !== HEALTH_ALARM_NAME) return;
-  const stored = await chrome.storage.local.get(HEALTH_ALERT_KEY);
-  const settings = stored[HEALTH_ALERT_KEY] as HealthAlertSettings | undefined;
-  if (
-    !settings?.enabled ||
-    !settings?.notifyOnNeedsAttention ||
-    !settings?.serverUrl
-  )
-    return;
-  try {
-    const response = await fetch(
-      `${settings.serverUrl.replace(/\/+$/, "")}/api/v1/index/health-check/run`,
-      {
-        method: "POST",
-        headers: { "X-API-Key": settings.apiKey || "admin" },
-      }
-    );
-    const payload = await response.json();
-    const result = payload.data || payload;
-    if (result.lastResult === "needs_attention") {
-      chrome.notifications.create("tabvault-index-attention", {
-        type: "basic",
-        iconUrl: "icon-128.png",
-        title: "TabVault index needs attention",
-        message:
-          "Your local semantic index is unavailable or needs a rebuild. Open TabVault to review it.",
-      });
-    }
-  } catch {
-    // The server is local and may be intentionally stopped; an alert should not be created for a missing local process.
-  }
+  if (alarm.name === HEALTH_ALARM_NAME) await runIndexHealthAlert();
 });
 
 chrome.commands.onCommand.addListener(async command => {

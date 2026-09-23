@@ -16,6 +16,12 @@ interface ThemeProviderProps {
   switchable?: boolean;
 }
 
+/**
+ * Apply the chosen theme class and optionally persist user theme changes.
+ * When switching is disabled, the default theme wins over stored preference.
+ * @param {ThemeProviderProps} props - Children, initial theme, and switching policy.
+ * @returns {JSX.Element} Theme context around the children.
+ */
 export function ThemeProvider({
   children,
   defaultTheme = "light",
@@ -55,6 +61,11 @@ export function ThemeProvider({
   );
 }
 
+/**
+ * Read the theme state provided by the nearest ThemeProvider.
+ * @returns {ThemeContextType} Current theme and optional toggle action.
+ * @throws {Error} When called outside the provider.
+ */
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (!context) {

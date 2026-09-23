@@ -17,32 +17,50 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { CapabilityIssue } from "@/components/CapabilityIssue";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { CapabilityIssue } from "@/components/shared/CapabilityIssue";
 import { useLibrary } from "@/domain/library/library-context";
 import {
-  blockingSearchCapability,
-  clearBrowserLibrary,
   clearLibraryOnServer,
-  configureExtensionLibraryRefresh,
+  refreshLibraryFromServer,
+} from "@/domain/server/libraryApi";
+import {
+  blockingSearchCapability,
   configureIndexHealthCheck,
+  loadServerSearchState,
+  type SemanticIndexStatus,
+  type ServerCapabilities,
+} from "@/domain/server/search";
+import {
+  configureExtensionHealthAlerts,
+  configureExtensionLibraryRefresh,
+} from "@/extension/bridge";
+import {
+  clearBrowserLibrary,
   DEFAULT_TABVAULT_API_KEY,
   DEFAULT_TABVAULT_SERVER_URL,
-  loadServerSearchState,
   readApiKey,
   readLibraryRefreshInterval,
   readLocalServerUrl,
   readStorageMode,
-  refreshLibraryFromServer,
   writeApiKey,
   writeLibraryRefreshInterval,
   writeLocalServerUrl,
   writeStorageMode,
-  type SemanticIndexStatus,
-  type ServerCapabilities,
   type StorageMode,
-} from "@/domain/server/synchronization";
-import { emptyBrowserVault, LIBRARY_REFRESH_INTERVALS } from "@/lib/library";
+} from "@/domain/server/browserStorage";
+import {
+  emptyBrowserVault,
+  LIBRARY_REFRESH_INTERVALS,
+} from "@/domain/library/codec";
 
+/**
+ * Configure storage, local-server access, refresh, and index health alerts.
+ * Keeps maintenance actions separate from normal library browsing.
+ * @returns {JSX.Element} Settings controls and their current status.
+ */
 export default function Settings() {
   const [, setLocation] = useLocation();
   const { vault, dispatch } = useLibrary();
@@ -66,6 +84,12 @@ export default function Settings() {
   const [showApiKey, setShowApiKey] = useState(false);
   const isBackendMode = storageMode === "backend";
 
+  /**
+   * Apply a server search-status snapshot.
+   *
+   * Update online, capability, and index-health state together.
+   * @param {{ online: boolean; schemaVersion?: number; capabilities: ServerCapabilities | null; indexStatus: SemanticIndexStatus | null; }} state - Server connectivity and search state to display.
+   */
   const applySearchState = (state: {
     online: boolean;
     schemaVersion?: number;
@@ -77,6 +101,15 @@ export default function Settings() {
     setIndexStatus(state.indexStatus);
   };
 
+  /**
+   * Reload connectivity and search status.
+   *
+   * Optionally announce whether the configured server is reachable; clear stale status on failure.
+   * @param {string} url - Server URL to check.
+   * @param {string} key - API key for the request.
+   * @param {boolean} announce - Whether to show a status toast.
+   * @returns {Promise<void>} Resolves after the connectivity check.
+   */
   const refresh = async (url = serverUrl, key = apiKey, announce = true) => {
     try {
       const state = await loadServerSearchState(url, key);
@@ -124,6 +157,12 @@ export default function Settings() {
     });
   }, []);
 
+  /**
+   * Persist storage and connection settings.
+   *
+   * Save the selected mode, and test the server credentials when backend mode is selected.
+   * @returns {Promise<void>} Resolves after settings are saved and checked.
+   */
   const saveConnection = async () => {
     setIsSaving(true);
     try {
@@ -144,6 +183,13 @@ export default function Settings() {
     }
   };
 
+  /**
+   * Set the server index-health schedule.
+   *
+   * Mirror the resulting schedule to extension alerts when the server is online.
+   * @param {number} intervalSeconds - Seconds between checks, or zero to disable them.
+   * @returns {Promise<void>} Resolves after the schedule attempt.
+   */
   const scheduleHealthCheck = async (intervalSeconds: number) => {
     if (!online) {
       toast.error("Connect the TabVault server before scheduling checks");
@@ -159,6 +205,9 @@ export default function Settings() {
       setIndexStatus(current =>
         current ? { ...current, healthCheck } : current
       );
+      void configureExtensionHealthAlerts(serverUrl, healthCheck, apiKey).catch(
+        () => toast.error("Could not update Chrome health alerts")
+      );
       toast.success(
         intervalSeconds ? "Index check scheduled" : "Index check disabled"
       );
@@ -167,6 +216,13 @@ export default function Settings() {
     }
   };
 
+  /**
+   * Enable or disable index-health alerts.
+   *
+   * Keep the server schedule and extension alarm configuration in sync.
+   * @param {boolean} enabled - Whether Chrome should notify when the index needs attention.
+   * @returns {Promise<void>} Resolves after the alert update attempt.
+   */
   const updateAlerts = async (enabled: boolean) => {
     if (!online) return;
     try {
@@ -179,11 +235,20 @@ export default function Settings() {
       setIndexStatus(current =>
         current ? { ...current, healthCheck } : current
       );
+      void configureExtensionHealthAlerts(serverUrl, healthCheck, apiKey).catch(
+        () => toast.error("Could not update Chrome health alerts")
+      );
     } catch {
       toast.error("Could not update local alerts");
     }
   };
 
+  /**
+   * Merge the browser library with the server.
+   *
+   * Replace displayed state with the refreshed vault and report errors to the user.
+   * @returns {Promise<void>} Resolves after the refresh attempt.
+   */
   const refreshLibrary = async () => {
     if (!online) {
       toast.error("Connect the TabVault server before refreshing the library");
@@ -207,6 +272,13 @@ export default function Settings() {
     }
   };
 
+  /**
+   * Persist the automatic library refresh interval.
+   *
+   * Update browser storage and the extension alarm to use the same value.
+   * @param {number} seconds - Seconds between refreshes, or zero to disable them.
+   * @returns {Promise<void>} Resolves after both settings are written.
+   */
   const saveRefreshInterval = async (seconds: number) => {
     setRefreshInterval(seconds);
     await writeLibraryRefreshInterval(seconds);
@@ -218,6 +290,12 @@ export default function Settings() {
     );
   };
 
+  /**
+   * Clear the selected library stores.
+   *
+   * Clear browser data, server data, or both according to the confirmed selection; preserve browser clearing when the server is offline.
+   * @returns {Promise<void>} Resolves after the requested stores are cleared or an error is reported.
+   */
   const clearData = async () => {
     if (!pendingClear) return;
     setIsClearing(true);
@@ -299,7 +377,8 @@ export default function Settings() {
                     ["backend", "Backend preferred"],
                   ] as const
                 ).map(([mode, label]) => (
-                  <button
+                  <Button
+                    variant="ghost"
                     key={mode}
                     type="button"
                     onClick={() => {
@@ -316,7 +395,7 @@ export default function Settings() {
                     className={`border px-2 py-2 text-left font-mono text-[8px] uppercase tracking-[0.06em] ${storageMode === mode ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#697068] hover:bg-[#f9f7f1]"}`}
                   >
                     {label}
-                  </button>
+                  </Button>
                 ))}
               </div>
               <p className="mt-2 text-[11px] leading-5 text-[#767b73]">
@@ -331,7 +410,7 @@ export default function Settings() {
                   <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#858980]">
                     API endpoint
                   </span>
-                  <input
+                  <Input
                     value={serverUrl}
                     onChange={event => setServerUrl(event.target.value)}
                     className="mt-1.5 w-full border-b border-[#cfc9bc] bg-[#f9f7f1] px-2 py-2 font-mono text-[11px] outline-none focus:border-[#e95224]"
@@ -342,14 +421,15 @@ export default function Settings() {
                     API key
                   </span>
                   <div className="relative mt-1.5">
-                    <input
+                    <Input
                       value={apiKey}
                       onChange={event => setApiKey(event.target.value)}
                       type={showApiKey ? "text" : "password"}
                       autoComplete="off"
                       className="w-full border-b border-[#cfc9bc] bg-[#f9f7f1] py-2 pl-2 pr-9 font-mono text-[11px] outline-none focus:border-[#e95224]"
                     />
-                    <button
+                    <Button
+                      variant="ghost"
                       type="button"
                       onClick={() => setShowApiKey(visible => !visible)}
                       aria-label={showApiKey ? "Hide API key" : "Show API key"}
@@ -361,26 +441,28 @@ export default function Settings() {
                       ) : (
                         <Eye className="h-3.5 w-3.5" />
                       )}
-                    </button>
+                    </Button>
                   </div>
                 </label>
               </>
             )}
             <div className="mt-5 flex gap-3">
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => void saveConnection()}
                 disabled={isSaving}
                 className="rounded bg-[#e95224] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-white hover:bg-[#d94a1e] disabled:bg-[#c8c1b6]"
               >
                 {isSaving ? "Saving…" : isBackendMode ? "Save & check" : "Save"}
-              </button>
+              </Button>
               {isBackendMode && (
-                <button
+                <Button
+                  variant="ghost"
                   onClick={() => void refresh()}
                   className="font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:text-[#e95224]"
                 >
                   Check now
-                </button>
+                </Button>
               )}
             </div>
           </section>
@@ -404,12 +486,13 @@ export default function Settings() {
                 <CapabilityIssue
                   capability={blockingSearchCapability(capabilities)}
                 />
-                <button
+                <Button
+                  variant="ghost"
                   onClick={() => setLocation("/dashboard")}
                   className="mt-5 inline-flex items-center gap-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-[#536057] hover:text-[#e95224]"
                 >
                   Review index status →
-                </button>
+                </Button>
               </section>
 
               <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
@@ -428,13 +511,14 @@ export default function Settings() {
                     [3600, "1h"],
                     [14400, "4h"],
                   ].map(([seconds, label]) => (
-                    <button
+                    <Button
+                      variant="ghost"
                       key={String(seconds)}
                       onClick={() => void scheduleHealthCheck(Number(seconds))}
                       className={`border px-2 py-2 font-mono text-[9px] uppercase ${indexStatus?.healthCheck?.intervalSeconds === seconds || (!seconds && !indexStatus?.healthCheck?.enabled) ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
                     >
                       {label}
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 <p className="mt-5 text-[11px] leading-5 text-[#767b73]">
@@ -454,13 +538,14 @@ export default function Settings() {
                 <label
                   className={`mt-5 flex items-center gap-3 border-t border-[#e8e3d8] pt-4 text-[12px] ${indexStatus?.healthCheck?.enabled ? "text-[#4d5c51]" : "text-[#989b94]"}`}
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={Boolean(
                       indexStatus?.healthCheck?.notifyOnNeedsAttention
                     )}
                     disabled={!online || !indexStatus?.healthCheck?.enabled}
-                    onChange={event => void updateAlerts(event.target.checked)}
+                    onCheckedChange={checked =>
+                      void updateAlerts(checked === true)
+                    }
                     className="h-4 w-4 accent-[#e95224]"
                   />
                   Alert when a scheduled check needs attention
@@ -486,22 +571,24 @@ export default function Settings() {
                 </p>
                 <div className="mt-5 grid grid-cols-5 gap-2">
                   {LIBRARY_REFRESH_INTERVALS.map(({ seconds, label }) => (
-                    <button
+                    <Button
+                      variant="ghost"
                       key={String(seconds)}
                       onClick={() => void saveRefreshInterval(seconds)}
                       className={`border px-2 py-2 font-mono text-[9px] uppercase ${refreshInterval === seconds || (!seconds && !refreshInterval) ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
                     >
                       {label}
-                    </button>
+                    </Button>
                   ))}
                 </div>
-                <button
+                <Button
+                  variant="ghost"
                   onClick={() => void refreshLibrary()}
                   disabled={isRefreshingLibrary || !online}
                   className="mt-5 rounded bg-[#e95224] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-white hover:bg-[#d94a1e] disabled:bg-[#c8c1b6]"
                 >
                   {isRefreshingLibrary ? "Refreshing…" : "Refresh library now"}
-                </button>
+                </Button>
               </section>
             </>
           )}
@@ -519,26 +606,29 @@ export default function Settings() {
                 : "Clearing the browser library empties this profile. Storage settings are kept."}
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => setPendingClear("browser")}
                 className="inline-flex items-center gap-1.5 border border-[#ded9cd] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#c95f46] hover:text-[#c95f46]"
               >
                 <Eraser className="h-3.5 w-3.5" /> Clear browser library
-              </button>
+              </Button>
               {isBackendMode && (
                 <>
-                  <button
+                  <Button
+                    variant="ghost"
                     onClick={() => setPendingClear("server")}
                     className="inline-flex items-center gap-1.5 border border-[#ded9cd] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#c95f46] hover:text-[#c95f46]"
                   >
                     <Server className="h-3.5 w-3.5" /> Clear server library
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="ghost"
                     onClick={() => setPendingClear("both")}
                     className="inline-flex items-center gap-1.5 border border-[#c95f46] bg-[#fff0ea] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] text-[#c84b26] hover:bg-[#ffe4d8]"
                   >
                     <Trash2 className="h-3.5 w-3.5" /> Clear both
-                  </button>
+                  </Button>
                 </>
               )}
             </div>
@@ -558,19 +648,21 @@ export default function Settings() {
                     : "."}
                 </p>
                 <div className="mt-4 flex gap-3">
-                  <button
+                  <Button
+                    variant="ghost"
                     onClick={() => void clearData()}
                     disabled={isClearing}
                     className="rounded bg-[#c95f46] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-white hover:bg-[#b4533e] disabled:bg-[#c8c1b6]"
                   >
                     {isClearing ? "Clearing…" : "Confirm clear"}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="ghost"
                     onClick={() => setPendingClear(null)}
                     className="font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:text-[#e95224]"
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}

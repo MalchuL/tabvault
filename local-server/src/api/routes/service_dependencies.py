@@ -48,14 +48,11 @@ def get_custom_property_service(db: SessionDep) -> CustomPropertyService:
 def get_tab_service(db: SessionDep) -> TabService:
     """Build a request-scoped tab service.
 
-    This application-boundary helper configures or protects the FastAPI process while keeping domain
-    use cases in their dedicated services.
-
     Args:
         db (SessionDep): Request-scoped asynchronous database session used by this operation.
 
     Returns:
-        TabService: Result produced by the operation described above.
+        TabService: Tab service bound to the current database session.
     """
     return TabService(
         db,
@@ -67,14 +64,11 @@ def get_tab_service(db: SessionDep) -> TabService:
 def get_group_service(db: SessionDep) -> GroupService:
     """Build a request-scoped group service.
 
-    This application-boundary helper configures or protects the FastAPI process while keeping domain
-    use cases in their dedicated services.
-
     Args:
         db (SessionDep): Request-scoped asynchronous database session used by this operation.
 
     Returns:
-        GroupService: Result produced by the operation described above.
+        GroupService: Group service bound to the current database session.
     """
     return GroupService(db, GroupRepository(db))
 
@@ -82,14 +76,11 @@ def get_group_service(db: SessionDep) -> GroupService:
 def get_tag_service(db: SessionDep) -> TagService:
     """Build a request-scoped tag service.
 
-    This application-boundary helper configures or protects the FastAPI process while keeping domain
-    use cases in their dedicated services.
-
     Args:
         db (SessionDep): Request-scoped asynchronous database session used by this operation.
 
     Returns:
-        TagService: Result produced by the operation described above.
+        TagService: Tag service bound to the current database session.
     """
     return TagService(db, TagRepository(db))
 
@@ -97,14 +88,11 @@ def get_tag_service(db: SessionDep) -> TagService:
 def get_vector_index(request: Request) -> LocalVectorIndex:
     """Return the process-wide local vector index.
 
-    This application-boundary helper configures or protects the FastAPI process while keeping domain
-    use cases in their dedicated services.
-
     Args:
         request (Request): Incoming FastAPI request, including its headers and body.
 
     Returns:
-        LocalVectorIndex: Result produced by the operation described above.
+        LocalVectorIndex: Shared index instance used by search requests.
     """
     return cast(LocalVectorIndex, request.app.state.vectors)
 
@@ -112,15 +100,12 @@ def get_vector_index(request: Request) -> LocalVectorIndex:
 def get_transfer_service(db: SessionDep, settings: SettingsDep) -> TransferService:
     """Build a request-scoped transfer service.
 
-    This application-boundary helper configures or protects the FastAPI process while keeping domain
-    use cases in their dedicated services.
-
     Args:
         db (SessionDep): Request-scoped asynchronous database session used by this operation.
         settings (SettingsDep): Validated process settings that control this component.
 
     Returns:
-        TransferService: Result produced by the operation described above.
+        TransferService: Transfer service bound to the current database session.
     """
     return TransferService(db, settings, TransferRepository(db), JobRepository(db))
 
@@ -130,7 +115,19 @@ def get_search_service(
     vectors: Annotated[LocalVectorIndex, Depends(get_vector_index)],
     custom_properties: Annotated[CustomPropertyService, Depends(get_custom_property_service)],
 ) -> SearchService:
-    """Build the request-scoped search service."""
+    """Build the request-scoped search service.
+
+    Args:
+        db (SessionDep): Request-scoped asynchronous database session.
+        vectors (Annotated[LocalVectorIndex, Depends(get_vector_index)]): Vector index used for
+            semantic search.
+        custom_properties (Annotated[CustomPropertyService, Depends(get_custom_property_service)]):
+            Service that validates library custom properties.
+
+    Returns:
+        SearchService: Search service bound to the current repository, vector index, and property
+            schema.
+    """
     return SearchService(vectors, SearchRepository(db), custom_properties)
 
 
@@ -138,17 +135,41 @@ def get_indexing_service(
     db: SessionDep,
     vectors: Annotated[LocalVectorIndex, Depends(get_vector_index)],
 ) -> IndexingService:
-    """Build the request-scoped indexing service."""
+    """Build the request-scoped indexing service.
+
+    Args:
+        db (SessionDep): Request-scoped asynchronous database session.
+        vectors (Annotated[LocalVectorIndex, Depends(get_vector_index)]): Vector index used for
+            semantic search.
+
+    Returns:
+        IndexingService: Indexing service bound to this request's repository and vector index.
+    """
     return IndexingService(db, vectors, IndexingRepository(db), JobRepository(db))
 
 
 def get_job_service(db: SessionDep) -> JobService:
-    """Build the request-scoped durable-job service."""
+    """Build the request-scoped durable-job service.
+
+    Args:
+        db (SessionDep): Request-scoped asynchronous database session.
+
+    Returns:
+        JobService: Job service bound to this request's repository.
+    """
     return JobService(JobRepository(db))
 
 
 def get_preview_service(db: SessionDep, settings: SettingsDep) -> PreviewQueryService:
-    """Build the request-scoped preview query service."""
+    """Build the request-scoped preview query service.
+
+    Args:
+        db (SessionDep): Request-scoped asynchronous database session.
+        settings (SettingsDep): Validated runtime settings for this operation.
+
+    Returns:
+        PreviewQueryService: Preview query service bound to this request's session and settings.
+    """
     return PreviewQueryService(db, settings, PreviewRepository(db), JobRepository(db))
 
 
@@ -156,5 +177,14 @@ def get_system_service(
     db: SessionDep,
     vectors: Annotated[LocalVectorIndex, Depends(get_vector_index)],
 ) -> SystemService:
-    """Build the request-scoped system metadata service."""
+    """Build the request-scoped system metadata service.
+
+    Args:
+        db (SessionDep): Request-scoped asynchronous database session.
+        vectors (Annotated[LocalVectorIndex, Depends(get_vector_index)]): Vector index used for
+            semantic search.
+
+    Returns:
+        SystemService: System service bound to this request's repository and vector index.
+    """
     return SystemService(vectors, SystemRepository(db))

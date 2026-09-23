@@ -23,6 +23,11 @@ const selectionControls = [
   document.querySelector<HTMLButtonElement>("#use-chrome-selection")!,
 ];
 
+/**
+ * Apply the chosen tab selection and update popup button state.
+ * @param {TabSelectionMode} mode - Relative or Chrome-highlight selection rule.
+ * @returns {void} Updates popup state and visible selection copy.
+ */
 function setSelection(mode: TabSelectionMode) {
   state.mode = mode;
   state.selectedTabs = tabsForSelection(state.allTabs, state.activeTab, mode);
@@ -38,6 +43,10 @@ function setSelection(mode: TabSelectionMode) {
       : "Saving this tab set to a new Session group and closing those tabs.";
 }
 
+/**
+ * Show how many current-window tabs each selection mode would include.
+ * @returns {void} Updates the selection controls' count labels.
+ */
 function updateSelectionCounts() {
   document
     .querySelectorAll<HTMLElement>("[data-selection-count]")
@@ -51,6 +60,10 @@ function updateSelectionCounts() {
     });
 }
 
+/**
+ * Read current-window tabs and initialize popup selection from them.
+ * @returns {Promise<void>} Resolves after controls reflect the browser window.
+ */
 async function loadTabs() {
   const tabs = await chrome.tabs.query({ currentWindow: true });
   state.allTabs = tabs.filter(tab => Boolean(tab.id));
@@ -60,6 +73,10 @@ async function loadTabs() {
   setSelection("all");
 }
 
+/**
+ * Open the extension side panel for the active browser window.
+ * @returns {Promise<void>} Resolves after opening or if no active window exists.
+ */
 async function openWorkspace() {
   const [activeTab] = await chrome.tabs.query({
     active: true,
@@ -70,6 +87,10 @@ async function openWorkspace() {
   window.close();
 }
 
+/**
+ * Open the full workspace in a browser tab and close the popup.
+ * @returns {Promise<void>} Resolves after Chrome creates the tab.
+ */
 async function openWorkspacePage() {
   await chrome.tabs.create({
     url: chrome.runtime.getURL("index.html?view=tab"),
@@ -78,6 +99,12 @@ async function openWorkspacePage() {
   window.close();
 }
 
+/**
+ * Request archive-first capture of selected tabs from the background worker.
+ * Controls stay disabled during the request and are restored on failure;
+ * success reports saved and closed counts before dismissing the popup.
+ * @returns {Promise<void>} Resolves after reporting the capture outcome.
+ */
 async function saveAndClose() {
   if (!state.selectedTabs.length) return;
   selectionControls.forEach(button => (button.disabled = true));

@@ -1,5 +1,8 @@
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { useEffect, useMemo, useState } from "react";
-import { ContextHelp } from "@/components/ContextHelp";
+import { ContextHelp } from "@/components/shared/ContextHelp";
 import {
   buildAdvancedDedupePlan,
   type AdvancedDedupeOptions,
@@ -15,12 +18,12 @@ import {
 } from "@/domain/deduplication/execution";
 import type { PersistedVault, VaultTab } from "@/domain/library/types";
 import { useLibrary } from "@/domain/library/library-context";
+import { updateTabOnLocalServer } from "@/domain/server/libraryApi";
 import {
   readApiKey,
   readLocalServerUrl,
   readStorageMode,
-  updateTabOnLocalServer,
-} from "@/domain/server/synchronization";
+} from "@/domain/server/browserStorage";
 
 const DEFAULT_OPTIONS: AdvancedDedupeOptions = {
   survivor: "OLDEST_CREATED",
@@ -49,6 +52,12 @@ const OPTION_HELP: Record<string, string> = {
   INTERSECTION: "Keep only tags that appear on every Saved Tab in the cluster.",
 };
 
+/**
+ * Select active, currently visible tabs as duplicate candidates.
+ * Archived tabs and tabs hidden until a future instant are left untouched.
+ * @param {PersistedVault} vault - Current browser library.
+ * @returns {VaultTab[]} Tabs eligible for duplicate planning.
+ */
 function visibleTabs(vault: PersistedVault) {
   const now = Date.now();
   return vault.tabs.filter(
@@ -57,6 +66,14 @@ function visibleTabs(vault: PersistedVault) {
   );
 }
 
+/**
+ * Mirror one completed server mutation into browser state.
+ * Duplicate tabs are archived and removed from every order bucket; survivor
+ * patches preserve their existing placement.
+ * @param {PersistedVault} vault - Current browser library.
+ * @param {DedupeMutation} mutation - Successfully persisted dedupe change.
+ * @returns {PersistedVault} Updated local library snapshot.
+ */
 function applyMutation(vault: PersistedVault, mutation: DedupeMutation) {
   const now = new Date().toISOString();
   const tabs = vault.tabs.map(tab =>
@@ -84,6 +101,12 @@ function applyMutation(vault: PersistedVault, mutation: DedupeMutation) {
   return { ...vault, tabs, tabOrders };
 }
 
+/**
+ * Review and execute duplicate plans against visible saved tabs.
+ * Keeps the selected plan fixed while mutations run so UI option changes
+ * cannot alter the in-flight operation.
+ * @returns {JSX.Element} Dedupe options, preview, and execution results.
+ */
 export default function Deduplicator() {
   const { vault, dispatch } = useLibrary();
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
@@ -104,6 +127,12 @@ export default function Deduplicator() {
   }, [candidates, options]);
   const plan = fixedPlan ?? generatedPlan;
 
+  /**
+   * Apply the selected deduplication plan.
+   *
+   * Run the plan against the current library and report the mutation result.
+   * @returns {Promise<void>} Resolves after the deduplication attempt.
+   */
   const execute = async () => {
     if (!plan) return;
     setRunning(true);
@@ -211,7 +240,7 @@ export default function Deduplicator() {
             <label htmlFor="concat-separator" className="text-xs font-semibold">
               CONCAT separator
             </label>
-            <input
+            <Input
               id="concat-separator"
               value={options.separator}
               onChange={event =>
@@ -239,7 +268,7 @@ export default function Deduplicator() {
             )}{" "}
             to archive
           </p>
-          <button
+          <Button
             disabled={running || !plan.clusters.length}
             onClick={() => void execute()}
             className="bg-[#e95224] px-4 py-2 text-sm font-bold text-white disabled:opacity-45"
@@ -249,7 +278,7 @@ export default function Deduplicator() {
               : fixedPlan
                 ? "Retry fixed plan"
                 : "Apply this plan"}
-          </button>
+          </Button>
         </div>
         {result && (
           <div className="mt-3 flex items-center gap-3">
@@ -260,7 +289,8 @@ export default function Deduplicator() {
               Re-running the same fixed plan is safe.
             </p>
             {fixedPlan && (
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => {
                   setFixedPlan(undefined);
                   setResult(undefined);
@@ -268,7 +298,7 @@ export default function Deduplicator() {
                 className="font-mono text-[9px] uppercase text-[#687067] underline"
               >
                 Discard fixed plan
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -305,6 +335,11 @@ export default function Deduplicator() {
   );
 }
 
+/**
+ * Render one dedupe rule selector with contextual explanation of its value.
+ * @param {{ label: string; value: string; values: readonly string[]; onChange: (value: string) => void }} props - Rule label, options, selection, and change action.
+ * @returns {JSX.Element} Labeled selector and help marker.
+ */
 function Choice({
   label,
   value,
@@ -328,7 +363,7 @@ function Choice({
       >
         {label}
       </label>
-      <select
+      <NativeSelect
         id={`dedupe-${label.toLowerCase().replaceAll(" ", "-")}`}
         aria-label={label}
         value={value}
@@ -338,7 +373,7 @@ function Choice({
         {values.map(item => (
           <option key={item}>{item}</option>
         ))}
-      </select>
+      </NativeSelect>
       <ContextHelp
         title={`${label}: ${value.replaceAll("_", " ")}`}
         side="left"

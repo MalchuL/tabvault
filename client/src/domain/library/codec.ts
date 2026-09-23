@@ -1,4 +1,4 @@
-/** Schema-v2 browser persistence and server transfer conversion. */
+/** Schema-v3 browser persistence and server transfer conversion. */
 import type {
   PersistedVault,
   CustomPropertySchema,
@@ -29,10 +29,22 @@ export const DEFAULT_PROPERTY_SCHEMA: CustomPropertySchema = {
 
 const HAS_TIMEZONE = /[zZ]|[+-]\d{2}:?\d{2}$/;
 
+/**
+ * Map an optional group ID to the matching tab-order bucket.
+ * @param {string | null} groupId - Owning group, or null for unassigned tabs.
+ * @returns {string} Group ID or the shared unassigned-order key.
+ */
 export function orderKey(groupId: string | null) {
   return groupId ?? UNASSIGNED_ORDER_KEY;
 }
 
+/**
+ * Normalize stored timestamps to UTC for server transfer.
+ * Values without a timezone are interpreted as UTC; unparseable values retain
+ * their source text, with a UTC suffix added only if one was missing.
+ * @param {string} value - Timestamp from browser or server storage.
+ * @returns {string} ISO UTC timestamp, or the source value with a UTC suffix if needed.
+ */
 export function utcTimestamp(value: string): string {
   const instant = HAS_TIMEZONE.test(value) ? value : `${value}Z`;
   const parsed = Date.parse(instant);
@@ -40,14 +52,29 @@ export function utcTimestamp(value: string): string {
   return new Date(parsed).toISOString();
 }
 
+/**
+ * Normalize a timestamp only when the source value is a string.
+ * @param {unknown} value - Untrusted timestamp field.
+ * @param {string} fallback - Timestamp to use when the field is absent or invalid in type.
+ * @returns {string} Normalized timestamp or the provided fallback.
+ */
 function utcTimestampOrFallback(value: unknown, fallback: string): string {
   return typeof value === "string" ? utcTimestamp(value) : fallback;
 }
 
+/**
+ * Preserve an optional timestamp without inventing a date for missing values.
+ * @param {unknown} value - Untrusted optional timestamp field.
+ * @returns {string | null} Normalized timestamp, or null for a non-string value.
+ */
 function utcTimestampOrNull(value: unknown): string | null {
   return typeof value === "string" ? utcTimestamp(value) : null;
 }
 
+/**
+ * Create the initial schema-v3 browser library with an unassigned order bucket.
+ * @returns {PersistedVault} Empty library ready for local persistence.
+ */
 export function emptyBrowserVault(): PersistedVault {
   return {
     schemaVersion: 3,
@@ -62,14 +89,31 @@ export function emptyBrowserVault(): PersistedVault {
   };
 }
 
+/**
+ * Narrow unknown JSON input to a non-array object.
+ * @param {unknown} value - Value from storage or a server payload.
+ * @returns {boolean} Whether string-keyed fields can be inspected safely.
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Check an untrusted value for the string-array shape used by orders and tombstones.
+ * @param {unknown} value - Value to inspect.
+ * @returns {boolean} Whether every array element is a string.
+ */
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(item => typeof item === "string");
 }
 
+/**
+ * Validate the browser vault shape before treating stored JSON as schema v3.
+ * Rejects obsolete hierarchy and URL fields that would reintroduce removed
+ * storage semantics. Optional preferences and tombstones are checked when present.
+ * @param {unknown} value - Untrusted browser-storage value.
+ * @returns {boolean} Whether the value has the supported persisted shape.
+ */
 export function isPersistedVault(value: unknown): value is PersistedVault {
   if (
     !isRecord(value) ||
@@ -162,6 +206,13 @@ export function isPersistedVault(value: unknown): value is PersistedVault {
   );
 }
 
+/**
+ * Accept schema v3 or migrate a compatible schema-v2 browser vault.
+ * Migration copies tab viewed state into the custom-property record and
+ * validates the result; unsupported or malformed input remains unreadable.
+ * @param {unknown} value - Untrusted persisted library.
+ * @returns {PersistedVault | null} Valid library, or null when migration cannot succeed.
+ */
 export function migratePersistedVault(value: unknown): PersistedVault | null {
   if (isPersistedVault(value)) return value;
   if (
@@ -189,7 +240,12 @@ export function migratePersistedVault(value: unknown): PersistedVault | null {
   return isPersistedVault(migrated) ? migrated : null;
 }
 
-function domainFromUrl(value: string) {
+/**
+ * Extract a display domain while retaining a useful label for malformed URLs.
+ * @param {string} value - Stored tab URL, which may be invalid.
+ * @returns {string} Host without `www.`, or a best-effort text label.
+ */
+export function domainFromUrl(value: string): string {
   try {
     return new URL(value).hostname.replace(/^www\./, "");
   } catch {
@@ -197,6 +253,13 @@ function domainFromUrl(value: string) {
   }
 }
 
+/**
+ * Convert browser library state to the schema-v3 server transfer shape.
+ * Group and tab positions follow local order; archived tabs are unassigned in
+ * the transfer record so they cannot reappear in an active group.
+ * @param {PersistedVault} vault - Valid local browser library.
+ * @returns {Record<string, unknown>} Portable document for the import API.
+ */
 export function toServerDocument(
   vault: PersistedVault
 ): Record<string, unknown> {
@@ -236,6 +299,16 @@ export function toServerDocument(
   };
 }
 
+/**
+ * Convert a server sync document into browser storage without losing local preferences.
+ * Schema-v2 documents are upgraded, local tombstones suppress remotely retained
+ * deletions, and tabs are ordered by their server positions before order buckets
+ * are rebuilt. Invalid schema versions fail instead of replacing local data.
+ * @param {Record<string, unknown>} document - Server sync payload.
+ * @param {Pick<PersistedVault, "savedSearches" | "tabView" | "tombstones">} preferences - Local-only preferences and pending deletions to preserve.
+ * @returns {PersistedVault} Browser library ready for persistence.
+ * @throws {Error} When the server document has an unsupported schema version.
+ */
 export function fromServerDocument(
   document: Record<string, unknown>,
   preferences: Pick<PersistedVault, "savedSearches" | "tabView" | "tombstones">

@@ -47,7 +47,7 @@ def uuid4() -> str:
     around the model, while repositories load and mutate it inside request-scoped transactions.
 
     Returns:
-        str: Result produced by the operation described above.
+        str: New UUID string suitable for a model primary key.
     """
     return str(uuid.uuid4())
 
@@ -68,10 +68,10 @@ class Group(Base):
 
     Attributes:
         id (Mapped[str]): Stable identifier for this record.
-        name (Mapped[str]): Typed name value carried by this object.
+        name (Mapped[str]): Human-readable name of this record.
         description (Mapped[str]): Optional human-readable explanatory text.
         category (Mapped[str]): Free-form Group category, such as ``session`` or ``manual``.
-        color (Mapped[str | None]): Typed color value carried by this object.
+        color (Mapped[str | None]): Optional accent color displayed in the library.
         position (Mapped[float]): Stable display position within the current Group or Unassigned
             section.
         created_at (Mapped[datetime]): UTC instant at which the record was created.
@@ -168,7 +168,7 @@ class Tag(Base):
     around the model, while repositories load and mutate it inside request-scoped transactions.
 
     Attributes:
-        name (Mapped[str]): Typed name value carried by this object.
+        name (Mapped[str]): Human-readable name of this record.
         description (Mapped[str | None]): Optional human-readable explanatory text.
         created_at (Mapped[datetime]): UTC instant at which the record was created.
         updated_at (Mapped[datetime]): UTC instant at which the record was last changed.
@@ -189,11 +189,11 @@ class Asset(Base):
 
     Attributes:
         id (Mapped[str]): Stable identifier for this record.
-        kind (Mapped[AssetKind]): Typed kind value carried by this object.
-        path (Mapped[str]): Typed path value carried by this object.
-        content_type (Mapped[str]): Typed content type value carried by this object.
-        size_bytes (Mapped[int]): Typed size bytes value carried by this object.
-        checksum (Mapped[str]): Typed checksum value carried by this object.
+        kind (Mapped[AssetKind]): Record kind used to select the processing path.
+        path (Mapped[str]): Path to the stored asset or backup file.
+        content_type (Mapped[str]): MIME type of the captured content.
+        size_bytes (Mapped[int]): Size of the stored file in bytes.
+        checksum (Mapped[str]): Content hash used to deduplicate captured assets.
         source_url (Mapped[str | None]): URL used for source.
         created_at (Mapped[datetime]): UTC instant at which the record was created.
     """
@@ -219,13 +219,13 @@ class Preview(Base):
         tab_id (Mapped[str]): Stable identifier of the related tab.
         status (Mapped[PreviewStatus]): Current lifecycle or readiness state.
         title (Mapped[str | None]): Human-readable title.
-        byline (Mapped[str | None]): Typed byline value carried by this object.
-        site_name (Mapped[str | None]): Typed site name value carried by this object.
-        excerpt (Mapped[str | None]): Typed excerpt value carried by this object.
-        content_html (Mapped[str | None]): Typed content html value carried by this object.
-        length (Mapped[int]): Typed length value carried by this object.
+        byline (Mapped[str | None]): Article author or byline, when extracted.
+        site_name (Mapped[str | None]): Site name extracted from page metadata.
+        excerpt (Mapped[str | None]): Short text excerpt extracted from the page.
+        content_html (Mapped[str | None]): Sanitized article HTML ready for local preview.
+        length (Mapped[int]): Length of extracted article content.
         source_url (Mapped[str | None]): URL used for source.
-        error (Mapped[str | None]): Typed error value carried by this object.
+        error (Mapped[str | None]): Failure detail, or None before a failure.
         fetched_at (Mapped[datetime | None]): UTC instant associated with fetched.
     """
 
@@ -251,12 +251,12 @@ class Job(Base):
 
     Attributes:
         id (Mapped[str]): Stable identifier for this record.
-        kind (Mapped[JobKind]): Typed kind value carried by this object.
+        kind (Mapped[JobKind]): Record kind used to select the processing path.
         target_id (Mapped[str | None]): Stable identifier of the related target.
         status (Mapped[JobStatus]): Current lifecycle or readiness state.
-        progress (Mapped[float]): Typed progress value carried by this object.
-        result (Mapped[dict[str, Any] | None]): Typed result value carried by this object.
-        error (Mapped[str | None]): Typed error value carried by this object.
+        progress (Mapped[float]): Job completion fraction between zero and one.
+        result (Mapped[dict[str, Any] | None]): Structured job result after completion.
+        error (Mapped[str | None]): Failure detail, or None before a failure.
         created_at (Mapped[datetime]): UTC instant at which the record was created.
         updated_at (Mapped[datetime]): UTC instant at which the record was last changed.
     """
@@ -281,9 +281,9 @@ class Backup(Base):
 
     Attributes:
         id (Mapped[str]): Stable identifier for this record.
-        path (Mapped[str]): Typed path value carried by this object.
-        reason (Mapped[BackupReason]): Typed reason value carried by this object.
-        size_bytes (Mapped[int]): Typed size bytes value carried by this object.
+        path (Mapped[str]): Path to the stored asset or backup file.
+        reason (Mapped[BackupReason]): Cause that triggered creation of the backup.
+        size_bytes (Mapped[int]): Size of the stored file in bytes.
         created_at (Mapped[datetime]): UTC instant at which the record was created.
     """
 
@@ -303,7 +303,7 @@ class Tombstone(Base):
 
     Attributes:
         id (Mapped[int]): Stable identifier for this record.
-        entity_type (Mapped[TombstoneType]): Typed entity type value carried by this object.
+        entity_type (Mapped[TombstoneType]): Type of deleted record protected by this tombstone.
         entity_id (Mapped[str]): Stable identifier of the related entity.
         deleted_at (Mapped[datetime]): UTC instant associated with deleted.
     """
@@ -324,12 +324,12 @@ class HealthSchedule(Base):
 
     Attributes:
         id (Mapped[int]): Stable identifier for this record.
-        interval_seconds (Mapped[int]): Typed interval seconds value carried by this object.
-        notify_on_needs_attention (Mapped[bool]): Typed notify on needs attention value carried by
-            this object.
-        last_check (Mapped[datetime | None]): Typed last check value carried by this object.
-        last_result (Mapped[HealthResult | None]): Typed last result value carried by this object.
-        last_alert (Mapped[datetime | None]): Typed last alert value carried by this object.
+        interval_seconds (Mapped[int]): Seconds between index health checks; zero disables checks.
+        notify_on_needs_attention (Mapped[bool]): Whether health checks should request an alert
+            when the index needs attention.
+        last_check (Mapped[datetime | None]): UTC instant of the most recent health check.
+        last_result (Mapped[HealthResult | None]): Outcome of the most recent health check.
+        last_alert (Mapped[datetime | None]): UTC instant of the most recent health alert.
     """
 
     __tablename__ = "health_schedule"

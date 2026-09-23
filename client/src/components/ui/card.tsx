@@ -2,6 +2,11 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
+/**
+ * Render the card surface and its vertical content layout.
+ * @param {React.ComponentProps<"div">} props - Component properties and children.
+ * @returns {React.ReactElement} Card container.
+ */
 function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -15,6 +20,11 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/**
+ * Arrange a card heading and optional action in the header grid.
+ * @param {React.ComponentProps<"div">} props - Component properties and children.
+ * @returns {React.ReactElement} Card header.
+ */
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -28,6 +38,11 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/**
+ * Render the card title with heading emphasis.
+ * @param {React.ComponentProps<"div">} props - Component properties and children.
+ * @returns {React.ReactElement} Card title.
+ */
 function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -38,6 +53,11 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/**
+ * Render subdued supporting text in a card.
+ * @param {React.ComponentProps<"div">} props - Component properties and children.
+ * @returns {React.ReactElement} Card description.
+ */
 function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -48,6 +68,11 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/**
+ * Place an optional action beside the card heading.
+ * @param {React.ComponentProps<"div">} props - Component properties and children.
+ * @returns {React.ReactElement} Card header action.
+ */
 function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -61,6 +86,11 @@ function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/**
+ * Apply the card body inset to arbitrary content.
+ * @param {React.ComponentProps<"div">} props - Component properties and children.
+ * @returns {React.ReactElement} Card body.
+ */
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -71,6 +101,11 @@ function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/**
+ * Align card actions and content below the body.
+ * @param {React.ComponentProps<"div">} props - Component properties and children.
+ * @returns {React.ReactElement} Card footer.
+ */
 function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div

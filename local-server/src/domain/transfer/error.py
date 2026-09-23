@@ -13,13 +13,21 @@ class BackupNotFoundError(SystemDomainError):
 
 
 class ImportValidationError(SystemDomainError):
-    """Portable-document validation failed."""
+    """Portable-document validation failed.
+
+    Attributes:
+        errors (list[IssueDTO]): Validation issues exposed to the API error renderer.
+    """
 
     code = "E_IMPORT_VALIDATION"
     status_code = 422
     path = "body"
 
     def __init__(self, errors: list[IssueDTO]) -> None:
-        """Retain all validation issues for the API error response."""
+        """Retain all validation issues for the API error response.
+
+        Args:
+            errors (list[IssueDTO]): Validation issues carried by the import exception.
+        """
         super().__init__("Import validation failed")
         self.errors = errors

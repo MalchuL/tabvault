@@ -12,7 +12,8 @@ export const LibraryContext = createContext<LibraryContextValue | null>(null);
 /**
  * Read and mutate the current schema-v3 library.
  *
- * @returns The provider-owned vault and reducer dispatch function.
+ * @returns {LibraryContextValue} The provider-owned vault and reducer dispatch function.
+ * @throws {Error} When used outside LibraryProvider.
  */
 export function useLibrary(): LibraryContextValue {
   const value = useContext(LibraryContext);

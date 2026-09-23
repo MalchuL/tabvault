@@ -16,6 +16,14 @@ class LocalVectorIndex:
     The operation belongs to the optional local semantic-search adapter. Blocking model or index
     work is isolated from the asyncio event loop, and readiness failures are surfaced to the system
     service rather than hidden.
+
+    Attributes:
+        settings (Settings): Validated process settings shared for this instance lifetime.
+        path (Path): Local directory containing the persistent vector collection.
+        _model (Any): Embedding model loaded lazily on first index or search operation.
+        _collection (Any): Vector collection opened lazily and reused for later operations.
+        last_error (str | None): Latest vector-index failure, cleared after successful work.
+        indexed_count (int): Number of documents in the most recently observed index state.
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -43,7 +51,7 @@ class LocalVectorIndex:
         system service rather than hidden.
 
         Returns:
-            Any: Result produced by the operation described above.
+            Any: Cached sentence embedding model.
         """
         if self._model is None:
             from sentence_transformers import SentenceTransformer
@@ -66,7 +74,7 @@ class LocalVectorIndex:
             recreate (bool): Whether existing local state is replaced before opening it.
 
         Returns:
-            Any: Result produced by the operation described above.
+            Any: Existing or newly created persistent vector collection.
         """
         import zvec
 
@@ -102,7 +110,7 @@ class LocalVectorIndex:
             documents (list[tuple[str, str]]): Tab identifiers paired with text to embed and index.
 
         Returns:
-            int: Result produced by the operation described above.
+            int: Number of documents indexed in the replacement collection.
         """
         import zvec
 
@@ -138,7 +146,7 @@ class LocalVectorIndex:
             documents (list[tuple[str, str]]): Tab identifiers paired with text to embed and index.
 
         Returns:
-            int: Result produced by the operation described above.
+            int: Number of documents indexed after the worker finishes.
         """
         try:
             self.indexed_count = await asyncio.to_thread(self._rebuild_sync, documents)
@@ -160,7 +168,7 @@ class LocalVectorIndex:
             limit (int): Maximum number of matching records to return.
 
         Returns:
-            list[tuple[str, float]]: Result produced by the operation described above.
+            list[tuple[str, float]]: Document IDs paired with similarity scores, ranked by the vector store.
         """
         model = self._load_model()
         vector = model.encode([query], normalize_embeddings=True)[0].tolist()
@@ -194,7 +202,7 @@ class LocalVectorIndex:
             limit (int): Maximum number of matching records to return.
 
         Returns:
-            list[tuple[str, float]]: Result produced by the operation described above.
+            list[tuple[str, float]]: Ranked document IDs paired with similarity scores.
         """
         try:
             result = await asyncio.to_thread(self._search_sync, query, limit)
@@ -212,7 +220,7 @@ class LocalVectorIndex:
         system service rather than hidden.
 
         Returns:
-            VectorStatusDTO: Result produced by the operation described above.
+            VectorStatusDTO: Readiness, model, and indexed-document count.
         """
         return VectorStatusDTO(
             status="ready" if self.indexed_count and not self.last_error else "not_ready",

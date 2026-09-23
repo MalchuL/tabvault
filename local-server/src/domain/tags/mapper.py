@@ -23,11 +23,11 @@ class TagMapper:
         transfer records.
 
         Args:
-            tag (Tag): Tag value consumed by this operation.
-            count (int): Count value consumed by this operation.
+            tag (Tag): Tag row being converted or persisted.
+            count (int): Number of records processed in this batch.
 
         Returns:
-            TagDTO: Result produced by the operation described above.
+            TagDTO: Serializable tag fields and usage count.
         """
         return TagDTO(
             name=tag.name,
@@ -50,7 +50,7 @@ class TagMapper:
             dto (TagUpsertDTO): Validated data-transfer object supplied to the operation.
 
         Returns:
-            Tag: Result produced by the operation described above.
+            Tag: Unsaved tag model initialized from the request.
         """
         return Tag(name=name, description=dto.description)
 
@@ -66,6 +66,6 @@ class TagMapper:
             dto (TagUpsertDTO): Validated data-transfer object supplied to the operation.
 
         Returns:
-            dict[str, object]: Result produced by the operation described above.
+            dict[str, object]: Supplied tag fields keyed by ORM attribute name.
         """
         return {"description": dto.description, "updated_at": utc_now()}

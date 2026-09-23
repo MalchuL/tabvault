@@ -29,7 +29,16 @@ router = APIRouter(tags=["transfer"])
 async def backups(
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
 ) -> SuccessResponseDTO[BackupListDataDTO]:
-    """List backup snapshots."""
+    """List backup snapshots.
+
+    Args:
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped
+            transfer service for import, export, and backup operations.
+
+    Returns:
+        SuccessResponseDTO[BackupListDataDTO]: Response envelope containing the backup list
+            data.
+    """
     return success(BackupListDataDTO(backups=await transfer.backups()))
 
 
@@ -43,7 +52,17 @@ async def restore_backup(
     request: Request,
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
 ) -> SuccessResponseDTO[JobQueuedDTO]:
-    """Queue restoration of a backup snapshot."""
+    """Queue restoration of a backup snapshot.
+
+    Args:
+        backup_id (str): Identifier of the backup to restore.
+        request (Request): Incoming HTTP request.
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped
+            transfer service for import, export, and backup operations.
+
+    Returns:
+        SuccessResponseDTO[JobQueuedDTO]: Response envelope containing the job queued.
+    """
     result = await transfer.queue_restore(backup_id)
     request.app.state.worker.wake()
     return success(result)
@@ -53,7 +72,15 @@ async def restore_backup(
 async def clear_library(
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
 ) -> SuccessResponseDTO[LibraryClearDTO]:
-    """Back up and clear all library records atomically."""
+    """Back up and clear all library records atomically.
+
+    Args:
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped
+            transfer service for import, export, and backup operations.
+
+    Returns:
+        SuccessResponseDTO[LibraryClearDTO]: Response envelope containing the library clear.
+    """
     return success(await transfer.clear_library())
 
 
@@ -64,7 +91,18 @@ async def export_data(
     scope: str = "all",
     fields: ExportFields = "full",
 ) -> Response:
-    """Export the library as portable JSON or Markdown."""
+    """Export the library as portable JSON or Markdown.
+
+    Args:
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped
+            transfer service for import, export, and backup operations.
+        format (TransferFormat): Requested import or export format.
+        scope (str): Subset of library records to import or export.
+        fields (ExportFields): Requested response fields for a projection.
+
+    Returns:
+        Response: HTTP response containing the requested transfer result.
+    """
     result = await transfer.export(format, scope, fields)
     suffix = format if format == "json" else "md"
     headers = {
@@ -82,11 +120,35 @@ async def export_data(
 async def sync_document(
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
 ) -> JSONResponse:
-    """Return the complete schema-v3 synchronization document."""
+    """Return the complete schema-v3 synchronization document.
+
+    Args:
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped
+            transfer service for import, export, and backup operations.
+
+    Returns:
+        JSONResponse: JSON response containing the synchronized document.
+    """
     return JSONResponse(json_data(await transfer.document()))
 
 
 async def _import_body(request: Request) -> tuple[object, TransferFormat]:
+    """Decode a direct import body or extract content from a JSON envelope.
+
+    JSON objects with ``mode``, ``format``, and ``content`` are treated as envelopes;
+    other JSON values are passed through as import content. Non-JSON bodies are
+    decoded as Markdown. The import route validates the selected mode separately.
+
+    Args:
+        request (Request): Incoming request whose content type and body select the format.
+
+    Returns:
+        tuple[object, TransferFormat]: Import content and its detected format.
+
+    Raises:
+        UnicodeDecodeError: A Markdown body cannot be decoded as UTF-8.
+        json.JSONDecodeError: A JSON body is malformed.
+    """
     content_type = request.headers.get("content-type", "").split(";", 1)[0]
     raw = await request.body()
     if content_type == "text/markdown":
@@ -106,7 +168,18 @@ async def import_data(
     mode: ImportMode | None = None,
     scope: str = "all",
 ) -> Response:
-    """Validate and apply an imported library document."""
+    """Validate and apply an imported library document.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped
+            transfer service for import, export, and backup operations.
+        mode (ImportMode | None): Selected search or import mode.
+        scope (str): Subset of library records to import or export.
+
+    Returns:
+        Response: HTTP response containing the requested transfer result.
+    """
     content, format = await _import_body(request)
     if mode is None:
         try:
@@ -139,7 +212,16 @@ async def validate_import(
     request: Request,
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
 ) -> Response:
-    """Validate an import without applying it."""
+    """Validate an import without applying it.
+
+    Args:
+        request (Request): Incoming HTTP request.
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped
+            transfer service for import, export, and backup operations.
+
+    Returns:
+        Response: HTTP response containing the requested transfer result.
+    """
     content, format = await _import_body(request)
     result = await transfer.validate(content, format)
     body = success(result) if result.valid else failure(result.errors, result.warnings)

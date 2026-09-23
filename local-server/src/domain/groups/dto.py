@@ -17,10 +17,10 @@ class GroupCreateDTO(DTO):
     DTO configuration serializes public field names in camelCase and rejects unknown input fields.
 
     Attributes:
-        name (str): Typed name value carried by this object.
+        name (str): Human-readable name of this record.
         category (str): Free-form Group category, such as ``session`` or ``manual``.
         description (str | None): Optional human-readable explanatory text.
-        color (str | None): Typed color value carried by this object.
+        color (str | None): Optional accent color displayed in the library.
         position (float | None): Stable display position within the current Group or Unassigned
             section.
         id (str | None): Stable identifier for this record.
@@ -45,10 +45,10 @@ class GroupUpdateDTO(BaseModel):
     DTO configuration serializes public field names in camelCase and rejects unknown input fields.
 
     Attributes:
-        name (str | None): Typed name value carried by this object.
+        name (str | None): Human-readable name of this record.
         category (str | None): Free-form Group category, such as ``session`` or ``manual``.
         description (str | None): Optional human-readable explanatory text.
-        color (str | None): Typed color value carried by this object.
+        color (str | None): Optional accent color displayed in the library.
         position (float | None): Stable display position within the current Group or Unassigned
             section.
     """
@@ -69,10 +69,10 @@ class GroupDTO(DTO):
 
     Attributes:
         id (str): Stable identifier for this record.
-        name (str): Typed name value carried by this object.
+        name (str): Human-readable name of this record.
         category (str): Free-form Group category, such as ``session`` or ``manual``.
         description (str): Optional human-readable explanatory text.
-        color (str | None): Typed color value carried by this object.
+        color (str | None): Optional accent color displayed in the library.
         position (float): Stable display position within the current Group or Unassigned section.
         created_at (datetime): UTC instant at which the record was created.
         updated_at (datetime): UTC instant at which the record was last changed.

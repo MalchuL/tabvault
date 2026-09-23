@@ -3,6 +3,11 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 
 import { cn } from "@/lib/utils";
 
+/**
+ * Configure tooltip timing for descendant triggers.
+ * @param {React.ComponentProps<typeof TooltipPrimitive.Provider>} props - Component properties and children.
+ * @returns {React.ReactElement} Tooltip provider.
+ */
 function TooltipProvider({
   delayDuration = 0,
   ...props
@@ -16,6 +21,11 @@ function TooltipProvider({
   );
 }
 
+/**
+ * Give each tooltip its own Radix provider and root.
+ * @param {React.ComponentProps<typeof TooltipPrimitive.Root>} props - Component properties and children.
+ * @returns {React.ReactElement} Tooltip root.
+ */
 function Tooltip({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
@@ -26,12 +36,22 @@ function Tooltip({
   );
 }
 
+/**
+ * Expose the interactive element that opens a tooltip.
+ * @param {React.ComponentProps<typeof TooltipPrimitive.Trigger>} props - Component properties and children.
+ * @returns {React.ReactElement} Tooltip trigger.
+ */
 function TooltipTrigger({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
   return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
 }
 
+/**
+ * Portal tooltip content with shared styling and an arrow.
+ * @param {React.ComponentProps<typeof TooltipPrimitive.Content>} props - Component properties and children.
+ * @returns {React.ReactElement} Positioned tooltip content.
+ */
 function TooltipContent({
   className,
   sideOffset = 0,

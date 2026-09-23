@@ -10,7 +10,14 @@ class IndexingMapper:
 
     @staticmethod
     def schedule(schedule: HealthSchedule) -> HealthScheduleDTO:
-        """Convert a schedule row to its wire DTO."""
+        """Convert a schedule row to its wire DTO.
+
+        Args:
+            schedule (HealthSchedule): Current persisted health-check schedule.
+
+        Returns:
+            HealthScheduleDTO: Configured interval and latest check or alert state.
+        """
         return HealthScheduleDTO(
             enabled=schedule.interval_seconds > 0,
             interval_seconds=schedule.interval_seconds,

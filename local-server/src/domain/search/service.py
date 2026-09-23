@@ -25,7 +25,14 @@ from .repository import SearchRepository
 
 
 class SearchService:
-    """Search active tabs using keyword and optional vector scores."""
+    """Search active tabs using keyword and optional vector scores.
+
+    Attributes:
+        vectors (LocalVectorIndex): Shared local vector index used for semantic search and indexing.
+        repository (SearchRepository): Persistence adapter retained for this service instance.
+        custom_properties (CustomPropertyService): Service that validates the current library property schema.
+        mapper (TabMapper): Stateless converter between ORM rows and API DTOs.
+    """
 
     def __init__(
         self,
@@ -33,7 +40,14 @@ class SearchService:
         repository: SearchRepository,
         custom_properties: CustomPropertyService,
     ) -> None:
-        """Initialize search dependencies."""
+        """Initialize search dependencies.
+
+        Args:
+            vectors (LocalVectorIndex): Vector index used for semantic search.
+            repository (SearchRepository): Persistence adapter used by this service.
+            custom_properties (CustomPropertyService): Service that validates library custom
+                properties.
+        """
         self.vectors = vectors
         self.repository = repository
         self.custom_properties = custom_properties
@@ -49,7 +63,25 @@ class SearchService:
         min_score: float,
         property_filters: list[PropertyFilterDTO] | None = None,
     ) -> SearchResultDTO:
-        """Filter and score matching active tabs."""
+        """Filter and score matching active tabs.
+
+        Args:
+            query (str): Search text or structured search request.
+            mode (SearchMode): Selected search or import mode.
+            limit (int): Maximum number of results to return.
+            group_id (str | None): Collection ID or null for Unassigned.
+            tags (list[str]): Tag filters or associations for the operation.
+            min_score (float): Lowest semantic similarity score accepted.
+            property_filters (list[PropertyFilterDTO] | None): Custom-property predicates
+                applied to matching tabs.
+
+        Returns:
+            SearchResultDTO: Ranked or structured search results.
+
+        Raises:
+            InvalidCustomPropertiesError: A custom-property filter is invalid.
+            SemanticUnavailableError: Semantic search is requested but its index cannot run.
+        """
         started = time.perf_counter()
         rows = await self.repository.candidates(group_id, tags, utc_now())
         definitions = await self.custom_properties.definitions()

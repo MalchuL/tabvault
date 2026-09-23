@@ -41,15 +41,12 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 async def require_api_key(value: ApiKeyDep, settings: SettingsDep) -> None:
     """Reject requests that do not provide the configured API key.
 
-    This application-boundary helper configures or protects the FastAPI process while keeping domain
-    use cases in their dedicated services.
-
     Args:
-        value (ApiKeyDep): Value to validate, convert, or persist.
+        value (ApiKeyDep): API key supplied in the request header, if any.
         settings (SettingsDep): Validated process settings that control this component.
 
     Raises:
-        HTTPException: Propagated when its documented validation or operation condition occurs.
+        HTTPException: A configured API key is absent or does not match.
     """
     if settings.api_key and (value is None or not hmac.compare_digest(value, settings.api_key)):
         raise HTTPException(
@@ -69,11 +66,7 @@ async def require_api_key(value: ApiKeyDep, settings: SettingsDep) -> None:
 
 
 def run_migrations() -> None:
-    """Upgrade the configured database to the latest schema revision.
-
-    This application-boundary helper configures or protects the FastAPI process while keeping domain
-    use cases in their dedicated services.
-    """
+    """Upgrade the configured database to the latest schema revision."""
     root = Path(__file__).parents[2]
     config = Config(str(root / "alembic.ini"))
     command.upgrade(config, "head")
@@ -83,14 +76,11 @@ def run_migrations() -> None:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize and dispose process-wide application resources.
 
-    This application-boundary helper configures or protects the FastAPI process while keeping domain
-    use cases in their dedicated services.
-
     Args:
-        app (FastAPI): App value consumed by this operation.
+        app (FastAPI): FastAPI application being configured.
 
     Returns:
-        AsyncIterator[None]: Result produced by the operation described above.
+        AsyncIterator[None]: Application lifespan that yields after startup and disposes resources on exit.
     """
     settings = get_settings()
     configure_logging(settings)
@@ -126,11 +116,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application.
 
-    This application-boundary helper configures or protects the FastAPI process while keeping domain
-    use cases in their dedicated services.
-
     Returns:
-        FastAPI: Result produced by the operation described above.
+        FastAPI: Configured application with routes, middleware, and error handlers.
     """
     settings = get_settings()
     configure_logging(settings)
@@ -161,11 +148,7 @@ app = create_app()
 
 
 def main() -> None:
-    """Run the production ASGI server.
-
-    This application-boundary helper configures or protects the FastAPI process while keeping domain
-    use cases in their dedicated services.
-    """
+    """Run the production ASGI server."""
     settings = get_settings()
     configure_logging(settings)
     uvicorn.run(

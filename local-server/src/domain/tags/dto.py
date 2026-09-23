@@ -29,7 +29,7 @@ class TagDTO(DTO):
     DTO configuration serializes public field names in camelCase and rejects unknown input fields.
 
     Attributes:
-        name (str): Typed name value carried by this object.
+        name (str): Human-readable name of this record.
         description (str | None): Optional human-readable explanatory text.
         created_at (datetime): UTC instant at which the record was created.
         updated_at (datetime): UTC instant at which the record was last changed.
@@ -54,8 +54,8 @@ class TagDeleteResultDTO(BaseModel):
     DTO configuration serializes public field names in camelCase and rejects unknown input fields.
 
     Attributes:
-        name (str): Typed name value carried by this object.
-        detached_from_tabs (int): Typed detached from tabs value carried by this object.
+        name (str): Human-readable name of this record.
+        detached_from_tabs (int): Number of tab associations removed with this tag.
     """
 
     name: str

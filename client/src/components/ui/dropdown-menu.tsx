@@ -4,12 +4,22 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+/**
+ * Own the open state of a menu.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.Root>} props - Component properties and children.
+ * @returns {React.ReactElement} Menu root.
+ */
 function DropdownMenu({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
 }
 
+/**
+ * Mount menu content outside the trigger hierarchy.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.Portal>} props - Component properties and children.
+ * @returns {React.ReactElement} Menu portal.
+ */
 function DropdownMenuPortal({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
@@ -18,6 +28,11 @@ function DropdownMenuPortal({
   );
 }
 
+/**
+ * Expose the control that opens a menu.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>} props - Component properties and children.
+ * @returns {React.ReactElement} Menu trigger.
+ */
 function DropdownMenuTrigger({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
@@ -29,6 +44,11 @@ function DropdownMenuTrigger({
   );
 }
 
+/**
+ * Portal the styled menu panel with a default side offset.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.Content>} props - Component properties and children.
+ * @returns {React.ReactElement} Menu panel.
+ */
 function DropdownMenuContent({
   className,
   sideOffset = 4,
@@ -49,6 +69,11 @@ function DropdownMenuContent({
   );
 }
 
+/**
+ * Group related menu actions for accessibility.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.Group>} props - Component properties and children.
+ * @returns {React.ReactElement} Menu group.
+ */
 function DropdownMenuGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
@@ -57,6 +82,11 @@ function DropdownMenuGroup({
   );
 }
 
+/**
+ * Render an action with optional inset or destructive styling.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.Item> & { inset?: boolean; variant?: "default" | "destructive" }} props - Component properties and children.
+ * @returns {React.ReactElement} Menu action.
+ */
 function DropdownMenuItem({
   className,
   inset,
@@ -80,6 +110,11 @@ function DropdownMenuItem({
   );
 }
 
+/**
+ * Render a selectable action with its checked indicator.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>} props - Component properties and children.
+ * @returns {React.ReactElement} Checked menu action.
+ */
 function DropdownMenuCheckboxItem({
   className,
   children,
@@ -106,6 +141,11 @@ function DropdownMenuCheckboxItem({
   );
 }
 
+/**
+ * Coordinate one mutually exclusive menu selection.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>} props - Component properties and children.
+ * @returns {React.ReactElement} Menu radio group.
+ */
 function DropdownMenuRadioGroup({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioGroup>) {
@@ -117,6 +157,11 @@ function DropdownMenuRadioGroup({
   );
 }
 
+/**
+ * Render a radio option and its selected indicator.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>} props - Component properties and children.
+ * @returns {React.ReactElement} Menu radio option.
+ */
 function DropdownMenuRadioItem({
   className,
   children,
@@ -141,6 +186,11 @@ function DropdownMenuRadioItem({
   );
 }
 
+/**
+ * Label a menu section with optional inset alignment.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.Label> & { inset?: boolean }} props - Component properties and children.
+ * @returns {React.ReactElement} Menu label.
+ */
 function DropdownMenuLabel({
   className,
   inset,
@@ -161,6 +211,11 @@ function DropdownMenuLabel({
   );
 }
 
+/**
+ * Separate groups of menu actions.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.Separator>} props - Component properties and children.
+ * @returns {React.ReactElement} Menu separator.
+ */
 function DropdownMenuSeparator({
   className,
   ...props
@@ -174,6 +229,11 @@ function DropdownMenuSeparator({
   );
 }
 
+/**
+ * Align a keyboard shortcut after an action label.
+ * @param {React.ComponentProps<"span">} props - Component properties and children.
+ * @returns {React.ReactElement} Shortcut hint.
+ */
 function DropdownMenuShortcut({
   className,
   ...props
@@ -190,12 +250,22 @@ function DropdownMenuShortcut({
   );
 }
 
+/**
+ * Own the state of a nested menu.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.Sub>} props - Component properties and children.
+ * @returns {React.ReactElement} Submenu root.
+ */
 function DropdownMenuSub({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Sub>) {
   return <DropdownMenuPrimitive.Sub data-slot="dropdown-menu-sub" {...props} />;
 }
 
+/**
+ * Open a nested menu and show its direction indicator.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> & { inset?: boolean }} props - Component properties and children.
+ * @returns {React.ReactElement} Submenu trigger.
+ */
 function DropdownMenuSubTrigger({
   className,
   inset,
@@ -220,6 +290,11 @@ function DropdownMenuSubTrigger({
   );
 }
 
+/**
+ * Portal the styled panel for a nested menu.
+ * @param {React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>} props - Component properties and children.
+ * @returns {React.ReactElement} Submenu panel.
+ */
 function DropdownMenuSubContent({
   className,
   ...props

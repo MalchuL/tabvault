@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   deletePropertyDefinition,
   getPropertySchema,
@@ -8,10 +13,18 @@ import {
   validatePropertyValues,
   type PropertyDefinition,
   type PropertySchema,
-} from "@/domain/server/synchronization";
+} from "@/domain/server/propertySchema";
 
 const TYPES = ["string", "int", "float", "boolean", "json"] as const;
 
+/**
+ * Parse a property default using its declared schema type.
+ * Integer parsing rejects partial numbers; floating defaults must be finite.
+ * @param {PropertyDefinition["type"]} type - Property type chosen by the user.
+ * @param {string} raw - Text entered in the default-value field.
+ * @returns {unknown} Value ready for the property definition.
+ * @throws {Error} When the text does not match the selected type.
+ */
 function parseDefault(type: PropertyDefinition["type"], raw: string): unknown {
   if (type === "string") return raw;
   if (type === "boolean") {
@@ -31,7 +44,10 @@ function parseDefault(type: PropertyDefinition["type"], raw: string): unknown {
   return JSON.parse(raw);
 }
 
-/** Provides the dedicated Custom Property Schema administration page. */
+/**
+ * Edit custom property definitions and inspect stored-value validation results.
+ * @returns {JSX.Element} Property schema administration page.
+ */
 export default function CustomProperties() {
   const [schema, setSchema] = useState<PropertySchema>({});
   const [name, setName] = useState("");
@@ -50,6 +66,12 @@ export default function CustomProperties() {
       );
   }, []);
 
+  /**
+   * Save a custom property definition.
+   *
+   * Parse the draft default value, update the schema, and reset the form on success.
+   * @returns {Promise<void>} Resolves after the save attempt.
+   */
   const save = async () => {
     try {
       setBusy(true);
@@ -83,9 +105,9 @@ export default function CustomProperties() {
       </p>
       <section className="mt-5 grid gap-3">
         {Object.entries(schema).map(([propertyName, definition]) => (
-          <article
+          <Card
             key={propertyName}
-            className="border border-[#ded9cd] bg-[#fffdf8] p-4"
+            className="gap-0 rounded-none border-[#ded9cd] bg-[#fffdf8] p-4 shadow-none"
           >
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -100,7 +122,8 @@ export default function CustomProperties() {
                   {JSON.stringify(definition.default)}
                 </p>
               </div>
-              <button
+              <Button
+                variant="ghost"
                 type="button"
                 className="text-xs font-semibold text-[#a33b21]"
                 onClick={() =>
@@ -108,21 +131,21 @@ export default function CustomProperties() {
                 }
               >
                 Delete
-              </button>
+              </Button>
             </div>
-          </article>
+          </Card>
         ))}
       </section>
-      <section className="mt-5 border border-[#ded9cd] bg-[#fffdf8] p-5">
+      <Card className="mt-5 gap-0 rounded-none border-[#ded9cd] bg-[#fffdf8] p-5 shadow-none">
         <h2 className="font-semibold">Add or update a property</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <input
+          <Input
             className="border border-[#ded9cd] p-3 text-sm"
             placeholder="propertyName"
             value={name}
             onChange={event => setName(event.target.value)}
           />
-          <select
+          <NativeSelect
             className="border border-[#ded9cd] p-3 text-sm"
             value={type}
             onChange={event =>
@@ -132,31 +155,32 @@ export default function CustomProperties() {
             {TYPES.map(value => (
               <option key={value}>{value}</option>
             ))}
-          </select>
-          <input
+          </NativeSelect>
+          <Input
             className="border border-[#ded9cd] p-3 text-sm sm:col-span-2"
             placeholder="Description (optional)"
             value={description}
             onChange={event => setDescription(event.target.value)}
           />
-          <textarea
+          <Textarea
             className="border border-[#ded9cd] p-3 font-mono text-sm sm:col-span-2"
             placeholder="Default value"
             value={defaultText}
             onChange={event => setDefaultText(event.target.value)}
           />
         </div>
-        <button
+        <Button
           type="button"
           disabled={busy || !name}
           onClick={() => void save()}
           className="mt-4 bg-[#e95224] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
           Save property
-        </button>
-      </section>
+        </Button>
+      </Card>
       <section className="mt-6 flex flex-wrap gap-3">
-        <button
+        <Button
+          variant="outline"
           type="button"
           className="border border-[#bcb6a8] px-4 py-2 text-sm font-semibold"
           onClick={() =>
@@ -173,8 +197,9 @@ export default function CustomProperties() {
           }
         >
           Validate all tabs
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="outline"
           type="button"
           className="border border-[#bcb6a8] px-4 py-2 text-sm font-semibold"
           onClick={() =>
@@ -186,7 +211,7 @@ export default function CustomProperties() {
           }
         >
           Repair all tabs
-        </button>
+        </Button>
       </section>
     </main>
   );

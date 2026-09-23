@@ -12,37 +12,33 @@ from .repository import TagRepository
 
 
 class TagService:
-    """Orchestrate tag use cases while owning transactions.
+    """Apply Tag catalog rules and own their database transactions.
 
-    This application-layer operation coordinates domain rules and persistence, then maps loaded ORM
-    state into transport DTOs. Callers do not need to know how records are queried or related data
-    is assembled.
+    Attributes:
+        db (AsyncSession): Request-scoped session used until the service commits or rolls back.
+        repository (TagRepository): Persistence adapter retained for this service instance.
+        mapper (TagMapper): Stateless converter between ORM rows and API DTOs.
     """
 
     def __init__(self, db: AsyncSession, repository: TagRepository) -> None:
-        """Initialize the service and its persistence dependency.
-
-        This application-layer operation coordinates domain rules and persistence, then maps loaded
-        ORM state into transport DTOs. Callers do not need to know how records are queried or
-        related data is assembled.
+        """Create a Tag service using one request-scoped database session.
 
         Args:
-            db (AsyncSession): Request-scoped asynchronous database session used by this operation.
-            repository (TagRepository): Persistence adapter used to load and mutate domain records.
+            db (AsyncSession): Request-scoped asynchronous database session.
+            repository (TagRepository): Persistence adapter used by this service.
         """
         self.db = db
         self.repository = repository
         self.mapper = TagMapper()
 
     async def list(self, list_options: ListOptions) -> TagListResponseDTO:
-        """List tags with usage counts.
+        """List tags with counts of currently visible Saved Tabs.
 
-        This application-layer operation coordinates domain rules and persistence, then maps loaded
-        ORM state into transport DTOs. Callers do not need to know how records are queried or
-        related data is assembled.
+        Args:
+            list_options (ListOptions): Page size and row offset for the query.
 
         Returns:
-            TagListResponseDTO: Result produced by the operation described above.
+            TagListResponseDTO: Tags with visible-tab counts and pagination metadata.
         """
         page = await self.repository.list_with_counts(utc_now(), list_options)
         return TagListResponseDTO.from_page(
@@ -50,18 +46,14 @@ class TagService:
         )
 
     async def upsert(self, name: str, dto: TagUpsertDTO) -> TagDTO:
-        """Create or update a tag.
-
-        This application-layer operation coordinates validated domain input with repository
-        operations. It owns the transaction boundary for mutations so related changes commit
-        together and failures can be rolled back without exposing ORM rows to callers.
+        """Create or update a tag using a case-insensitive name lookup.
 
         Args:
-            name (str): Human-readable name used by the operation.
-            dto (TagUpsertDTO): Validated data-transfer object supplied to the operation.
+            name (str): Name identifying the tag or other target record.
+            dto (TagUpsertDTO): Validated request data for the operation.
 
         Returns:
-            TagDTO: Result produced by the operation described above.
+            TagDTO: Current tag name, description, and usage count.
         """
         tag = await self.repository.get_casefold(name)
         if tag is None:
@@ -75,23 +67,18 @@ class TagService:
         )
 
     async def delete(self, name: str, detach: bool) -> TagDeleteResultDTO:
-        """Delete a tag, optionally detaching it from tabs.
-
-        This application-layer operation coordinates validated domain input with repository
-        operations. It owns the transaction boundary for mutations so related changes commit
-        together and failures can be rolled back without exposing ORM rows to callers.
+        """Require explicit detachment before deleting a tag used by any tab.
 
         Args:
-            name (str): Human-readable name used by the operation.
-            detach (bool): Detach value consumed by this operation.
+            name (str): Name identifying the tag or other target record.
+            detach (bool): Whether to remove this tag from associated tabs.
 
         Returns:
-            TagDeleteResultDTO: Result produced by the operation described above.
+            TagDeleteResultDTO: Deleted tag name and number of detached tab links.
 
         Raises:
-            TagInUseError: Propagated when its documented validation or operation condition occurs.
-            TagNotFoundError: Propagated when its documented validation or operation condition
-                occurs.
+            TagNotFoundError: No tag has the requested name.
+            TagInUseError: The tag is still attached to tabs and detaching was not requested.
         """
         tag = await self.repository.get_casefold(name)
         if tag is None:
@@ -104,14 +91,10 @@ class TagService:
         return TagDeleteResultDTO(name=name, detached_from_tabs=count)
 
     async def markdown(self) -> str:
-        """Render the tag catalog as Markdown.
-
-        This application-layer operation coordinates domain rules and persistence, then maps loaded
-        ORM state into transport DTOs. Callers do not need to know how records are queried or
-        related data is assembled.
+        """Render the tag catalog as Markdown, including undescribed tags.
 
         Returns:
-            str: Result produced by the operation described above.
+            str: Markdown listing tags and their descriptions.
         """
         rows = (await self.repository.list_with_counts(utc_now())).data
         lines = ["# Tags", ""]

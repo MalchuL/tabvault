@@ -9,45 +9,100 @@ from models import Asset, Preview, Tab
 
 
 class PreviewRepository:
-    """Read and stage preview-related rows without committing."""
+    """Read and stage preview-related rows without committing.
+
+    Attributes:
+        session (AsyncSession): Request-scoped session used to read or stage rows without committing.
+    """
 
     def __init__(self, session: AsyncSession) -> None:
-        """Initialize with a request-scoped session."""
+        """Initialize with a request-scoped session.
+
+        Args:
+            session (AsyncSession): Request-scoped asynchronous database session.
+        """
         self.session = session
 
     async def get_tab(self, tab_id: str) -> Tab | None:
-        """Load one preview source tab."""
+        """Load one preview source tab.
+
+        Args:
+            tab_id (str): Stable identifier of the saved tab.
+
+        Returns:
+            Tab | None: Matching tab row, or None when absent.
+        """
         return await self.session.get(Tab, tab_id)
 
     async def get_preview(self, tab_id: str) -> Preview | None:
-        """Load preview state for a tab."""
+        """Load preview state for a tab.
+
+        Args:
+            tab_id (str): Stable identifier of the saved tab.
+
+        Returns:
+            Preview | None: Matching preview row, or None when absent.
+        """
         return await self.session.get(Preview, tab_id)
 
     async def save_preview(self, preview: Preview) -> Preview:
-        """Stage a preview row."""
+        """Stage a preview row.
+
+        Args:
+            preview (Preview): Captured preview row to convert or persist.
+
+        Returns:
+            Preview: Preview row read or staged by this operation.
+        """
         self.session.add(preview)
         await self.session.flush()
         return preview
 
     async def get_asset(self, asset_id: str) -> Asset | None:
-        """Load an asset by ID."""
+        """Load an asset by ID.
+
+        Args:
+            asset_id (str): Identifier of the captured asset.
+
+        Returns:
+            Asset | None: Matching asset row, or None when absent.
+        """
         return await self.session.get(Asset, asset_id)
 
     async def find_asset_checksum(self, checksum: str) -> Asset | None:
-        """Find an asset by checksum."""
+        """Find an asset by checksum.
+
+        Args:
+            checksum (str): Content hash used to deduplicate assets.
+
+        Returns:
+            Asset | None: Matching asset row, or None when absent.
+        """
         return cast(
             Asset | None,
             await self.session.scalar(select(Asset).where(Asset.checksum == checksum)),
         )
 
     async def save_asset(self, asset: Asset) -> Asset:
-        """Stage a captured asset."""
+        """Stage a captured asset.
+
+        Args:
+            asset (Asset): Captured asset row to persist.
+
+        Returns:
+            Asset: Asset row read or staged by this operation.
+        """
         self.session.add(asset)
         await self.session.flush()
         return asset
 
     @staticmethod
     async def apply_changes(model: object, changes: dict[str, object]) -> None:
-        """Stage mapped fields on a preview-owned model."""
+        """Stage mapped fields on a preview-owned model.
+
+        Args:
+            model (object): ORM row receiving validated changes.
+            changes (dict[str, object]): Validated field values to apply to the row.
+        """
         for key, value in changes.items():
             setattr(model, key, value)

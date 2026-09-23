@@ -12,28 +12,28 @@ _Figure 1. The working TabVault dashboard. Orange marks the active collection, p
 
 ## How the parts work together
 
-TabVault has three useful operating modes. The static web application retains its library in browser `localStorage`; the Chrome extension persists the same kind of library in `chrome.storage.local`; and either client can connect to the server with an endpoint and bearer key. The server is the source of truth for its JSON library, while the semantic vector index is a rebuildable derived cache rather than a second canonical database. [2] [3]
+TabVault has three useful operating modes. The static web application retains its library in browser `localStorage`; the Chrome extension persists the same kind of library in `chrome.storage.local`; and either client can connect to the server with an endpoint and API key. The server stores its library in SQLite, while the semantic vector index is a rebuildable derived cache. [2] [3]
 
 _Figure 2. The repository’s implemented data paths. Browser and extension persistence continue to function when the API is intentionally unavailable or temporarily unreachable._
 
-| Surface                    | Primary job                                                                             | What persists there                              | When to use it                                                                 |
-| -------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------ |
-| **Static web application** | Browse, organize, search, and connect to a remote API                                   | Browser `localStorage`                           | A hosted interface or offline personal library.                                |
-| **Chrome MV3 extension**   | Capture the active browser tab and show the side-panel workspace                        | `chrome.storage.local` plus optional server sync | A personal Chrome workflow with keyboard capture and notifications.            |
-| **FastAPI server**         | Shared library, validation, import/export, semantic search, and health-check scheduling | Versioned JSON document and derived vector cache | Any reachable private-network or public HTTP(S) deployment.                    |
-| **Python MCP bridge**      | Let an MCP-compatible agent use the same library through official SDK typed tools       | No duplicate copy; it proxies to the API         | An AI assistant needs structured tab, collection, search, or transfer actions. |
+| Surface                    | Primary job                                                                             | What persists there                              | When to use it                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------- |
+| **Static web application** | Browse, organize, search, and connect to a remote API                                   | Browser `localStorage`                           | A hosted interface or offline personal library.                           |
+| **Chrome MV3 extension**   | Capture the active browser tab and show the side-panel workspace                        | `chrome.storage.local` plus optional server sync | A personal Chrome workflow with keyboard capture and notifications.       |
+| **FastAPI server**         | Shared library, validation, import/export, semantic search, and health-check scheduling | SQLite records and derived vector cache          | Any reachable private-network or public HTTP(S) deployment.               |
+| **Python MCP bridge**      | Let an MCP-compatible agent use the same library through official SDK typed tools       | No duplicate copy; it proxies to the API         | An AI assistant needs structured tab, collection, tag, or search actions. |
 
 ## Library workspace
 
 ### Collections, tabs, tags, and ordering
 
-Collections are organization metadata inside the unified **All Tabs** workspace rather than separate navigation destinations. The Group board summarizes each top-level collection, while the search scope control filters the same library in place. Parent collections include descendant tabs where collection operations need an aggregate view. [1]
+Collections are flat organization metadata inside the unified **All Tabs** workspace rather than separate navigation destinations. The Group board summarizes each collection, while the search scope control filters the same library in place. [1]
 
 The list supports two distinct drag behaviors. Dragging a row by its handle uses dnd-kit to reorder it **within the same collection** and leaves an insertion gap so the final placement is visible before release. Dropping a tab on the **Drop tab into** collection shelf moves it to that collection; the per-row collection menu provides a keyboard- and pointer-friendly alternative. [1]
 
 | Control                              | What it does                                  | Notes                                                                                                                                                                               |
 | ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Save active tab** (extension only) | Creates a saved tab in Inbox                  | This control appears only in the Chrome extension side panel, where it captures the active HTTP(S) tab. The hosted web application intentionally does not simulate browser capture. |
+| **Save active tab** (extension only) | Creates a saved tab in a new Session          | This control appears only in the Chrome extension side panel, where it captures the active HTTP(S) tab. The hosted web application intentionally does not simulate browser capture. |
 | **Group board card**                 | Filters All Tabs to one collection            | It changes the active in-place collection scope without a separate route.                                                                                                           |
 | **Drop tab into shelf**              | Moves a dragged tab between collections       | Every collection, including empty ones, remains a visible drop target.                                                                                                              |
 | **Edit collection**                  | Renames a collection                          | The edit affordance appears on hover/focus.                                                                                                                                         |
@@ -43,7 +43,7 @@ The list supports two distinct drag behaviors. Dragging a row by its handle uses
 
 ### View modes
 
-The three icons above the tab list persist a presentation preference with the library. **Standard** is the detailed reading view. **Compact** is deliberately an index-only list: each row contains only a favicon and the tab title, with no URL, date, note, or tag metadata; the trailing **…** opens that tab’s editor. **Instant preview** is a Pocket-style reader stream: it retrieves available page HTML, extracts the article using Mozilla Readability, sanitizes the extracted content, and renders a scrollable reading card with title, author/site metadata, excerpt, body, tags, and an original-link action. When a page refuses browser or extension retrieval, the card states that the reader preview is unavailable and retains the saved note and original-link fallback. [1] [7]
+The four view icons above the tab list persist a presentation preference with the library. **Group board** summarizes collections. **Standard** is the detailed reading view. **Compact** is an index-only list: each row contains only a favicon and the tab title, with no URL, date, note, or tag metadata; the trailing **…** opens that tab’s editor. **Instant preview** retrieves available page HTML, extracts the article using Mozilla Readability, sanitizes the content, and renders a reading card with title, author/site metadata, excerpt, body, tags, and an original-link action. When retrieval fails, the card retains the saved note and original-link fallback. [1] [7]
 
 ## Search, selection, and recovery
 
@@ -59,7 +59,7 @@ The sidebar contains controls that are easy to mistake for application modes. Th
 
 | Panel or label                   | What it means                                                                                                                                                            | How to use it                                                                                                                                                                                                                                            |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **API connection**               | Shows whether TabVault can reach the configured server. **Browser storage active** means the interface is using its resilient local copy; it is not an error state.      | Choose **Configure API**, enter any absolute `http://` or `https://` endpoint and matching bearer key, then select **Save & connect**. Development defaults are `http://127.0.0.1:4817` and `admin`; change the key before public deployment. [2]        |
+| **API connection**               | Shows whether TabVault can reach the configured server. **Browser storage active** means the interface is using its resilient local copy; it is not an error state.      | Choose **Configure API**, enter an absolute `http://` or `https://` endpoint and matching API key, then select **Save & connect**. The client defaults to `http://127.0.0.1:47821` and `admin` for local development. [2]                                |
 | **Semantic model**               | Shows derived-index readiness, provider/model metadata, indexed tab count, and the latest model or capability error. It is a status/rebuild panel, not a model selector. | Install the server semantic extra (`uv sync --extra semantic`), restart the API, then choose **Rebuild index** on Dashboard. The first rebuild downloads `deepvk/USER-bge-m3`. Keyword and tag search stay available if embeddings are missing. [3]      |
 | **Index health — Manual checks** | Means scheduled health checks are currently off. It does **not** mean the index is broken.                                                                               | With an online server in the Chrome extension, choose Off, 15m, 1h, or 4h to persist a server health-check schedule. Use **Run health check now** for an immediate readiness check. [1] [3]                                                              |
 | **Local alerts — Quiet mode**    | Means no Chrome notification is configured for a scheduled health-check attention state. It is not a global browser “do not disturb” setting.                            | Enable a health schedule first, then enable the alert checkbox. The extension service worker creates an alarm and notifies only when the API reports `needs_attention`. This behavior requires the extension’s alarms and notifications permissions. [4] |
@@ -68,17 +68,17 @@ The sidebar contains controls that are easy to mistake for application modes. Th
 
 ## Server-backed workflows
 
-Every API route requires `Authorization: Bearer <key>`. The server accepts a startup key through `TABVAULT_API_KEY`, defaults to `admin` for initial development, binds to `127.0.0.1` by default, and can restrict browser origins through `TABVAULT_CORS_ORIGINS`. Use a unique key and TLS termination before exposing it publicly. [2] [3]
+When `TABVAULT_API_KEY` is configured, API requests must send it in `X-API-Key`. The server has no default key and binds to `127.0.0.1` by default; a non-loopback bind requires a configured key. Restrict browser origins with `TABVAULT_CORS_ORIGINS` and use TLS termination before network exposure. [2] [3]
 
-The client stores the endpoint and bearer key in browser or Chrome extension storage. The shared `LibraryProvider` persists through the concrete `vaultStorage` API and synchronizes explicitly with the configured server; offline edits remain usable locally while the server is unavailable. [2]
+The client stores the endpoint and API key in browser or Chrome extension storage. `LibraryProvider` writes the browser vault after state changes, and the library API explicitly synchronizes with the configured server; offline edits remain usable locally while the server is unavailable. [2]
 
-| Server capability   | Implemented endpoint family                                                | Practical effect                                                                                                                                                      |
-| ------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Library and records | `/v1/library`, `/v1/tabs`, `/v1/groups`, `/v1/tags`                        | Retrieve and manage tabs, nested groups, and tag definitions.                                                                                                         |
-| Search and indexing | `/v1/search`, `/v1/index/status`, `/v1/search/reindex`, `/v1/capabilities` | Run semantic search when embeddings are ready, otherwise receive an explicit text fallback state. Dashboard reads capabilities for the blocked-feature error and fix. |
-| Health scheduling   | `/v1/index/health-check` and `/run`                                        | Persist index-readiness intervals and trigger an immediate check.                                                                                                     |
-| Transfer            | `/v1/export`, `/v1/import`                                                 | Export JSON or Markdown; upload/merge or backup-protected replace imports with detailed validation issues.                                                            |
-| Recovery            | `/v1/tabs/restore`                                                         | Restore tab records from a client-side undo snapshot.                                                                                                                 |
+| Server capability   | Implemented endpoint family                                                                | Practical effect                                                                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Library and records | `/api/v1/library`, `/api/v1/tabs`, `/api/v1/groups`, `/api/v1/tags`                        | Retrieve and manage tabs, flat groups, and tag definitions.                                                                                    |
+| Search and indexing | `/api/v1/search`, `/api/v1/index/status`, `/api/v1/search/reindex`, `/api/v1/capabilities` | Run hybrid search with a keyword fallback when embeddings are unavailable. Dashboard reads capabilities for the blocked-feature error and fix. |
+| Health scheduling   | `/api/v1/index/health-check` and `/run`                                                    | Persist index-readiness intervals and trigger an immediate check.                                                                              |
+| Transfer            | `/api/v1/export`, `/api/v1/import`                                                         | Export JSON or Markdown; upload/merge or backup-protected replace imports with detailed validation issues.                                     |
+| Recovery            | `PATCH /api/v1/tabs/{id}` and `/api/v1/backups/{id}/restore`                               | Restore an archived tab or a server backup.                                                                                                    |
 
 ### Import and export transfer desk
 
@@ -98,25 +98,24 @@ The extension also hosts local alert delivery. When a health schedule and “not
 
 ## MCP agent access
 
-The TypeScript MCP bridge uses the official MCP SDK and typed Zod schemas. It reads `TABVAULT_SERVER_URL` and `TABVAULT_API_KEY`, forwards the same bearer authentication to the FastAPI server, and does not keep its own library database. [5]
+The Python MCP bridge reads `TABVAULT_SERVER_URL` and `TABVAULT_API_KEY` and calls the FastAPI server with its `X-API-Key` header. It does not keep its own library database. Its tools address visible tabs by URL and groups by name; hidden and archived records stay outside the bridge. [5]
 
-| Tool group                          | Tools                                                                                               | Intended use                                                                                      |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **Read and search**                 | `list_tabs`, `get_tab`, `search_tabs`, `semantic_index_status`                                      | Let an agent inspect saved knowledge and understand whether semantic or fallback search was used. |
-| **Tabs**                            | `save_tab`, `save_tabs`, `update_tab`, `move_tab`, `delete_tab`                                     | Save URLs, merge duplicates, edit metadata, organize, or remove records.                          |
-| **Collections and tags**            | `list_groups`, `create_group`, `update_group`, `delete_group`, `list_tags`, `add_tag`, `remove_tag` | Maintain the library’s navigable vocabulary and hierarchy.                                        |
-| **Data transfer and index control** | `export_data`, `import_data`, `rebuild_semantic_index`                                              | Move validated data in or out and rebuild the derived semantic cache.                             |
+| Tool group               | Tools                                                                                                           | Intended use                                       |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Read and search**      | `list_tabs`, `get_tab`, `search_tabs`                                                                           | Inspect visible saved tabs and search the library. |
+| **Tabs**                 | `save_tab`, `update_tab`, `move_tab`, `delete_tab`                                                              | Save, edit, organize, or archive a visible tab.    |
+| **Collections and tags** | `list_groups`, `get_group`, `create_group`, `update_group`, `delete_group`, `list_tags`, `tag_tab`, `untag_tab` | Maintain collections and tag assignments.          |
 
 ## Practical operating checklist
 
-For an offline personal library, build and load the extension, then use the collection rail, tags, and saved views without configuring a server. For a connected library, start the API with `uv run tabvault-server`, choose a strong bearer key, configure CORS for the web application or extension origin, and save the endpoint in **Configure API**. For semantic retrieval, install the `semantic` extra, restart the server, and rebuild the index from Dashboard. For agent access, start the MCP bridge with the same API URL and bearer key. Detailed command sequences are maintained in the [main README](../README.md), [local setup guide](../LOCAL_SETUP.md), [API README](../local-server/README.md), and [MCP README](../mcp-server/README.md).
+For an offline personal library, build and load the extension, then use the collection rail, tags, and saved views without configuring a server. For a connected library, start the API with `uv run tabvault-server`, choose a strong API key, configure CORS for the web application or extension origin, and save the endpoint in **Configure API**. For semantic retrieval, install the `semantic` extra, restart the server, and rebuild the index from Dashboard. For agent access, start the MCP bridge with the same API URL and API key. Detailed command sequences are maintained in the [main README](../README.md), [local setup guide](../LOCAL_SETUP.md), [API README](../local-server/README.md), and [MCP README](../mcp/README.md).
 
 ## Implementation references
 
-[1]: ../client/src/pages/Home.tsx "TabVault dashboard behavior and controls"
-[2]: ../client/src/domain/server/synchronization.ts "Connection, authenticated API, and browser/extension storage helpers"
-[3]: ../local-server/tabvault_server/main.py "Authenticated REST API, search, import/export, and index routes"
+[1]: ../client/src/domain/library/components/workspace/LibraryWorkspace.tsx "TabVault library behavior and controls"
+[2]: ../client/src/domain/server/browserStorage.ts "Browser storage and connection settings"
+[3]: ../local-server/src/api/main.py "Authenticated REST API application"
 [4]: ../client/src/extension/background.ts "Chrome extension capture and scheduled alert worker"
-[5]: ../mcp-server/src/index.ts "TypeScript MCP tool registration and authenticated API proxy"
+[5]: ../mcp/README.md "Python MCP bridge and authenticated API proxy"
 [6]: SUPATABS_REFERENCE.md "Supatabs directional interaction research and TabVault adaptation"
 [7]: READABILITY_INTEGRATION.md "Mozilla Readability integration, sanitization, and fallback behavior"

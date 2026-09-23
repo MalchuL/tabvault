@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import copy
 import json
-import re
 import uuid
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,8 +14,9 @@ from domain.jobs.dto import JobQueuedDTO
 from domain.jobs.mapper import JobMapper
 from domain.jobs.repository import JobRepository
 from lib.responses import IssueDTO, WarningDTO, issue
-from lib.time import iso, stored_utc, utc_now
+from lib.time import stored_utc, utc_now
 
+from .document import markdown_import, migrate_v2_document, validate_document
 from .dto import (
     BackupDTO,
     ExportFields,
@@ -33,331 +31,22 @@ from .dto import (
     TransferDocumentDTO,
     TransferExportDTO,
     TransferFormat,
-    TransferGroupDTO,
 )
 from .error import BackupNotFoundError
 from .mapper import TransferMapper
 from .repository import TransferRepository
 
 
-def empty_document() -> dict[str, Any]:
-    """Create an empty raw portable document for the Markdown parser.
-
-    The operation handles the versioned portable-library boundary. Imported content is treated as
-    untrusted until structural and referential validation succeeds, and exported records use
-    deterministic ordering for stable backups.
-
-    Returns:
-        dict[str, Any]: Result produced by the operation described above.
-    """
-    return {
-        "schemaVersion": 3,
-        "exportedAt": iso(utc_now()),
-        "propertySchema": {"viewed": {"description": "", "type": "boolean", "default": False}},
-        "tags": [],
-        "groups": [],
-        "tabs": [],
-    }
-
-
-def migrate_v2_document(document: dict[str, Any]) -> dict[str, Any]:
-    """Upgrade one portable v2 document to schema-driven v3 in memory.
-
-    Args:
-        document (dict[str, Any]): Parsed document that may use portable schema v2.
-
-    Returns:
-        dict[str, Any]: Deep-copied v3 document, or an unchanged-version copy when migration does
-            not apply.
-    """
-    migrated = copy.deepcopy(document)
-    if migrated.get("schemaVersion") != 2:
-        return migrated
-    migrated["schemaVersion"] = 3
-    migrated["propertySchema"] = {
-        "viewed": {"description": "", "type": "boolean", "default": False}
-    }
-    for tab in migrated.get("tabs", []):
-        if isinstance(tab, dict):
-            tab["customProperties"] = {"viewed": bool(tab.pop("viewed", False))}
-    return migrated
-
-
-def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
-    """Validate untrusted portable-document structure and references.
-
-    The operation handles the versioned portable-library boundary. Imported content is treated as
-    untrusted until structural and referential validation succeeds, and exported records use
-    deterministic ordering for stable backups.
-
-    Args:
-        document (Any): Document value consumed by this operation.
-
-    Returns:
-        tuple[list[IssueDTO], list[WarningDTO]]: Result produced by the operation described above.
-    """
-    errors: list[IssueDTO] = []
-    warnings: list[WarningDTO] = []
-    if not isinstance(document, dict):
-        return [
-            issue(
-                "E_INVALID_DOCUMENT",
-                "$",
-                "JSON object",
-                type(document).__name__,
-                "Import must contain a JSON object.",
-                422,
-            )
-        ], warnings
-    document = migrate_v2_document(document)
-    if document.get("schemaVersion") != 3:
-        errors.append(
-            issue(
-                "E_UNKNOWN_SCHEMA_VERSION",
-                "$.schemaVersion",
-                "3",
-                document.get("schemaVersion"),
-                "Unsupported schema version.",
-                422,
-            )
-        )
-    for key in ("tags", "groups", "tabs"):
-        if not isinstance(document.get(key), list):
-            errors.append(
-                issue(
-                    "E_MISSING_REQUIRED_FIELD",
-                    f"$.{key}",
-                    "array",
-                    document.get(key),
-                    f"{key} must be an array.",
-                    422,
-                )
-            )
-    if errors:
-        return errors, warnings
-    group_ids: set[str] = set()
-    for index, group in enumerate(document["groups"]):
-        if not isinstance(group, dict):
-            errors.append(
-                issue(
-                    "E_INVALID_OBJECT",
-                    f"groups[{index}]",
-                    "object",
-                    group,
-                    "Group must be an object.",
-                    422,
-                )
-            )
-            continue
-        for field in ("id", "name", "category"):
-            if not isinstance(group.get(field), str) or not group[field].strip():
-                errors.append(
-                    issue(
-                        "E_MISSING_REQUIRED_FIELD",
-                        f"groups[{index}].{field}",
-                        "non-empty string",
-                        group.get(field),
-                        f"Group {field} is required.",
-                        422,
-                    )
-                )
-        group_id = group.get("id")
-        if isinstance(group_id, str):
-            if group_id in group_ids:
-                errors.append(
-                    issue(
-                        "E_DUPLICATE_ID",
-                        f"groups[{index}].id",
-                        "unique id",
-                        group_id,
-                        "Group ID is duplicated.",
-                        422,
-                    )
-                )
-            group_ids.add(group_id)
-    tab_ids: set[str] = set()
-    tag_names = {
-        str(item.get("name"))
-        for item in document["tags"]
-        if isinstance(item, dict) and item.get("name")
-    }
-    for index, tab in enumerate(document["tabs"]):
-        if not isinstance(tab, dict):
-            errors.append(
-                issue(
-                    "E_INVALID_OBJECT",
-                    f"tabs[{index}]",
-                    "object",
-                    tab,
-                    "Tab must be an object.",
-                    422,
-                )
-            )
-            continue
-        for field in ("id", "url", "title"):
-            if not isinstance(tab.get(field), str) or not tab[field].strip():
-                errors.append(
-                    issue(
-                        "E_MISSING_REQUIRED_FIELD",
-                        f"tabs[{index}].{field}",
-                        "non-empty string",
-                        tab.get(field),
-                        f"Tab {field} is required.",
-                        422,
-                    )
-                )
-        if isinstance(tab.get("id"), str):
-            if tab["id"] in tab_ids:
-                errors.append(
-                    issue(
-                        "E_DUPLICATE_ID",
-                        f"tabs[{index}].id",
-                        "unique id",
-                        tab["id"],
-                        "Tab ID is duplicated.",
-                        422,
-                    )
-                )
-            tab_ids.add(tab["id"])
-        parsed = urlsplit(str(tab.get("url", "")))
-        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
-            errors.append(
-                issue(
-                    "E_INVALID_URL",
-                    f"tabs[{index}].url",
-                    "absolute http/https URL",
-                    tab.get("url"),
-                    "URL must start with http:// or https://.",
-                    422,
-                )
-            )
-        group_id = tab.get("groupId")
-        if group_id is not None and group_id not in group_ids:
-            errors.append(
-                issue(
-                    "E_UNKNOWN_GROUP_REFERENCE",
-                    f"tabs[{index}].groupId",
-                    "existing group id or null",
-                    group_id,
-                    "Tab group does not exist.",
-                    422,
-                )
-            )
-        tags = tab.get("tags", [])
-        if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
-            errors.append(
-                issue(
-                    "E_INVALID_TAGS",
-                    f"tabs[{index}].tags",
-                    "array of strings",
-                    tags,
-                    "Tab tags must be strings.",
-                    422,
-                )
-            )
-        else:
-            for tag_index, tag in enumerate(tags):
-                if tag not in tag_names:
-                    warnings.append(
-                        WarningDTO(
-                            code="W_ORPHAN_TAG",
-                            path=f"tabs[{index}].tags[{tag_index}]",
-                            message=f"Tag {tag!r} will be created.",
-                        )
-                    )
-    return errors, warnings
-
-
-def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]]:
-    """Parse the documented Markdown interchange format.
-
-    The operation handles the versioned portable-library boundary. Imported content is treated as
-    untrusted until structural and referential validation succeeds, and exported records use
-    deterministic ordering for stable backups.
-
-    Args:
-        content (str): Untrusted serialized content to parse or validate.
-
-    Returns:
-        tuple[dict[str, Any] | None, list[IssueDTO]]: Result produced by the operation described
-            above.
-    """
-    document = empty_document()
-    active_group: str | None = None
-    active_group_record: dict[str, Any] | None = None
-    active_tab: dict[str, Any] | None = None
-    errors: list[IssueDTO] = []
-    for number, line in enumerate(content.splitlines(), 1):
-        if not line.strip():
-            continue
-        header = re.match(r"^(#{2,})\s+(.+?)\s*$", line)
-        link = re.match(r"^-\s+\[(.+?)\]\((.+?)\)\s*$", line)
-        metadata = re.match(r"^\s{2,}([a-zA-Z]+):\s*(.*?)\s*$", line)
-        if header:
-            name = header.group(2).strip()
-            active_tab = None
-            if name == "[Unassigned]":
-                active_group = None
-                active_group_record = None
-                continue
-            active_group = f"g-{uuid.uuid4()}"
-            active_group_record = {
-                "id": active_group,
-                "name": name,
-                "category": "manual",
-                "description": "",
-                "position": len(document["groups"]),
-            }
-            document["groups"].append(active_group_record)
-        elif link:
-            active_tab = {
-                "id": str(uuid.uuid4()),
-                "url": link.group(2),
-                "title": link.group(1),
-                "note": "",
-                "agentReview": "",
-                "customProperties": {"viewed": False},
-                "tags": [],
-                "groupId": active_group,
-                "position": len(document["tabs"]),
-            }
-            document["tabs"].append(active_tab)
-        elif metadata and active_tab is not None:
-            key, value = metadata.groups()
-            if key == "id" and value:
-                active_tab["id"] = value
-            elif key == "tags":
-                active_tab["tags"] = [item.strip() for item in value.split(",") if item.strip()]
-            elif key == "note":
-                active_tab["note"] = value
-            elif key == "agentReview":
-                active_tab["agentReview"] = value
-            elif key == "viewed":
-                active_tab["customProperties"]["viewed"] = value.lower() == "true"
-        elif metadata and active_group_record is not None:
-            key, value = metadata.groups()
-            if key == "description":
-                active_group_record["description"] = value
-        else:
-            errors.append(
-                issue(
-                    "E_MARKDOWN_PARSE_ERROR",
-                    f"line:{number}",
-                    "heading, link, or metadata",
-                    line,
-                    "Line is not valid TabVault Markdown.",
-                    422,
-                )
-            )
-    return (None, errors) if errors else (document, [])
-
-
 class TransferService:
-    """Orchestrate transfer and backup use cases while owning transactions.
+    """Own transfer transactions and backup snapshots for the portable library.
 
-    The operation handles the versioned portable-library boundary. Imported content is treated as
-    untrusted until structural and referential validation succeeds, and exported records use
-    deterministic ordering for stable backups.
+    Attributes:
+        db (AsyncSession): Request-scoped session used until the service commits or rolls back.
+        settings (Settings): Validated process settings shared for this instance lifetime.
+        repository (TransferRepository): Persistence adapter retained for this service instance.
+        jobs (JobRepository): Repository used to queue or inspect background jobs.
+        mapper (TransferMapper): Stateless converter between ORM rows and API DTOs.
+        job_mapper (JobMapper): Stateless converter for background-job DTOs.
     """
 
     def __init__(
@@ -367,18 +56,13 @@ class TransferService:
         repository: TransferRepository,
         jobs: JobRepository,
     ) -> None:
-        """Initialize the service and its persistence dependency.
-
-        The operation handles the versioned portable-library boundary. Imported content is treated
-        as untrusted until structural and referential validation succeeds, and exported records use
-        deterministic ordering for stable backups.
+        """Keep the session and repositories used by one transfer request.
 
         Args:
-            db (AsyncSession): Request-scoped asynchronous database session used by this operation.
-            settings (Settings): Validated process settings that control this component.
-            repository (TransferRepository): Persistence adapter used to load and mutate domain
-                records.
-            jobs (JobRepository): Durable job persistence for queued restores.
+            db (AsyncSession): Request-scoped asynchronous database session.
+            settings (Settings): Validated runtime settings for this operation.
+            repository (TransferRepository): Persistence adapter used by this service.
+            jobs (JobRepository): Background-job repository or worker dependency.
         """
         self.db = db
         self.settings = settings
@@ -388,17 +72,13 @@ class TransferService:
         self.job_mapper = JobMapper()
 
     async def document(self, *, include_hidden: bool = True) -> TransferDocumentDTO:
-        """Build the complete portable library document.
-
-        The operation handles the versioned portable-library boundary. Imported content is treated
-        as untrusted until structural and referential validation succeeds, and exported records use
-        deterministic ordering for stable backups.
+        """Build a portable document; public exports omit currently hidden records.
 
         Args:
-            include_hidden (bool): Whether returned data includes hidden.
+            include_hidden (bool): Whether hidden active tabs belong in the result.
 
         Returns:
-            TransferDocumentDTO: Result produced by the operation described above.
+            TransferDocumentDTO: Portable library document in schema v3.
         """
         tags, groups, tabs = await self.repository.transfer_rows(
             include_hidden=include_hidden,
@@ -414,17 +94,13 @@ class TransferService:
         )
 
     async def create_backup(self, reason: str) -> BackupDTO:
-        """Atomically write and register a library backup.
-
-        The operation handles the versioned portable-library boundary. Imported content is treated
-        as untrusted until structural and referential validation succeeds, and exported records use
-        deterministic ordering for stable backups.
+        """Write a complete backup before registering its file in the database.
 
         Args:
-            reason (str): Stable reason recorded for the operation.
+            reason (str): Reason recorded for the backup.
 
         Returns:
-            BackupDTO: Result produced by the operation described above.
+            BackupDTO: Metadata for the newly created backup.
         """
         directory = self.settings.data_dir / "backups"
         directory.mkdir(parents=True, exist_ok=True)
@@ -447,27 +123,21 @@ class TransferService:
         scope: str,
         fields: ExportFields,
     ) -> TransferExportDTO:
-        """Export a filtered library as JSON or Markdown.
-
-        The operation handles the versioned portable-library boundary. Imported content is treated
-        as untrusted until structural and referential validation succeeds, and exported records use
-        deterministic ordering for stable backups.
+        """Export visible records, optionally limited to a group or tag.
 
         Args:
-            format (TransferFormat): Requested interchange representation.
-            scope (str): Scope value consumed by this operation.
-            fields (ExportFields): Requested response projection controlling which fields are
-                serialized.
+            format (TransferFormat): Requested import or export format.
+            scope (str): Subset of library records to import or export.
+            fields (ExportFields): Requested response fields for a projection.
 
         Returns:
-            TransferExportDTO: Result produced by the operation described above.
+            TransferExportDTO: Serialized export content and media type.
         """
         document = await self.document(include_hidden=False)
         if scope.startswith("group:"):
             group_id = scope.split(":", 1)[1]
-            ids = {group_id}
-            document.groups = [group for group in document.groups if group.id in ids]
-            document.tabs = [tab for tab in document.tabs if tab.group_id in ids]
+            document.groups = [group for group in document.groups if group.id == group_id]
+            document.tabs = [tab for tab in document.tabs if tab.group_id == group_id]
         elif scope.startswith("tag:"):
             name = scope.split(":", 1)[1]
             document.tabs = [tab for tab in document.tabs if name in tab.tags]
@@ -495,14 +165,10 @@ class TransferService:
         lines: list[str] = []
 
         def write_tabs(group_id: str | None) -> None:
-            """Append Markdown for active tabs in one group.
-
-            The operation handles the versioned portable-library boundary. Imported content is
-            treated as untrusted until structural and referential validation succeeds, and exported
-            records use deterministic ordering for stable backups.
+            """Append active tabs for a group in the interchange format.
 
             Args:
-                group_id (str | None): Stable identifier of the group targeted by the operation.
+                group_id (str | None): Collection ID or null for Unassigned.
             """
             for tab in document.tabs:
                 if tab.group_id == group_id and not tab.archived:
@@ -518,24 +184,12 @@ class TransferService:
                         )
                     lines.append("")
 
-        def write_group(group: TransferGroupDTO) -> None:
-            """Append Markdown for one flat Group.
-
-            The operation handles the versioned portable-library boundary. Imported content is
-            treated as untrusted until structural and referential validation succeeds, and exported
-            records use deterministic ordering for stable backups.
-
-            Args:
-                group (TransferGroupDTO): Group value consumed by this operation.
-            """
+        for group in document.groups:
             lines.append(f"## {group.name}")
             if fields != "minimal":
                 lines.append(f"  description: {group.description or ''}")
             lines.append("")
             write_tabs(group.id)
-
-        for group in document.groups:
-            write_group(group)
         lines.extend(["## [Unassigned]", ""])
         write_tabs(None)
         return TransferExportDTO(
@@ -546,19 +200,15 @@ class TransferService:
     def parse(
         self, content: Any, format: TransferFormat
     ) -> tuple[dict[str, Any] | None, list[IssueDTO]]:
-        """Parse untrusted JSON or Markdown into a raw document.
-
-        The operation handles the versioned portable-library boundary. Imported content is treated
-        as untrusted until structural and referential validation succeeds, and exported records use
-        deterministic ordering for stable backups.
+        """Parse JSON or Markdown, migrating older portable documents in memory.
 
         Args:
-            content (Any): Untrusted serialized content to parse or validate.
-            format (TransferFormat): Requested interchange representation.
+            content (Any): Uploaded or generated document content.
+            format (TransferFormat): Requested import or export format.
 
         Returns:
-            tuple[dict[str, Any] | None, list[IssueDTO]]: Result produced by the operation described
-                above.
+            tuple[dict[str, Any] | None, list[IssueDTO]]: Parsed document, if valid, and any
+                validation issues.
         """
         if format == "markdown":
             return markdown_import(str(content))
@@ -579,32 +229,39 @@ class TransferService:
                 )
             ]
 
-    async def validate(self, content: Any, format: TransferFormat) -> ImportValidationDTO:
-        """Validate an import and estimate its database effects.
-
-        The operation handles the versioned portable-library boundary. Imported content is treated
-        as untrusted until structural and referential validation succeeds, and exported records use
-        deterministic ordering for stable backups.
+    def _validated_document(
+        self, content: Any, format: TransferFormat
+    ) -> tuple[TransferDocumentDTO | None, list[IssueDTO], list[WarningDTO]]:
+        """Share the import boundary between preview and apply operations.
 
         Args:
-            content (Any): Untrusted serialized content to parse or validate.
-            format (TransferFormat): Requested interchange representation.
+            content (Any): Uploaded or generated document content.
+            format (TransferFormat): Requested import or export format.
 
         Returns:
-            ImportValidationDTO: Result produced by the operation described above.
+            tuple[TransferDocumentDTO | None, list[IssueDTO], list[WarningDTO]]: Validated document,
+                blocking issues, and nonblocking warnings.
         """
         document, parse_errors = self.parse(content, format)
-        if parse_errors or document is None:
-            return ImportValidationDTO(
-                valid=False,
-                errors=parse_errors,
-                warnings=[],
-                would_create=ImportCountsDTO(),
-                would_update=ImportCountsDTO(),
-                would_skip=ImportCountsDTO(),
-            )
+        if parse_errors:
+            return None, parse_errors, []
         errors, warnings = validate_document(document)
         if errors:
+            return None, errors, warnings
+        return TransferDocumentDTO.model_validate(document), [], warnings
+
+    async def validate(self, content: Any, format: TransferFormat) -> ImportValidationDTO:
+        """Validate an import and estimate its database effects without writes.
+
+        Args:
+            content (Any): Uploaded or generated document content.
+            format (TransferFormat): Requested import or export format.
+
+        Returns:
+            ImportValidationDTO: Validation issues, warnings, and import summary.
+        """
+        dto, errors, warnings = self._validated_document(content, format)
+        if dto is None:
             return ImportValidationDTO(
                 valid=False,
                 errors=errors,
@@ -613,7 +270,6 @@ class TransferService:
                 would_update=ImportCountsDTO(),
                 would_skip=ImportCountsDTO(),
             )
-        dto = TransferDocumentDTO.model_validate(document)
         current_tabs, current_groups, current_tags = await self.repository.current_ids()
         return ImportValidationDTO(
             valid=True,
@@ -638,28 +294,20 @@ class TransferService:
         mode: ImportMode,
         scope: str = "all",
     ) -> ImportApplyResultDTO:
-        """Validate and apply an imported library document.
-
-        The operation handles the versioned portable-library boundary. Imported content is treated
-        as untrusted until structural and referential validation succeeds, and exported records use
-        deterministic ordering for stable backups.
+        """Apply a validated import, backing up the current library before replacement.
 
         Args:
-            content (Any): Untrusted serialized content to parse or validate.
-            format (TransferFormat): Requested interchange representation.
-            mode (ImportMode): Requested import or update behavior.
-            scope (str): Scope value consumed by this operation.
+            content (Any): Uploaded or generated document content.
+            format (TransferFormat): Requested import or export format.
+            mode (ImportMode): Selected search or import mode.
+            scope (str): Subset of library records to import or export.
 
         Returns:
-            ImportApplyResultDTO: Result produced by the operation described above.
+            ImportApplyResultDTO: Created, updated, and skipped record counts with warnings.
         """
-        document, parse_errors = self.parse(content, format)
-        if parse_errors or document is None:
-            return ImportApplyResultDTO(success=False, errors=parse_errors, warnings=[])
-        errors, warnings = validate_document(document)
-        if errors:
+        dto, errors, warnings = self._validated_document(content, format)
+        if dto is None:
             return ImportApplyResultDTO(success=False, errors=errors, warnings=warnings)
-        dto = TransferDocumentDTO.model_validate(document)
         await self.repository.replace_property_schema(dict(dto.property_schema))
         backup_id: str | None = None
         if mode == "replace":
@@ -728,17 +376,13 @@ class TransferService:
         )
 
     async def restore_backup(self, backup_id: str) -> str | None:
-        """Queue replacement import from a stored backup file.
-
-        The operation handles the versioned portable-library boundary. Imported content is treated
-        as untrusted until structural and referential validation succeeds, and exported records use
-        deterministic ordering for stable backups.
+        """Queue a stored backup for restoration, or return None if its file is missing.
 
         Args:
-            backup_id (str): Stable identifier of the backup targeted by the operation.
+            backup_id (str): Identifier of the backup to restore.
 
         Returns:
-            str | None: Result produced by the operation described above.
+            str | None: Queued restore-job ID, or None if the backup file is unavailable.
         """
         backup = await self.repository.get_backup(backup_id)
         if backup is None or not Path(backup.path).exists():
@@ -753,18 +397,36 @@ class TransferService:
         return job.id
 
     async def backups(self) -> list[BackupDTO]:
-        """List available backup snapshots."""
+        """List available backup snapshots.
+
+        Returns:
+            list[BackupDTO]: Matching records in display order.
+        """
         return [self.mapper.backup_to_dto(row) for row in await self.repository.backups()]
 
     async def queue_restore(self, backup_id: str) -> JobQueuedDTO:
-        """Queue restoration of an existing backup."""
+        """Queue restoration of an existing backup.
+
+        Args:
+            backup_id (str): Identifier of the backup to restore.
+
+        Returns:
+            JobQueuedDTO: Identifier and state of the queued background job.
+
+        Raises:
+            BackupNotFoundError: No stored backup has the requested ID.
+        """
         job_id = await self.restore_backup(backup_id)
         if job_id is None:
             raise BackupNotFoundError(f"Backup {backup_id!r} was not found")
         return JobQueuedDTO(job_id=job_id)
 
     async def clear_library(self) -> LibraryClearDTO:
-        """Back up and clear the complete local library atomically."""
+        """Back up and clear the complete local library atomically.
+
+        Returns:
+            LibraryClearDTO: Counts of library records removed.
+        """
         backup = await self.create_backup("clear_library")
         await self.repository.clear_library()
         await self.db.commit()

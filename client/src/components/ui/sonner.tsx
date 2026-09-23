@@ -1,6 +1,13 @@
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
 
+/**
+ * Render application toast notifications.
+ *
+ * Apply the current theme to Sonner's toast container.
+ * @param {ToasterProps} event - Sonner container properties.
+ * @returns {React.ReactElement} The themed toast container.
+ */
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
 

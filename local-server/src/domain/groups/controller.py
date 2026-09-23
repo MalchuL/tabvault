@@ -33,10 +33,6 @@ async def list_groups(
 ) -> GroupListResponseDTO:
     """List every flat Group newest first.
 
-    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
-    delegates domain work to an injected service, and returns the shared typed response envelope.
-    Database access and transaction decisions remain outside the route.
-
     Args:
         service (Annotated[GroupService, Depends(get_group_service)]): Request-scoped application
             service that implements the use case.
@@ -46,7 +42,7 @@ async def list_groups(
         offset (int): Number of matching rows to skip before this page.
 
     Returns:
-        GroupListResponseDTO: Result produced by the operation described above.
+        GroupListResponseDTO: Page of groups with counts in the requested visibility scope.
     """
     return await service.list(visibility, category, ListOptions(limit=limit, offset=offset))
 
@@ -57,17 +53,13 @@ async def create_group(
 ) -> SuccessResponseDTO[GroupDTO]:
     """Create one Group.
 
-    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
-    delegates domain work to an injected service, and returns the shared typed response envelope.
-    Database access and transaction decisions remain outside the route.
-
     Args:
         body (GroupCreateDTO): Validated request body supplied by the caller.
         service (Annotated[GroupService, Depends(get_group_service)]): Request-scoped application
             service that implements the use case.
 
     Returns:
-        SuccessResponseDTO[GroupDTO]: Result produced by the operation described above.
+        SuccessResponseDTO[GroupDTO]: Envelope containing the newly created group.
     """
     return success(await service.create(body))
 
@@ -78,17 +70,13 @@ async def get_group(
 ) -> SuccessResponseDTO[GroupDTO]:
     """Get one Group.
 
-    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
-    delegates domain work to an injected service, and returns the shared typed response envelope.
-    Database access and transaction decisions remain outside the route.
-
     Args:
         group_id (str): Stable identifier of the group targeted by the operation.
         service (Annotated[GroupService, Depends(get_group_service)]): Request-scoped application
             service that implements the use case.
 
     Returns:
-        SuccessResponseDTO[GroupDTO]: Result produced by the operation described above.
+        SuccessResponseDTO[GroupDTO]: Envelope containing the requested group.
     """
     return success(await service.get(group_id))
 
@@ -101,10 +89,6 @@ async def update_group(
 ) -> SuccessResponseDTO[GroupDTO]:
     """Patch one Group.
 
-    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
-    delegates domain work to an injected service, and returns the shared typed response envelope.
-    Database access and transaction decisions remain outside the route.
-
     Args:
         group_id (str): Stable identifier of the group targeted by the operation.
         body (GroupUpdateDTO): Validated request body supplied by the caller.
@@ -112,7 +96,7 @@ async def update_group(
             service that implements the use case.
 
     Returns:
-        SuccessResponseDTO[GroupDTO]: Result produced by the operation described above.
+        SuccessResponseDTO[GroupDTO]: Envelope containing the updated group.
     """
     return success(await service.update(group_id, body))
 
@@ -123,17 +107,13 @@ async def delete_group(
 ) -> SuccessResponseDTO[GroupDeleteResultDTO]:
     """Archive and Unassign members, then permanently delete the Group.
 
-    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
-    delegates domain work to an injected service, and returns the shared typed response envelope.
-    Database access and transaction decisions remain outside the route.
-
     Args:
         group_id (str): Stable identifier of the group targeted by the operation.
         service (Annotated[GroupService, Depends(get_group_service)]): Request-scoped application
             service that implements the use case.
 
     Returns:
-        SuccessResponseDTO[GroupDeleteResultDTO]: Result produced by the operation described above.
+        SuccessResponseDTO[GroupDeleteResultDTO]: Envelope containing the deleted group ID and archived-tab count.
     """
     return success(await service.delete(group_id))
 
@@ -154,10 +134,6 @@ async def group_tabs(
 ) -> TabListResponseDTO:
     """List active tabs assigned directly to one Group.
 
-    This HTTP-boundary operation relies on FastAPI for input validation and dependency resolution,
-    delegates domain work to an injected service, and returns the shared typed response envelope.
-    Database access and transaction decisions remain outside the route.
-
     Args:
         group_id (str): Stable identifier of the group targeted by the operation.
         tabs (Annotated[TabService, Depends(get_tab_service)]): Saved Tab service resolved for the
@@ -170,7 +146,7 @@ async def group_tabs(
         visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
 
     Returns:
-        TabListResponseDTO: Result produced by the operation described above.
+        TabListResponseDTO: Page of active tabs assigned to the requested group.
     """
     await groups.get(group_id)
     result = await tabs.list(

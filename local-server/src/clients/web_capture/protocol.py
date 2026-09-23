@@ -12,8 +12,8 @@ class CapturedResponse:
     provides the structural contract used by dependency injection and tests.
 
     Attributes:
-        content (bytes): Typed content value carried by this object.
-        content_type (str): Typed content type value carried by this object.
+        content (bytes): Captured response bytes.
+        content_type (str): MIME type of the captured content.
         url (str): Original saved URL, preserved without canonicalization.
     """
 
@@ -39,7 +39,7 @@ class WebCaptureProtocol(Protocol):
             url (str): Absolute HTTP or HTTPS URL used by the operation.
 
         Returns:
-            CapturedResponse: Result produced by the operation described above.
+            CapturedResponse: Validated HTML content and its final source URL.
         """
         ...
 
@@ -53,6 +53,6 @@ class WebCaptureProtocol(Protocol):
             url (str): Absolute HTTP or HTTPS URL used by the operation.
 
         Returns:
-            CapturedResponse: Result produced by the operation described above.
+            CapturedResponse: Validated image bytes and their final source URL.
         """
         ...

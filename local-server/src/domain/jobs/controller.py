@@ -18,5 +18,14 @@ async def job(
     job_id: str,
     service: Annotated[JobService, Depends(get_job_service)],
 ) -> SuccessResponseDTO[JobDTO]:
-    """Return one durable job."""
+    """Return one durable job.
+
+    Args:
+        job_id (str): Identifier of the background job.
+        service (Annotated[JobService, Depends(get_job_service)]): Request-scoped service for
+            this use case.
+
+    Returns:
+        SuccessResponseDTO[JobDTO]: Response envelope containing the job.
+    """
     return success(await service.get(job_id))

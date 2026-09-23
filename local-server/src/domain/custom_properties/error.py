@@ -14,7 +14,11 @@ class CustomPropertyError(Exception):
 
 
 class InvalidCustomPropertiesError(CustomPropertyError):
-    """Reject an atomic property mutation containing invalid or unknown values."""
+    """Reject an atomic property mutation containing invalid or unknown values.
+
+    Attributes:
+        received (Any): Rejected property value retained for the API error response.
+    """
 
     def __init__(self, message: str, *, received: Any = None) -> None:
         """Capture the rejected property input for the shared error renderer.

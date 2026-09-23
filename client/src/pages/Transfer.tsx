@@ -14,19 +14,21 @@ import {
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { readLibraryFromServer } from "@/domain/server/libraryApi";
+import { checkLocalServer } from "@/domain/server/search";
 import {
-  checkLocalServer,
   DEFAULT_TABVAULT_API_KEY,
   DEFAULT_TABVAULT_SERVER_URL,
   readApiKey,
-  readLibraryFromServer,
   readLocalServerUrl,
-} from "@/domain/server/synchronization";
+} from "@/domain/server/browserStorage";
 import {
   emptyBrowserVault,
   fromServerDocument,
   isPersistedVault,
-} from "@/lib/library";
+} from "@/domain/library/codec";
 import { useLibrary } from "@/domain/library/library-context";
 import { createTabVaultApi } from "@/domain/server/client";
 
@@ -39,6 +41,14 @@ type ValidationError = {
   message?: string;
 };
 
+/**
+ * Download generated text through a temporary browser object URL.
+ * Releases the URL after triggering the download to avoid retaining the Blob.
+ * @param {string} name - Suggested filename.
+ * @param {string} content - File body to download.
+ * @param {string} type - MIME type assigned to the Blob.
+ * @returns {void} Triggers a browser download.
+ */
 function downloadFile(name: string, content: string, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }));
   const anchor = document.createElement("a");
@@ -50,10 +60,19 @@ function downloadFile(name: string, content: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Create a filename-safe UTC timestamp for exports.
+ * @returns {string} ISO timestamp with colon and period characters replaced.
+ */
 function timestamp() {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
+/**
+ * Present browser and server export, validation, and import controls.
+ * Destructive replacement is a separate explicit action from merging.
+ * @returns {JSX.Element} Transfer workspace and its status messages.
+ */
 export default function Transfer() {
   const { vault, dispatch } = useLibrary();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -77,6 +96,11 @@ export default function Transfer() {
     );
   }, []);
 
+  /**
+   * Download the browser library as JSON.
+   *
+   * Serialize the current vault for a local backup file.
+   */
   const exportBrowserJson = () => {
     downloadFile(
       `tabvault-browser-${timestamp()}.json`,
@@ -86,6 +110,13 @@ export default function Transfer() {
     toast.success("Browser library downloaded");
   };
 
+  /**
+   * Download a server library export.
+   *
+   * Request JSON or Markdown from the connected API and report failures to the user.
+   * @param {"json" | "markdown"} format - Export format to request.
+   * @returns {Promise<void>} Resolves after the download attempt.
+   */
   const exportServer = async (format: "json" | "markdown") => {
     if (!serverOnline) {
       toast.error("Connect the TabVault API before exporting server data");
@@ -113,6 +144,13 @@ export default function Transfer() {
     }
   };
 
+  /**
+   * Import a browser or server library file.
+   *
+   * Validate JSON or Markdown and merge or replace according to the selected mode; report contract errors.
+   * @param {File} file - User-selected file containing a library export.
+   * @returns {Promise<void>} Resolves after the import attempt.
+   */
   const importFile = async (file: File) => {
     setIssues([]);
     setIsWorking(true);
@@ -193,7 +231,7 @@ export default function Transfer() {
         </section>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_9px_25px_rgba(24,38,31,0.035)] sm:p-6">
+          <Card className="gap-0 rounded-none border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_9px_25px_rgba(24,38,31,0.035)] sm:p-6">
             <div className="flex items-start gap-3">
               <div className="rounded-md bg-[#edf2ea] p-2 text-[#638569]">
                 <ArrowDownToLine className="h-4 w-4" />
@@ -209,7 +247,8 @@ export default function Transfer() {
               server.
             </p>
             <div className="mt-5 grid gap-2 sm:grid-cols-2">
-              <button
+              <Button
+                variant="outline"
                 onClick={exportBrowserJson}
                 className="flex items-center justify-between border border-[#d7d1c4] bg-[#f9f7f1] px-3 py-3 text-left transition hover:border-[#e95224]"
               >
@@ -217,8 +256,9 @@ export default function Transfer() {
                   <FileJson2 className="h-4 w-4 text-[#e95224]" /> Browser JSON
                 </span>
                 <ArrowDownToLine className="h-3.5 w-3.5 text-[#858980]" />
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => void exportServer("json")}
                 disabled={!serverOnline || isWorking}
                 className="flex items-center justify-between border border-[#d7d1c4] bg-[#f9f7f1] px-3 py-3 text-left transition hover:border-[#e95224] disabled:cursor-not-allowed disabled:opacity-45"
@@ -227,8 +267,9 @@ export default function Transfer() {
                   <Server className="h-4 w-4 text-[#e95224]" /> Server JSON
                 </span>
                 <ArrowDownToLine className="h-3.5 w-3.5 text-[#858980]" />
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => void exportServer("markdown")}
                 disabled={!serverOnline || isWorking}
                 className="flex items-center justify-between border border-[#d7d1c4] bg-[#f9f7f1] px-3 py-3 text-left transition hover:border-[#e95224] disabled:cursor-not-allowed disabled:opacity-45 sm:col-span-2"
@@ -238,11 +279,11 @@ export default function Transfer() {
                   Markdown
                 </span>
                 <ArrowDownToLine className="h-3.5 w-3.5 text-[#858980]" />
-              </button>
+              </Button>
             </div>
-          </section>
+          </Card>
 
-          <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_9px_25px_rgba(24,38,31,0.035)] sm:p-6">
+          <Card className="gap-0 rounded-none border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_9px_25px_rgba(24,38,31,0.035)] sm:p-6">
             <div className="flex items-start gap-3">
               <div className="rounded-md bg-[#fff0ea] p-2 text-[#e95224]">
                 <ArrowUpFromLine className="h-4 w-4" />
@@ -259,14 +300,15 @@ export default function Transfer() {
             </p>
             <div className="mt-5 flex overflow-hidden border border-[#d7d1c4]">
               {(["merge", "replace"] as const).map(mode => (
-                <button
+                <Button
+                  variant="ghost"
                   key={mode}
                   onClick={() => setImportMode(mode)}
                   disabled={!serverOnline}
                   className={`flex-1 px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] transition ${importMode === mode ? "bg-[#fff0ea] text-[#c84b26]" : "bg-[#f9f7f1] text-[#747970] hover:bg-[#fffdf8]"} disabled:cursor-not-allowed disabled:opacity-45`}
                 >
                   {mode}
-                </button>
+                </Button>
               ))}
             </div>
             <input
@@ -279,7 +321,7 @@ export default function Transfer() {
                 if (file) void importFile(file);
               }}
             />
-            <button
+            <Button
               onClick={() => fileInput.current?.click()}
               disabled={isWorking}
               className="mt-3 flex w-full items-center justify-center gap-2 bg-[#e95224] px-3 py-3 text-[11px] font-bold text-white transition hover:bg-[#d94a1e] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-[#c8c1b6]"
@@ -290,8 +332,8 @@ export default function Transfer() {
                 <Upload className="h-4 w-4" />
               )}
               {isWorking ? "Working…" : "Choose a transfer file"}
-            </button>
-          </section>
+            </Button>
+          </Card>
         </div>
 
         {issues.length > 0 && (

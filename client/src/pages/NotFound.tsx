@@ -3,9 +3,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { AlertCircle, Home } from "lucide-react";
 import { useLocation } from "wouter";
 
+/**
+ * Offer a route back to the workspace when navigation misses every page.
+ * @returns {JSX.Element} Not-found message and home action.
+ */
 export default function NotFound() {
   const [, setLocation] = useLocation();
 
+  /**
+   * Return from an unknown route to the workspace.
+   *
+   * Use browser navigation so the current application state is preserved where possible.
+   */
   const handleGoHome = () => {
     setLocation("/");
   };

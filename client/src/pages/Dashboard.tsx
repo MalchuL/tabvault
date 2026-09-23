@@ -1,4 +1,4 @@
-import { IconButton } from "@/components/ui/icon-button";
+import { IconButton } from "@/components/shared/IconButton";
 /**
  * Product UX redesign reminder: Dashboard is the calm operational companion to
  * the Library. It explains data safety and search readiness without inserting
@@ -20,23 +20,32 @@ import {
   Wifi,
 } from "lucide-react";
 import { toast } from "sonner";
-import { CapabilityIssue } from "@/components/CapabilityIssue";
+import { Button } from "@/components/ui/button";
+import { CapabilityIssue } from "@/components/shared/CapabilityIssue";
 import { useLibrary } from "@/domain/library/library-context";
 import {
   blockingSearchCapability,
-  DEFAULT_TABVAULT_API_KEY,
-  DEFAULT_TABVAULT_SERVER_URL,
   loadServerSearchState,
-  readApiKey,
-  readLocalServerUrl,
-  readSyncStatus,
   rebuildSemanticIndex,
   runIndexHealthCheck,
   type SemanticIndexStatus,
   type ServerCapabilities,
+} from "@/domain/server/search";
+import {
+  DEFAULT_TABVAULT_API_KEY,
+  DEFAULT_TABVAULT_SERVER_URL,
+  readApiKey,
+  readLocalServerUrl,
+  readSyncStatus,
   type SyncStatus,
-} from "@/domain/server/synchronization";
+} from "@/domain/server/browserStorage";
 
+/**
+ * Describe the last local save in coarse human-readable time units.
+ * Future clock skew is clamped to zero elapsed time.
+ * @param {number | undefined} timestamp - Save time in epoch milliseconds.
+ * @returns {string} Relative time or a missing-save label.
+ */
 function formatTime(timestamp?: number) {
   if (!timestamp) return "No local save recorded yet";
   const elapsedSeconds = Math.max(
@@ -51,6 +60,11 @@ function formatTime(timestamp?: number) {
   return `Saved ${Math.floor(elapsedSeconds / 86400)} days ago`;
 }
 
+/**
+ * Show library safety, local-server connectivity, and search readiness.
+ * Operational controls stay outside the daily tab workspace.
+ * @returns {JSX.Element} Dashboard status and actions.
+ */
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const { vault } = useLibrary();
@@ -132,6 +146,12 @@ export default function Dashboard() {
     return () => window.clearInterval(timer);
   }, [online, serverUrl, apiKey, applySearchState]);
 
+  /**
+   * Start or inspect a semantic-index rebuild.
+   *
+   * Refresh server capabilities afterward and report whether indexing is ready or still running.
+   * @returns {Promise<void>} Resolves after the rebuild request and status refresh.
+   */
   const rebuild = async () => {
     if (!online) {
       toast.error("Connect the server before rebuilding the index");
@@ -175,6 +195,12 @@ export default function Dashboard() {
     }
   };
 
+  /**
+   * Run a semantic-index health check.
+   *
+   * Update the displayed health status and report whether the index needs attention.
+   * @returns {Promise<void>} Resolves after the health-check request.
+   */
   const checkHealth = async () => {
     if (!online) {
       toast.error("Connect the server before running a health check");
@@ -287,13 +313,14 @@ export default function Dashboard() {
                     ? "Library available locally"
                     : "No saved tabs yet"}
               </span>
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => setLocation("/settings")}
                 className="inline-flex items-center gap-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-[#536057] hover:text-[#e95224]"
               >
                 {online ? "Review connection" : "Connect server"}{" "}
                 <ArrowRight className="h-3 w-3" />
-              </button>
+              </Button>
             </div>
           </article>
 
@@ -341,7 +368,8 @@ export default function Dashboard() {
               </p>
             )}
             <CapabilityIssue capability={blockedCapability} />
-            <button
+            <Button
+              variant="outline"
               onClick={() => void rebuild()}
               disabled={!online || isRebuilding}
               className="mt-5 inline-flex items-center gap-2 rounded-md border border-[#e7b09a] bg-[#fff4ee] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-[#c84b26] transition hover:bg-[#fff0ea] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
@@ -350,7 +378,7 @@ export default function Dashboard() {
                 className={`h-3.5 w-3.5 ${isRebuilding ? "animate-spin" : ""}`}
               />
               {isRebuilding ? "Rebuilding" : "Rebuild index"}
-            </button>
+            </Button>
           </article>
 
           <article className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
@@ -376,13 +404,14 @@ export default function Dashboard() {
                 ? `Automatic checks run every ${Math.round(indexStatus.healthCheck.intervalSeconds / 60)} minutes.`
                 : "Health checks are manual. Turn on a schedule in Settings if you want local alerts."}
             </p>
-            <button
+            <Button
+              variant="ghost"
               onClick={() => void checkHealth()}
               disabled={!online}
               className="mt-5 inline-flex items-center gap-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-[#536057] transition hover:text-[#e95224] disabled:cursor-not-allowed disabled:opacity-45"
             >
               Check now <ArrowRight className="h-3 w-3" />
-            </button>
+            </Button>
           </article>
         </section>
       </div>

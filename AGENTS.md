@@ -7,7 +7,9 @@ stacks unless the task explicitly calls for a migration.
 
 ## Project Structure & Module Organization
 
-`client/src/` contains the React/Vite application: pages live in `pages/`, product components in `components/`, UI primitives in `components/ui/`, and browser/storage logic in `lib/`. Extension assets and its MV3 manifest are in `client/public/`; builds go to `dist/public/`. Shared TypeScript constants live in `shared/`.
+`client/src/` contains the React/Vite application: pages live in `pages/`, the app shell in `components/shell/`, cross-feature components in `components/shared/`, shadcn UI primitives in `components/ui/`, and browser/storage logic in `lib/`. Extension assets and its MV3 manifest are in `client/public/`; builds go to `dist/public/`. Shared TypeScript constants live in `shared/`.
+
+Library UI stays within `client/src/domain/library/components/`: `workspace/` owns page composition and interaction hooks, `tabs/` renders and edits saved tabs, `collections/` renders collection boards and drop targets, `tags/` owns tag management, and `shared/` holds controls reused across those library areas. Keep domain state and data rules in the parent `domain/library/` modules.
 
 The FastAPI service is under `local-server/`, with code in `tabvault_server/`, JSON contracts in `schema/` and `errors/`, and Python tests in `tests/`. Root `tests/` covers extension synchronization; `e2e/` contains Playwright tests. Design references belong in `docs/`.
 
@@ -30,37 +32,74 @@ Use Prettier and ESLint for TypeScript/React. Keep strict types, two-space inden
 
 ## Docstrings and Code Comments
 
-Document public functions, hooks, and non-obvious behavior. Explain the contract or
-reason for a decision; do not repeat names and types. Update documentation when the
-behavior changes. Python uses docstrings; TypeScript uses TSDoc-style comments:
+Document production classes, functions, methods, and hooks, including private helpers
+whose behavior is not clear from their names. Start with a precise summary, then explain
+the purpose, important invariants, side effects, and transaction or error boundaries.
+Document every parameter and non-`None` return with its full type and meaning; document
+deliberately raised errors and the conditions that cause them. For state-bearing classes,
+describe meaningful attributes and their lifecycle. Keep documentation consistent with
+the code and avoid repeated filler. Add brief inline comments at tricky branches,
+ordering constraints, or workarounds to explain why the code takes that path. Do not
+narrate straightforward statements. Python uses docstrings; TypeScript uses JSDoc:
 
 ```python
-def title_for_archive(title: str | None, url: str) -> str:
-    """Choose the label shown for an archived tab.
+def archive_title(title: str | None, url: str) -> str:
+    """Choose the title stored with an archived tab.
 
-    Pages without a usable browser title display their URL instead.
+    Browser titles can be missing or contain only whitespace. Use the URL in those
+    cases so an archive record always has a useful label. This function does not
+    change the tab or persist the result.
 
     Args:
-        title (str | None): Browser-provided title, if available.
-        url (str): Fallback label for untitled pages.
+        title (str | None): Browser-provided title, or ``None`` when unavailable.
+        url (str): Page URL used when the title has no visible characters.
 
     Returns:
-        str: The trimmed title or URL.
+        str: The trimmed title, or the URL when no usable title exists.
+
+    Raises:
+        ValueError: Both the title and URL are empty or whitespace-only.
     """
-    return title.strip() if title and title.strip() else url
+    label = title.strip() if title else ""
+    if not label:
+        label = url.strip()
+    if not label:
+        raise ValueError("An archived tab needs a title or URL")
+    return label
 ```
 
 ```ts
 /**
- * Choose the label shown for an archived tab.
- * Pages without a usable browser title display their URL instead.
- * @param {string | null} title - Browser-provided title, if available.
- * @param {string} url - Fallback label for untitled pages.
- * @returns {string} The trimmed title or URL.
+ * Choose the title stored with an archived tab.
+ *
+ * Browser titles can be missing or contain only whitespace. Use the URL in those
+ * cases so an archive record always has a useful label. This function does not
+ * change the tab or persist the result.
+ *
+ * @param {string | null} title - Browser-provided title, or null when unavailable.
+ * @param {string} url - Page URL used when the title has no visible characters.
+ * @returns {string} The trimmed title, or the URL when no usable title exists.
+ * @throws {Error} When both the title and URL are empty or whitespace-only.
  */
-export function titleForArchive(title: string | null, url: string): string {
-  return title?.trim() || url;
+export function archiveTitle(title: string | null, url: string): string {
+  const label = title?.trim() || url.trim();
+  if (!label) throw new Error("An archived tab needs a title or URL");
+  return label;
 }
+```
+
+Place inline comments beside non-obvious code. State the reason or invariant, not what
+the next statement already says. Update or remove the comment when the code changes:
+
+```python
+# Count before unassigning tabs; clearing group_id would make this query return zero.
+archived_tab_count = await count_group_tabs(group_id)
+await archive_and_unassign_tabs(group_id)
+```
+
+```ts
+// Copy before sorting because drag order still uses the original array.
+const sortedGroups = [...groups].sort((a, b) => a.position - b.position);
 ```
 
 ## Testing Guidelines

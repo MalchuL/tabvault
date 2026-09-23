@@ -1,3 +1,9 @@
+/**
+ * Derive a stable accent from a category name without storing extra metadata.
+ * The same name hashes to the same hue across browser sessions.
+ * @param {string} category - Category label to color.
+ * @returns {string} HSL color suitable for the category accent.
+ */
 export function categoryColor(category: string): string {
   let hash = 2166136261;
   for (const character of category) {
