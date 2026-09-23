@@ -31,14 +31,14 @@ Add a stdio server with the settings in [misc/inspector.png](misc/inspector.png)
 
 ![MCP Inspector settings for local TabVault development](misc/inspector.png)
 
-| Field | Value |
-| --- | --- |
-| Server ID | `tabvault` |
-| Transport | `stdio (local process)` |
-| Command | `uv` |
-| Arguments | `run` then `tabvault-mcp` (one argument per line) |
-| Environment | `TABVAULT_SERVER_URL=http://127.0.0.1:47821` and `TABVAULT_API_KEY=change-me` |
-| Working directory | absolute path to this `mcp/` package |
+| Field             | Value                                                                         |
+| ----------------- | ----------------------------------------------------------------------------- |
+| Server ID         | `tabvault`                                                                    |
+| Transport         | `stdio (local process)`                                                       |
+| Command           | `uv`                                                                          |
+| Arguments         | `run` then `tabvault-mcp` (one argument per line)                             |
+| Environment       | `TABVAULT_SERVER_URL=http://127.0.0.1:47821` and `TABVAULT_API_KEY=change-me` |
+| Working directory | absolute path to this `mcp/` package                                          |
 
 ## Cursor
 
@@ -50,7 +50,12 @@ Settings → MCP → Add new MCP server uses the same fields as the Inspector sc
   "mcpServers": {
     "tabvault": {
       "command": "uv",
-      "args": ["--directory", "/absolute/path/to/tabvault/mcp", "run", "tabvault-mcp"],
+      "args": [
+        "--directory",
+        "/absolute/path/to/tabvault/mcp",
+        "run",
+        "tabvault-mcp"
+      ],
       "env": {
         "TABVAULT_SERVER_URL": "http://127.0.0.1:47821",
         "TABVAULT_API_KEY": "change-me"

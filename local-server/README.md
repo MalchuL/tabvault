@@ -28,11 +28,11 @@ downloaded only on first semantic use. Keyword search works without it.
 `GET /api/v1/capabilities` reports what this process can do. Each named capability is either
 available or includes a short `error` and `fix`:
 
-| Field | Available when |
-| --- | --- |
-| `keywordSearch` | Always. Titles, notes, URLs, and tags can be searched without embeddings. |
-| `semanticSearch` | `sentence-transformers` and `zvec` import in this environment. |
-| `vectorIndex` | A rebuild has finished in this process and the in-memory index is ready. |
+| Field            | Available when                                                            |
+| ---------------- | ------------------------------------------------------------------------- |
+| `keywordSearch`  | Always. Titles, notes, URLs, and tags can be searched without embeddings. |
+| `semanticSearch` | `sentence-transformers` and `zvec` import in this environment.            |
+| `vectorIndex`    | A rebuild has finished in this process and the in-memory index is ready.  |
 
 Dashboard and Settings render that error and fix when meaning-based search is blocked. The usual
 first-run failure is a missing semantic extra:
@@ -56,7 +56,6 @@ uv run pytest
 
 `uv run pytest` enforces 90% branch coverage. `make check` also runs Ruff formatting/linting and
 mypy.
-
 
 ```bash
 docker build -t tabvault-local-server local-server

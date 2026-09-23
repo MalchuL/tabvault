@@ -6,7 +6,7 @@ import {
   serverDocumentToVault,
   utcTimestamp,
   vaultToServerDocument,
-} from "../client/public/library-sync.js";
+} from "../dist/public/library-sync.js";
 
 test("schema-v3 conversion preserves occurrence identity, exact URL, and Unassigned", () => {
   const vault = defaultVault();

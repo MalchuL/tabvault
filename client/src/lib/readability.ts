@@ -2,7 +2,7 @@
  * Signal Library implementation reminder: reader content is derived, ephemeral evidence.
  * It never replaces the saved URL, title, note, tags, or other canonical library metadata.
  */
-import { fetchReadablePageSource } from "@/lib/extension";
+import { fetchReadablePageSource } from "@/domain/server/synchronization";
 
 export type ReadableArticle = {
   title: string;

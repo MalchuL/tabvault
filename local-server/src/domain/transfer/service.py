@@ -13,6 +13,9 @@ from urllib.parse import urlsplit
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import Settings
+from domain.jobs.dto import JobQueuedDTO
+from domain.jobs.mapper import JobMapper
+from domain.jobs.repository import JobRepository
 from lib.responses import IssueDTO, WarningDTO, issue
 from lib.time import iso, stored_utc, utc_now
 
@@ -24,6 +27,7 @@ from .dto import (
     ImportCountsDTO,
     ImportMode,
     ImportValidationDTO,
+    LibraryClearDTO,
     MinimalTransferDocumentDTO,
     MinimalTransferTabDTO,
     TransferDocumentDTO,
@@ -31,8 +35,9 @@ from .dto import (
     TransferFormat,
     TransferGroupDTO,
 )
-from .mapper import SystemMapper
-from .repository import SystemRepository
+from .error import BackupNotFoundError
+from .mapper import TransferMapper
+from .repository import TransferRepository
 
 
 def empty_document() -> dict[str, Any]:
@@ -355,7 +360,13 @@ class TransferService:
     deterministic ordering for stable backups.
     """
 
-    def __init__(self, db: AsyncSession, settings: Settings, repository: SystemRepository) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        settings: Settings,
+        repository: TransferRepository,
+        jobs: JobRepository,
+    ) -> None:
         """Initialize the service and its persistence dependency.
 
         The operation handles the versioned portable-library boundary. Imported content is treated
@@ -365,13 +376,16 @@ class TransferService:
         Args:
             db (AsyncSession): Request-scoped asynchronous database session used by this operation.
             settings (Settings): Validated process settings that control this component.
-            repository (SystemRepository): Persistence adapter used to load and mutate domain
+            repository (TransferRepository): Persistence adapter used to load and mutate domain
                 records.
+            jobs (JobRepository): Durable job persistence for queued restores.
         """
         self.db = db
         self.settings = settings
         self.repository = repository
-        self.mapper = SystemMapper()
+        self.jobs = jobs
+        self.mapper = TransferMapper()
+        self.job_mapper = JobMapper()
 
     async def document(self, *, include_hidden: bool = True) -> TransferDocumentDTO:
         """Build the complete portable library document.
@@ -394,9 +408,9 @@ class TransferService:
         return TransferDocumentDTO(
             exported_at=utc_now(),
             property_schema=dict(schema.properties or {}) if schema is not None else {},
-            tags=[self.mapper.tag_to_transfer(tag) for tag in tags],
-            groups=[self.mapper.group_to_transfer(group) for group in groups],
-            tabs=[self.mapper.tab_to_transfer(tab) for tab in tabs],
+            tags=[self.mapper.tag_to_dto(tag) for tag in tags],
+            groups=[self.mapper.group_to_dto(group) for group in groups],
+            tabs=[self.mapper.tab_to_dto(tab) for tab in tabs],
         )
 
     async def create_backup(self, reason: str) -> BackupDTO:
@@ -663,10 +677,10 @@ class TransferService:
             incoming_updated = stored_utc(tag_dto.updated_at)
             existing_updated = stored_utc(tag.updated_at) if tag is not None else None
             if tag is None:
-                await self.repository.save_model(self.mapper.tag_from_transfer(tag_dto))
+                await self.repository.save_model(self.mapper.tag_from_dto(tag_dto))
                 created.tags += 1
             elif incoming_updated and existing_updated and incoming_updated > existing_updated:
-                await self.repository.apply_changes(tag, self.mapper.tag_transfer_changes(tag_dto))
+                await self.repository.apply_changes(tag, self.mapper.tag_changes(tag_dto))
                 updated.tags += 1
         for group_dto in dto.groups:
             if await self.repository.tombstone_exists("group", group_dto.id):
@@ -675,12 +689,10 @@ class TransferService:
             incoming_updated = stored_utc(group_dto.updated_at)
             existing_updated = stored_utc(group.updated_at) if group is not None else None
             if group is None:
-                await self.repository.save_model(self.mapper.group_from_transfer(group_dto))
+                await self.repository.save_model(self.mapper.group_from_dto(group_dto))
                 created.groups += 1
             elif incoming_updated and existing_updated and incoming_updated > existing_updated:
-                await self.repository.apply_changes(
-                    group, self.mapper.group_transfer_changes(group_dto)
-                )
+                await self.repository.apply_changes(group, self.mapper.group_changes(group_dto))
                 updated.groups += 1
         skipped = 0
         for tab_dto in dto.tabs:
@@ -692,12 +704,12 @@ class TransferService:
             existing_updated = stored_utc(tab.updated_at) if tab is not None else None
             if tab is None:
                 tags = await self.repository.resolve_tags(tab_dto.tags)
-                await self.repository.save_model(self.mapper.tab_from_transfer(tab_dto, tags))
+                await self.repository.save_model(self.mapper.tab_from_dto(tab_dto, tags))
                 created.tabs += 1
             elif incoming_updated and existing_updated and incoming_updated > existing_updated:
                 await self.repository.apply_changes(
                     tab,
-                    self.mapper.tab_transfer_changes(
+                    self.mapper.tab_changes(
                         tab_dto, await self.repository.resolve_tags(tab_dto.tags)
                     ),
                 )
@@ -731,11 +743,29 @@ class TransferService:
         backup = await self.repository.get_backup(backup_id)
         if backup is None or not Path(backup.path).exists():
             return None
-        job = self.mapper.job(
+        job = self.job_mapper.create(
             "backup_restore",
             target_id=backup_id,
             result={"content": json.loads(Path(backup.path).read_text(encoding="utf-8"))},
         )
-        await self.repository.add_job(job)
+        await self.jobs.add(job)
         await self.db.commit()
         return job.id
+
+    async def backups(self) -> list[BackupDTO]:
+        """List available backup snapshots."""
+        return [self.mapper.backup_to_dto(row) for row in await self.repository.backups()]
+
+    async def queue_restore(self, backup_id: str) -> JobQueuedDTO:
+        """Queue restoration of an existing backup."""
+        job_id = await self.restore_backup(backup_id)
+        if job_id is None:
+            raise BackupNotFoundError(f"Backup {backup_id!r} was not found")
+        return JobQueuedDTO(job_id=job_id)
+
+    async def clear_library(self) -> LibraryClearDTO:
+        """Back up and clear the complete local library atomically."""
+        backup = await self.create_backup("clear_library")
+        await self.repository.clear_library()
+        await self.db.commit()
+        return LibraryClearDTO(cleared=True, backup_snapshot_id=backup.id)

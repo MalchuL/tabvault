@@ -3,12 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import hmac
-import json
 import logging
-import time
-from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -19,20 +15,21 @@ import uvicorn
 from alembic.config import Config
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
 from fastapi.security import APIKeyHeader
 
 from alembic import command
 from api.error_logging import register_error_handlers
+from api.idempotency import register_idempotency
 from api.request_logging import register_request_logging
 from api.routes.api import api_router
 from config.settings import Settings, configure_logging, get_settings
 from db.session import configure_database, dispose_database, get_session_factory
-from domain.system.jobs import JobWorker
-from domain.system.repository import SystemRepository
-from domain.system.search import LocalVectorIndex
-from domain.system.transfer import TransferService
-from lib.responses import failure, issue, json_data
+from domain.indexing.vector_index import LocalVectorIndex
+from domain.jobs.repository import JobRepository
+from domain.jobs.worker import JobWorker
+from domain.transfer.repository import TransferRepository
+from domain.transfer.service import TransferService
+from lib.responses import issue, json_data
 from lib.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -111,12 +108,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.vectors = LocalVectorIndex(settings)
     app.state.worker = JobWorker(settings, app.state.vectors)
     async with get_session_factory()() as db:
-        repository = SystemRepository(db)
+        repository = TransferRepository(db)
         latest = await repository.latest_backup("scheduled")
         if latest is None or latest.created_at.replace(
             tzinfo=latest.created_at.tzinfo or utc_now().tzinfo
         ) < utc_now() - timedelta(days=1):
-            await TransferService(db, settings, repository).create_backup("scheduled")
+            await TransferService(db, settings, repository, JobRepository(db)).create_backup(
+                "scheduled"
+            )
             await db.commit()
     await app.state.worker.start()
     yield
@@ -148,92 +147,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["Content-Disposition"],
     )
-    idempotency_cache: OrderedDict[
-        tuple[str, str, str], tuple[float, str, int, dict[str, object]]
-    ] = OrderedDict()
-    idempotency_lock = asyncio.Lock()
-
-    @app.middleware("http")
-    async def idempotency(request, call_next):  # type: ignore[no-untyped-def]
-        """Replay matching POST requests identified by an idempotency key.
-
-        This application-boundary helper configures or protects the FastAPI process while keeping
-        domain use cases in their dedicated services.
-
-        Args:
-            request (object): Incoming FastAPI request, including its headers and body.
-            call_next (object): Next ASGI handler in the middleware chain.
-        """
-        key = request.headers.get("idempotency-key")
-        idempotent_paths = {
-            f"{settings.api_prefix}/tabs",
-            f"{settings.api_prefix}/tabs/batch",
-        }
-        if request.method != "POST" or request.url.path not in idempotent_paths or not key:
-            return await call_next(request)
-        body = await request.body()
-        digest = hashlib.sha256(
-            b"\0".join(
-                [
-                    request.method.encode(),
-                    request.url.path.encode(),
-                    request.url.query.encode(),
-                    body,
-                ]
-            )
-        ).hexdigest()
-        cache_key = (request.headers.get("x-api-key", ""), request.url.path, key)
-        # ponytail: one process-wide lock is enough for the local server; shard if throughput matters.
-        # TODO Move to another approach or remove this middleware entirely.
-        async with idempotency_lock:
-            now = time.monotonic()
-            while idempotency_cache and next(iter(idempotency_cache.values()))[0] <= now:
-                idempotency_cache.popitem(last=False)
-            record = idempotency_cache.get(cache_key)
-            if record is not None:
-                _expires, request_hash, status_code, response_body = record
-                if request_hash != digest:
-                    return JSONResponse(
-                        json_data(
-                            failure(
-                                [
-                                    issue(
-                                        "E_IDEMPOTENCY_CONFLICT",
-                                        "headers.Idempotency-Key",
-                                        "same request",
-                                        key,
-                                        "This key was already used for a different request.",
-                                        409,
-                                    )
-                                ]
-                            )
-                        ),
-                        status_code=409,
-                    )
-                return JSONResponse(response_body, status_code=status_code)
-            response = await call_next(request)
-            chunks = [chunk async for chunk in response.body_iterator]
-            payload = b"".join(chunks)
-            try:
-                decoded = json.loads(payload)
-            except json.JSONDecodeError:
-                return Response(
-                    payload,
-                    status_code=response.status_code,
-                    headers=dict(response.headers),
-                    media_type=response.media_type,
-                )
-            idempotency_cache[cache_key] = (
-                now + 600,
-                digest,
-                response.status_code,
-                decoded,
-            )
-            while len(idempotency_cache) > 10_000:
-                idempotency_cache.popitem(last=False)
-        headers = dict(response.headers)
-        headers.pop("content-length", None)
-        return JSONResponse(decoded, status_code=response.status_code, headers=headers)
+    register_idempotency(app, settings.api_prefix)
 
     app.include_router(
         api_router, prefix=settings.api_prefix, dependencies=[Depends(require_api_key)]

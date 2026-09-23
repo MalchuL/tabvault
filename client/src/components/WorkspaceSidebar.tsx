@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
   Archive,
   ArrowDownToLine,
@@ -22,9 +16,11 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import type { PersistedVault, VaultTab } from "@/domain/library/types";
+import type { PersistedVault } from "@/domain/library/types";
 import { emptyBrowserVault } from "@/lib/library";
-import { BrowserStorageAdapter } from "@/lib/persistence";
+import { useLibrary } from "@/domain/library/library-context";
+import { vaultStorage } from "@/domain/library/storage";
+import { libraryStats } from "@/domain/library/selectors";
 import {
   checkLocalServer,
   isExtensionContext,
@@ -32,7 +28,7 @@ import {
   readLocalServerUrl,
   readStorageMode,
   refreshLibraryFromServer,
-} from "@/lib/extension";
+} from "@/domain/server/synchronization";
 import {
   LIBRARY_OPEN_TAGS_FLAG,
   WorkspaceSidebarContext,
@@ -46,24 +42,8 @@ type LibraryNavStats = {
   tagCount: number;
 };
 
-function isCurrentlyHidden(tab: VaultTab, now = Date.now()) {
-  return (
-    !tab.archived &&
-    Boolean(tab.hiddenUntil) &&
-    Date.parse(tab.hiddenUntil ?? "") > now
-  );
-}
-
 function countLibraryStats(vault: PersistedVault): LibraryNavStats {
-  const now = Date.now();
-  return {
-    activeCount: vault.tabs.filter(
-      tab => !tab.archived && !isCurrentlyHidden(tab, now)
-    ).length,
-    archivedCount: vault.tabs.filter(tab => tab.archived).length,
-    hiddenCount: vault.tabs.filter(tab => isCurrentlyHidden(tab, now)).length,
-    tagCount: Object.keys(vault.tagCatalog ?? {}).length,
-  };
+  return libraryStats(vault);
 }
 
 function browseClass(active: boolean) {
@@ -88,48 +68,21 @@ function libraryClass(active: boolean) {
  */
 export function WorkspaceSidebar({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
+  const { vault, dispatch } = useLibrary();
   const [open, setOpen] = useState(false);
   const [bridge, setBridge] = useState<LibrarySidebarBridge | null>(null);
-  const [fallbackStats, setFallbackStats] = useState<LibraryNavStats>({
-    activeCount: 0,
-    archivedCount: 0,
-    hiddenCount: 0,
-    tagCount: 0,
-  });
   const [isRefreshingFallback, setIsRefreshingFallback] = useState(false);
   const extensionContext = isExtensionContext();
   const contextValue = useMemo(
     () => ({
       setBridge: (next: LibrarySidebarBridge | null) => {
-        if (next)
-          setFallbackStats({
-            activeCount: next.activeCount,
-            archivedCount: next.archivedCount,
-            hiddenCount: next.hiddenCount,
-            tagCount: next.tagCount,
-          });
-        setBridge(next);
+        if (next) setBridge(next);
       },
     }),
     []
   );
 
-  useEffect(() => {
-    if (bridge) return;
-    let cancelled = false;
-    void new BrowserStorageAdapter<PersistedVault>()
-      .load()
-      .then(saved => {
-        if (cancelled || !saved?.tabs) return;
-        setFallbackStats(countLibraryStats(saved));
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [bridge, location]);
-
-  const stats = bridge ?? fallbackStats;
+  const stats = bridge ?? countLibraryStats(vault);
   const isRefreshing = bridge?.isRefreshing ?? isRefreshingFallback;
   const isAllTabsPage =
     location === "/" ||
@@ -184,11 +137,9 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
         );
         return;
       }
-      const storage = new BrowserStorageAdapter<PersistedVault>();
-      const current = (await storage.load()) ?? emptyBrowserVault();
+      const current = (await vaultStorage.load()) ?? emptyBrowserVault();
       const { vault } = await refreshLibraryFromServer(url, key, current);
-      await storage.save(vault);
-      setFallbackStats(countLibraryStats(vault));
+      dispatch({ type: "replace", vault });
       toast.success("Library refreshed", {
         description: `${vault.tabs.length} tabs merged with the server.`,
       });

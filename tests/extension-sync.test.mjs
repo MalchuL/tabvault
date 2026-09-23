@@ -81,7 +81,7 @@ async function capture(listener, tabs) {
 
 test("capture creates one Session and distinct exact-URL occurrences", async () => {
   const harness = chromeHarness();
-  await import(`../client/public/background.js?test=${Date.now()}-session`);
+  await import(`../dist/public/background.js?test=${Date.now()}-session`);
   const listener = harness.listener();
   assert.equal(typeof listener, "function");
 
@@ -137,9 +137,7 @@ test("capture creates one Session and distinct exact-URL occurrences", async () 
 
 test("an atomic local batch failure leaves every source tab open", async () => {
   const harness = chromeHarness({ failVaultWrite: true });
-  await import(
-    `../client/public/background.js?test=${Date.now()}-batch-failure`
-  );
+  await import(`../dist/public/background.js?test=${Date.now()}-batch-failure`);
   const response = await capture(harness.listener(), [
     { id: 1, url: "https://example.com/one", title: "One" },
     { id: 2, url: "https://example.com/two", title: "Two" },
@@ -153,7 +151,7 @@ test("an atomic local batch failure leaves every source tab open", async () => {
 
 test("a capture with no eligible tabs still keeps its empty Session", async () => {
   const harness = chromeHarness();
-  await import(`../client/public/background.js?test=${Date.now()}-empty`);
+  await import(`../dist/public/background.js?test=${Date.now()}-empty`);
   const response = await capture(harness.listener(), [
     { id: 9, url: "chrome://settings", title: "Settings" },
   ]);

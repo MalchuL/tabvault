@@ -14,14 +14,13 @@ import {
   type DedupeMutation,
 } from "@/domain/deduplication/execution";
 import type { PersistedVault, VaultTab } from "@/domain/library/types";
+import { useLibrary } from "@/domain/library/library-context";
 import {
   readApiKey,
-  readExtensionVault,
   readLocalServerUrl,
   readStorageMode,
   updateTabOnLocalServer,
-  writeExtensionVault,
-} from "@/lib/extension";
+} from "@/domain/server/synchronization";
 
 const DEFAULT_OPTIONS: AdvancedDedupeOptions = {
   survivor: "OLDEST_CREATED",
@@ -86,18 +85,14 @@ function applyMutation(vault: PersistedVault, mutation: DedupeMutation) {
 }
 
 export default function Deduplicator() {
-  const [vault, setVault] = useState<PersistedVault>();
+  const { vault, dispatch } = useLibrary();
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [generatedPlan, setGeneratedPlan] = useState<DedupePlan>();
   const [fixedPlan, setFixedPlan] = useState<DedupePlan>();
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ succeeded: number; failed: number }>();
 
-  useEffect(() => {
-    void readExtensionVault().then(setVault);
-  }, []);
-
-  const candidates = useMemo(() => (vault ? visibleTabs(vault) : []), [vault]);
+  const candidates = useMemo(() => visibleTabs(vault), [vault]);
   useEffect(() => {
     let cancelled = false;
     void buildAdvancedDedupePlan(candidates, options).then(next => {
@@ -110,7 +105,7 @@ export default function Deduplicator() {
   const plan = fixedPlan ?? generatedPlan;
 
   const execute = async () => {
-    if (!vault || !plan) return;
+    if (!plan) return;
     setRunning(true);
     setResult(undefined);
     const executionPlan = plan;
@@ -132,19 +127,17 @@ export default function Deduplicator() {
             apiKey
           );
       },
-      async mutation => {
-        const candidate = applyMutation(nextVault, mutation);
-        await writeExtensionVault(candidate);
-        nextVault = candidate;
+      mutation => {
+        nextVault = applyMutation(nextVault, mutation);
       }
     );
-    setVault(nextVault);
+    dispatch({ type: "replace", vault: nextVault });
     setResult(completed);
     if (!completed.failed) setFixedPlan(undefined);
     setRunning(false);
   };
 
-  if (!vault || !plan)
+  if (!plan)
     return (
       <main className="min-h-screen bg-[#f6f3ec] p-8">
         Building duplicate plan…

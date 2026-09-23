@@ -63,7 +63,7 @@ test("editing a Session group explicitly reclassifies it as manual", async ({
   await page.getByRole("button", { name: "Save collection" }).click();
 
   const saved = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("tabvault-v2") || "{}")
+    JSON.parse(localStorage.getItem("tabvault-v3") || "{}")
   );
   expect(
     saved.vaultGroups.find((group: { id: string }) => group.id === "session")
@@ -83,7 +83,7 @@ test("group edit category dropdown can explicitly override manual", async ({
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const vault = JSON.parse(localStorage.getItem("tabvault-v2") || "{}");
+        const vault = JSON.parse(localStorage.getItem("tabvault-v3") || "{}");
         return vault.vaultGroups?.find(
           (group: { id: string }) => group.id === "empty"
         )?.category;

@@ -11,9 +11,10 @@ from fastapi.responses import JSONResponse
 
 from domain.custom_properties.error import CustomPropertyError
 from domain.groups.error import GroupError
-from domain.system.error import ImportValidationError, SystemDomainError
+from domain.system.error import SystemDomainError
 from domain.tabs.error import TabError
 from domain.tags.error import TagError
+from domain.transfer.error import ImportValidationError
 from lib.responses import IssueDTO, failure, issue, json_data
 
 logger = logging.getLogger(__name__)

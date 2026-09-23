@@ -2,7 +2,7 @@
  * Signal Library design reminder: transfer is a deliberate archival desk, not a transient dialog.
  * Warm paper, precise rules, and TabVault Orange distinguish write actions from local evidence.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -21,14 +21,14 @@ import {
   readApiKey,
   readLibraryFromServer,
   readLocalServerUrl,
-} from "@/lib/extension";
+} from "@/domain/server/synchronization";
 import {
   emptyBrowserVault,
   fromServerDocument,
   isPersistedVault,
-  type PersistedVault,
 } from "@/lib/library";
-import { BrowserStorageAdapter } from "@/lib/persistence";
+import { useLibrary } from "@/domain/library/library-context";
+import { createTabVaultApi } from "@/domain/server/client";
 
 type ValidationError = {
   code?: string;
@@ -55,24 +55,17 @@ function timestamp() {
 }
 
 export default function Transfer() {
-  const storage = useMemo(
-    () => new BrowserStorageAdapter<PersistedVault>(),
-    []
-  );
+  const { vault, dispatch } = useLibrary();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [vault, setVault] = useState<PersistedVault | null>(null);
   const [serverUrl, setServerUrl] = useState(DEFAULT_TABVAULT_SERVER_URL);
   const [apiKey, setApiKey] = useState(DEFAULT_TABVAULT_API_KEY);
   const [serverOnline, setServerOnline] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
   const [issues, setIssues] = useState<ValidationError[]>([]);
+  const api = createTabVaultApi({ baseUrl: serverUrl, apiKey });
 
   useEffect(() => {
-    void storage
-      .load()
-      .then(saved => setVault(saved ?? null))
-      .catch(() => setVault(null));
     void Promise.all([readLocalServerUrl(), readApiKey()]).then(
       ([configuredUrl, configuredKey]) => {
         setServerUrl(configuredUrl);
@@ -82,13 +75,9 @@ export default function Transfer() {
           .catch(() => setServerOnline(false));
       }
     );
-  }, [storage]);
+  }, []);
 
   const exportBrowserJson = () => {
-    if (!vault) {
-      toast.error("Your browser library is still loading");
-      return;
-    }
     downloadFile(
       `tabvault-browser-${timestamp()}.json`,
       JSON.stringify(vault, null, 2),
@@ -104,12 +93,7 @@ export default function Transfer() {
     }
     setIsWorking(true);
     try {
-      const response = await fetch(
-        `${serverUrl.replace(/\/+$/, "")}/api/v1/export?format=${format}`,
-        { headers: { "X-API-Key": apiKey } }
-      );
-      if (!response.ok)
-        throw new Error(`Server export returned ${response.status}`);
+      const response = await api.transfer.export(format);
       const content =
         format === "markdown"
           ? await response.text()
@@ -154,37 +138,23 @@ export default function Transfer() {
             "This file does not contain a recognizable TabVault library."
           );
         }
-        await storage.save(nextVault);
-        setVault(nextVault);
+        dispatch({ type: "replace", vault: nextVault });
         toast.success("Browser library imported", {
           description: "Open My library to organize the imported tabs.",
         });
         return;
       }
 
-      const response = await fetch(
-        `${serverUrl.replace(/\/+$/, "")}/api/v1/import`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": apiKey,
-          },
-          body: JSON.stringify({
-            format: markdown ? "markdown" : "json",
-            content: markdown ? source : parsedJson,
-            mode: importMode,
-          }),
-        }
-      );
-      if (!response.ok)
-        throw new Error(`Server import returned ${response.status}`);
-      const result = (await response.json()) as {
+      const result = await api.transfer.import<{
         success?: boolean;
         errors?: ValidationError[];
         warnings?: ValidationError[];
         document?: Record<string, unknown>;
-      };
+      }>({
+        format: markdown ? "markdown" : "json",
+        content: markdown ? source : parsedJson,
+        mode: importMode,
+      });
       if (!result.success) {
         setIssues(result.errors ?? []);
         toast.error("Import needs attention", {
@@ -193,12 +163,8 @@ export default function Transfer() {
         return;
       }
       const document = await readLibraryFromServer(serverUrl, apiKey);
-      const nextVault = fromServerDocument(
-        document,
-        vault ?? emptyBrowserVault()
-      );
-      await storage.save(nextVault);
-      setVault(nextVault);
+      const nextVault = fromServerDocument(document, vault);
+      dispatch({ type: "replace", vault: nextVault });
       setIssues(result.warnings ?? []);
       toast.success(
         importMode === "replace" ? "Library replaced" : "Library merged",

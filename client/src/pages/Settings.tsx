@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { CapabilityIssue } from "@/components/CapabilityIssue";
+import { useLibrary } from "@/domain/library/library-context";
 import {
   blockingSearchCapability,
   clearBrowserLibrary,
@@ -39,16 +40,12 @@ import {
   type SemanticIndexStatus,
   type ServerCapabilities,
   type StorageMode,
-} from "@/lib/extension";
-import {
-  emptyBrowserVault,
-  LIBRARY_REFRESH_INTERVALS,
-  type PersistedVault,
-} from "@/lib/library";
-import { BrowserStorageAdapter } from "@/lib/persistence";
+} from "@/domain/server/synchronization";
+import { emptyBrowserVault, LIBRARY_REFRESH_INTERVALS } from "@/lib/library";
 
 export default function Settings() {
   const [, setLocation] = useLocation();
+  const { vault, dispatch } = useLibrary();
   const [serverUrl, setServerUrl] = useState(DEFAULT_TABVAULT_SERVER_URL);
   const [apiKey, setApiKey] = useState(DEFAULT_TABVAULT_API_KEY);
   const [storageMode, setStorageMode] = useState<StorageMode>("local");
@@ -194,17 +191,14 @@ export default function Settings() {
     }
     setIsRefreshingLibrary(true);
     try {
-      const local =
-        (await new BrowserStorageAdapter<PersistedVault>().load()) ??
-        emptyBrowserVault();
-      const { vault } = await refreshLibraryFromServer(
+      const { vault: refreshedVault } = await refreshLibraryFromServer(
         serverUrl,
         apiKey,
-        local
+        vault
       );
-      await new BrowserStorageAdapter<PersistedVault>().save(vault);
+      dispatch({ type: "replace", vault: refreshedVault });
       toast.success("Library refreshed", {
-        description: `${vault.tabs.length} tabs and ${vault.vaultGroups.length} collections are merged with the server.`,
+        description: `${refreshedVault.tabs.length} tabs and ${refreshedVault.vaultGroups.length} collections are merged with the server.`,
       });
     } catch {
       toast.error("Could not refresh tabs and collections");
@@ -242,6 +236,7 @@ export default function Settings() {
       }
       if (shouldClearBrowser) {
         await clearBrowserLibrary();
+        dispatch({ type: "replace", vault: emptyBrowserVault() });
       }
       toast.success(
         pendingClear === "both"

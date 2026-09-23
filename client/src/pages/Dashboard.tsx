@@ -4,7 +4,7 @@ import { IconButton } from "@/components/ui/icon-button";
  * the Library. It explains data safety and search readiness without inserting
  * maintenance controls into daily tab work.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import {
   ArrowRight,
@@ -21,13 +21,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { CapabilityIssue } from "@/components/CapabilityIssue";
+import { useLibrary } from "@/domain/library/library-context";
 import {
   blockingSearchCapability,
   DEFAULT_TABVAULT_API_KEY,
   DEFAULT_TABVAULT_SERVER_URL,
   loadServerSearchState,
   readApiKey,
-  readExtensionVault,
   readLocalServerUrl,
   readSyncStatus,
   rebuildSemanticIndex,
@@ -35,13 +35,7 @@ import {
   type SemanticIndexStatus,
   type ServerCapabilities,
   type SyncStatus,
-} from "@/lib/extension";
-
-type LibrarySnapshot = {
-  tabs?: unknown[];
-  vaultGroups?: unknown[];
-  tagCatalog?: Record<string, string>;
-};
+} from "@/domain/server/synchronization";
 
 function formatTime(timestamp?: number) {
   if (!timestamp) return "No local save recorded yet";
@@ -59,7 +53,7 @@ function formatTime(timestamp?: number) {
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
-  const [snapshot, setSnapshot] = useState<LibrarySnapshot>({});
+  const { vault } = useLibrary();
   const [sync, setSync] = useState<SyncStatus>();
   const [serverUrl, setServerUrl] = useState(DEFAULT_TABVAULT_SERVER_URL);
   const [apiKey, setApiKey] = useState(DEFAULT_TABVAULT_API_KEY);
@@ -73,52 +67,56 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRebuilding, setIsRebuilding] = useState(false);
 
-  const applySearchState = (state: {
-    online: boolean;
-    capabilities: ServerCapabilities | null;
-    indexStatus: SemanticIndexStatus | null;
-  }) => {
-    setOnline(state.online);
-    setCapabilities(state.capabilities);
-    setIndexStatus(state.indexStatus);
-  };
+  const applySearchState = useCallback(
+    (state: {
+      online: boolean;
+      capabilities: ServerCapabilities | null;
+      indexStatus: SemanticIndexStatus | null;
+    }) => {
+      setOnline(state.online);
+      setCapabilities(state.capabilities);
+      setIndexStatus(state.indexStatus);
+    },
+    []
+  );
 
-  const loadStatus = async (announce = false) => {
-    setIsRefreshing(true);
-    try {
-      const [library, savedSync, url, key] = await Promise.all([
-        readExtensionVault(),
-        readSyncStatus(),
-        readLocalServerUrl(),
-        readApiKey(),
-      ]);
-      setSnapshot(library ?? {});
-      setSync(savedSync);
-      setServerUrl(url);
-      setApiKey(key);
+  const loadStatus = useCallback(
+    async (announce = false) => {
+      setIsRefreshing(true);
       try {
-        applySearchState(await loadServerSearchState(url, key));
-        if (announce) toast.success("Dashboard refreshed");
-      } catch {
-        setOnline(false);
-        setCapabilities(null);
-        setIndexStatus(null);
-        if (announce)
-          toast.message("Working from local storage", {
-            description: "The configured server is not currently available.",
-          });
+        const [savedSync, url, key] = await Promise.all([
+          readSyncStatus(),
+          readLocalServerUrl(),
+          readApiKey(),
+        ]);
+        setSync(savedSync);
+        setServerUrl(url);
+        setApiKey(key);
+        try {
+          applySearchState(await loadServerSearchState(url, key));
+          if (announce) toast.success("Dashboard refreshed");
+        } catch {
+          setOnline(false);
+          setCapabilities(null);
+          setIndexStatus(null);
+          if (announce)
+            toast.message("Working from local storage", {
+              description: "The configured server is not currently available.",
+            });
+        }
+      } finally {
+        setIsRefreshing(false);
       }
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
+    },
+    [applySearchState]
+  );
 
   useEffect(() => {
     const refreshTimer = window.setTimeout(() => {
       void loadStatus();
     }, 0);
     return () => window.clearTimeout(refreshTimer);
-  }, []);
+  }, [loadStatus]);
 
   useEffect(() => {
     if (!online) return;
@@ -132,7 +130,7 @@ export default function Dashboard() {
         });
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [online, serverUrl, apiKey]);
+  }, [online, serverUrl, apiKey, applySearchState]);
 
   const rebuild = async () => {
     if (!online) {
@@ -210,15 +208,15 @@ export default function Dashboard() {
   const healthNeedsAttention =
     indexStatus?.healthCheck?.lastResult === "needs_attention";
   const libraryMetrics = [
-    { Icon: Database, value: snapshot.tabs?.length ?? 0, label: "Saved tabs" },
+    { Icon: Database, value: vault.tabs.length, label: "Saved tabs" },
     {
       Icon: FolderTree,
-      value: snapshot.vaultGroups?.length ?? 0,
+      value: vault.vaultGroups.length,
       label: "Collections",
     },
     {
       Icon: Tags,
-      value: Object.keys(snapshot.tagCatalog ?? {}).length,
+      value: Object.keys(vault.tagCatalog).length,
       label: "Tags",
     },
   ];
@@ -285,7 +283,7 @@ export default function Dashboard() {
               <span className="font-mono text-[9px] uppercase tracking-[0.08em] text-[#7c8179]">
                 {sync?.localSavedAt
                   ? formatTime(sync.localSavedAt)
-                  : (snapshot.tabs?.length ?? 0) > 0
+                  : vault.tabs.length > 0
                     ? "Library available locally"
                     : "No saved tabs yet"}
               </span>

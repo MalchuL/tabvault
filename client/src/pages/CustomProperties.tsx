@@ -8,7 +8,7 @@ import {
   validatePropertyValues,
   type PropertyDefinition,
   type PropertySchema,
-} from "@/lib/extension";
+} from "@/domain/server/synchronization";
 
 const TYPES = ["string", "int", "float", "boolean", "json"] as const;
 

@@ -1,6 +1,6 @@
-import type { TabViewMode } from "@/components/TabList";
-
 export type GroupId = string;
+
+export type TabViewMode = "standard" | "compact" | "preview";
 
 export type VaultGroup = {
   id: GroupId;

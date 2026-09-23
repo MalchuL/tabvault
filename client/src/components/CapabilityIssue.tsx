@@ -1,4 +1,4 @@
-import type { ServerCapability } from "@/lib/extension";
+import type { ServerCapability } from "@/domain/server/synchronization";
 
 type CapabilityIssueProps = {
   capability?: ServerCapability | null;

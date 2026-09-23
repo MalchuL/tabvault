@@ -49,6 +49,21 @@ async function mockUnavailableSemanticSearch(page: Page) {
       });
       return;
     }
+    if (path === "/api/v1/property-schema") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          data: {
+            properties: {
+              viewed: { description: "", type: "boolean", default: false },
+            },
+          },
+        }),
+      });
+      return;
+    }
     if (path === "/api/v1/index/status") {
       await route.fulfill({
         status: 200,

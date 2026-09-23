@@ -7,8 +7,7 @@ import shutil
 from typing import Any
 
 from config.settings import Settings
-
-from .dto import VectorStatusDTO
+from domain.system.dto import VectorStatusDTO
 
 
 class LocalVectorIndex:

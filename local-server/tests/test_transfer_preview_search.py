@@ -9,10 +9,10 @@ from clients.web_capture.client import CaptureRejectedError, WebCaptureClient
 from clients.web_capture.protocol import CapturedResponse
 from config.settings import Settings
 from db.session import configure_database
-from domain.system.preview import PreviewService
-from domain.system.repository import SystemRepository
-from domain.system.search import LocalVectorIndex
-from domain.system.transfer import markdown_import, validate_document
+from domain.indexing.vector_index import LocalVectorIndex
+from domain.previews.repository import PreviewRepository
+from domain.previews.service import PreviewService
+from domain.transfer.service import markdown_import, validate_document
 from models import Base, Tab
 
 
@@ -233,7 +233,7 @@ async def test_preview_sanitizes_rewrites_and_stores_assets(tmp_path: Path) -> N
         db.add(tab)
         await db.commit()
         capture = FakeCapture()
-        result = await PreviewService(db, settings, capture, SystemRepository(db)).capture_tab(
+        result = await PreviewService(db, settings, capture, PreviewRepository(db)).capture_tab(
             tab.id
         )
         assert result.status == "ready"

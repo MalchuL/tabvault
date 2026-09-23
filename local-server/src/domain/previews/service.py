@@ -19,8 +19,8 @@ from lib.time import utc_now
 from models import Asset
 
 from .dto import AssetKind, ExtractedArticleDTO, PreviewCaptureResultDTO
-from .mapper import SystemMapper
-from .repository import SystemRepository
+from .mapper import PreviewMapper
+from .repository import PreviewRepository
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class PreviewService:
         db: AsyncSession,
         settings: Settings,
         capture: WebCaptureProtocol,
-        repository: SystemRepository,
+        repository: PreviewRepository,
     ) -> None:
         """Initialize preview capture dependencies.
 
@@ -50,14 +50,14 @@ class PreviewService:
             db (AsyncSession): Request-scoped asynchronous database session used by this operation.
             settings (Settings): Validated process settings that control this component.
             capture (WebCaptureProtocol): Capture value consumed by this operation.
-            repository (SystemRepository): Persistence adapter used to load and mutate domain
+            repository (PreviewRepository): Persistence adapter used to load and mutate domain
                 records.
         """
         self.db = db
         self.settings = settings
         self.capture = capture
         self.repository = repository
-        self.mapper = SystemMapper()
+        self.mapper = PreviewMapper()
 
     async def _asset(
         self,
@@ -205,7 +205,7 @@ class PreviewService:
             return PreviewCaptureResultDTO(skipped="tab_not_found")
         preview = await self.repository.get_preview(tab_id)
         if preview is None:
-            preview = await self.repository.save_preview(self.mapper.preview(tab_id))
+            preview = await self.repository.save_preview(self.mapper.pending(tab_id))
         await self.repository.apply_changes(preview, {"status": "running"})
         await self.db.commit()
         try:

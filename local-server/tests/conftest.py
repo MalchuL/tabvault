@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from api.main import create_app
 from config.settings import get_settings
-from domain.system.jobs import JobWorker
+from domain.jobs.worker import JobWorker
 
 
 @pytest.fixture

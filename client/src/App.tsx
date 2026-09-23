@@ -15,8 +15,10 @@ import {
   clearBrowserLibrary,
   inspectBrowserVault,
   type BrowserVaultInspection,
-} from "./lib/extension";
+} from "@/domain/server/synchronization";
 import { StorageRecovery } from "./pages/StorageRecovery";
+import { LibraryProvider } from "./domain/library/LibraryProvider";
+import { emptyBrowserVault } from "./lib/library";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Deduplicator = lazy(() => import("./pages/Deduplicator"));
@@ -101,7 +103,17 @@ function BrowserSchemaGate({ children }: { children: ReactNode }) {
         }}
       />
     );
-  return children;
+  return (
+    <LibraryProvider
+      initialVault={
+        inspection.status === "compatible"
+          ? inspection.vault
+          : emptyBrowserVault()
+      }
+    >
+      {children}
+    </LibraryProvider>
+  );
 }
 
 export default function App() {

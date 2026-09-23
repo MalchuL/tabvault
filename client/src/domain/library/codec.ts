@@ -1,32 +1,57 @@
+/** Schema-v2 browser persistence and server transfer conversion. */
+import type {
+  PersistedVault,
+  CustomPropertySchema,
+  VaultGroup,
+  VaultTab,
+} from "./types";
+
+export type {
+  LibraryViewMode,
+  PersistedVault,
+  SavedSearch,
+  VaultGroup,
+  VaultTab,
+} from "./types";
+
+export const LIBRARY_REFRESH_INTERVALS = [
+  { seconds: 0, label: "Off" },
+  { seconds: 60, label: "1m" },
+  { seconds: 300, label: "5m" },
+  { seconds: 900, label: "15m" },
+  { seconds: 3600, label: "1h" },
+] as const;
+
 export const UNASSIGNED_ORDER_KEY = "unassigned";
+export const DEFAULT_PROPERTY_SCHEMA: CustomPropertySchema = {
+  viewed: { description: "", type: "boolean", default: false },
+};
 
 const HAS_TIMEZONE = /[zZ]|[+-]\d{2}:?\d{2}$/;
 
-export function orderKey(groupId) {
+export function orderKey(groupId: string | null) {
   return groupId ?? UNASSIGNED_ORDER_KEY;
 }
 
-export function utcTimestamp(value) {
+export function utcTimestamp(value: string): string {
   const instant = HAS_TIMEZONE.test(value) ? value : `${value}Z`;
   const parsed = Date.parse(instant);
   if (Number.isNaN(parsed)) return instant;
   return new Date(parsed).toISOString();
 }
 
-function utcTimestampOrFallback(value, fallback) {
+function utcTimestampOrFallback(value: unknown, fallback: string): string {
   return typeof value === "string" ? utcTimestamp(value) : fallback;
 }
 
-function utcTimestampOrNull(value) {
+function utcTimestampOrNull(value: unknown): string | null {
   return typeof value === "string" ? utcTimestamp(value) : null;
 }
 
-export function defaultVault() {
+export function emptyBrowserVault(): PersistedVault {
   return {
     schemaVersion: 3,
-    propertySchema: {
-      viewed: { description: "", type: "boolean", default: false },
-    },
+    propertySchema: DEFAULT_PROPERTY_SCHEMA,
     tabs: [],
     vaultGroups: [],
     tagCatalog: {},
@@ -37,11 +62,15 @@ export function defaultVault() {
   };
 }
 
-function isRecord(value) {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function isVaultV2(value) {
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === "string");
+}
+
+export function isPersistedVault(value: unknown): value is PersistedVault {
   if (
     !isRecord(value) ||
     value.schemaVersion !== 3 ||
@@ -57,10 +86,12 @@ export function isVaultV2(value) {
     return false;
   if (!Object.values(value.tagCatalog).every(item => typeof item === "string"))
     return false;
+  if (!Object.values(value.tabOrders).every(isStringArray)) return false;
   if (
-    !Object.values(value.tabOrders).every(
-      item => Array.isArray(item) && item.every(id => typeof id === "string")
-    )
+    value.tombstones !== undefined &&
+    (!isRecord(value.tombstones) ||
+      !isStringArray(value.tombstones.tabs) ||
+      !isStringArray(value.tombstones.groups))
   )
     return false;
   if (
@@ -74,15 +105,6 @@ export function isVaultV2(value) {
           typeof saved.query === "string" &&
           typeof saved.groupId === "string"
       ))
-  )
-    return false;
-  if (
-    value.tombstones !== undefined &&
-    (!isRecord(value.tombstones) ||
-      !Array.isArray(value.tombstones.tabs) ||
-      !value.tombstones.tabs.every(id => typeof id === "string") ||
-      !Array.isArray(value.tombstones.groups) ||
-      !value.tombstones.groups.every(id => typeof id === "string"))
   )
     return false;
   if (
@@ -114,16 +136,15 @@ export function isVaultV2(value) {
       isRecord(tab) &&
       typeof tab.id === "string" &&
       (typeof tab.groupId === "string" || tab.groupId === null) &&
+      typeof tab.title === "string" &&
       typeof tab.url === "string" &&
       /^https?:\/\//i.test(tab.url) &&
-      typeof tab.title === "string" &&
       typeof tab.domain === "string" &&
       typeof tab.note === "string" &&
       typeof tab.agentReview === "string" &&
       typeof tab.viewed === "boolean" &&
       isRecord(tab.customProperties) &&
-      Array.isArray(tab.tags) &&
-      tab.tags.every(tag => typeof tag === "string") &&
+      isStringArray(tab.tags) &&
       typeof tab.color === "string" &&
       typeof tab.icon === "string" &&
       typeof tab.createdAt === "string" &&
@@ -141,40 +162,44 @@ export function isVaultV2(value) {
   );
 }
 
-export function upgradeVault(value) {
-  if (isVaultV2(value)) return value;
+export function migratePersistedVault(value: unknown): PersistedVault | null {
+  if (isPersistedVault(value)) return value;
   if (
     !isRecord(value) ||
     value.schemaVersion !== 2 ||
     !Array.isArray(value.tabs)
   )
     return null;
-  const upgraded = {
+  const migrated = {
     ...value,
     schemaVersion: 3,
     propertySchema: {
       viewed: { description: "", type: "boolean", default: false },
     },
-    tabs: value.tabs.map(tab => ({
-      ...tab,
-      viewed: Boolean(tab.viewed),
-      customProperties: { viewed: Boolean(tab.viewed) },
-    })),
+    tabs: value.tabs.map(tab =>
+      isRecord(tab)
+        ? {
+            ...tab,
+            viewed: Boolean(tab.viewed),
+            customProperties: { viewed: Boolean(tab.viewed) },
+          }
+        : tab
+    ),
   };
-  return isVaultV2(upgraded) ? upgraded : null;
+  return isPersistedVault(migrated) ? migrated : null;
 }
 
-function domainFromUrl(value) {
+function domainFromUrl(value: string) {
   try {
     return new URL(value).hostname.replace(/^www\./, "");
   } catch {
-    return String(value ?? "")
-      .replace(/^https?:\/\//, "")
-      .split("/")[0];
+    return value.replace(/^https?:\/\//, "").split("/")[0] || value;
   }
 }
 
-export function vaultToServerDocument(vault) {
+export function toServerDocument(
+  vault: PersistedVault
+): Record<string, unknown> {
   return {
     schemaVersion: 3,
     propertySchema: vault.propertySchema,
@@ -211,48 +236,59 @@ export function vaultToServerDocument(vault) {
   };
 }
 
-export function serverDocumentToVault(document, preferences = defaultVault()) {
-  if (document?.schemaVersion === 2) {
+export function fromServerDocument(
+  document: Record<string, unknown>,
+  preferences: Pick<PersistedVault, "savedSearches" | "tabView" | "tombstones">
+): PersistedVault {
+  if (document.schemaVersion === 2) {
     document = {
       ...document,
       schemaVersion: 3,
-      propertySchema: {
-        viewed: { description: "", type: "boolean", default: false },
-      },
+      propertySchema: DEFAULT_PROPERTY_SCHEMA,
       tabs: Array.isArray(document.tabs)
-        ? document.tabs.map(tab => ({
-            ...tab,
-            customProperties: { viewed: Boolean(tab.viewed) },
-          }))
+        ? document.tabs.map(tab =>
+            isRecord(tab)
+              ? {
+                  ...tab,
+                  customProperties: { viewed: Boolean(tab.viewed) },
+                }
+              : tab
+          )
         : [],
     };
   }
-  if (document?.schemaVersion !== 3)
+  if (document.schemaVersion !== 3)
     throw new Error("Server library is not schema v3");
   const propertySchema = isRecord(document.propertySchema)
-    ? document.propertySchema
+    ? (document.propertySchema as CustomPropertySchema)
     : {};
-  const now = new Date().toISOString();
   const tombstones = preferences.tombstones ?? { tabs: [], groups: [] };
-  const deletedGroups = new Set(tombstones.groups);
   const deletedTabs = new Set(tombstones.tabs);
-  const groups = Array.isArray(document.groups)
-    ? document.groups.filter(group => !deletedGroups.has(String(group.id)))
+  const deletedGroups = new Set(tombstones.groups);
+  const remoteTabs = Array.isArray(document.tabs)
+    ? (document.tabs as Array<Record<string, unknown>>).filter(
+        tab => !deletedTabs.has(String(tab.id))
+      )
     : [];
-  const tabs = Array.isArray(document.tabs)
-    ? document.tabs.filter(tab => !deletedTabs.has(String(tab.id)))
+  const remoteGroups = Array.isArray(document.groups)
+    ? (document.groups as Array<Record<string, unknown>>).filter(
+        group => !deletedGroups.has(String(group.id))
+      )
     : [];
-  const tags = Array.isArray(document.tags) ? document.tags : [];
-  const vaultGroups = groups.map(group => ({
+  const remoteTags = Array.isArray(document.tags)
+    ? (document.tags as Array<Record<string, unknown>>)
+    : [];
+  const now = new Date().toISOString();
+  const vaultGroups: VaultGroup[] = remoteGroups.map(group => ({
     id: String(group.id),
     name: String(group.name),
-    category: String(group.category),
     description: typeof group.description === "string" ? group.description : "",
+    category: String(group.category),
     accent: typeof group.color === "string" ? group.color : "#829b65",
     createdAt: utcTimestampOrFallback(group.createdAt, now),
     updatedAt: utcTimestampOrFallback(group.updatedAt, now),
   }));
-  const vaultTabs = tabs
+  const tabs: VaultTab[] = remoteTabs
     .slice()
     .sort(
       (left, right) => Number(left.position ?? 0) - Number(right.position ?? 0)
@@ -285,7 +321,7 @@ export function serverDocumentToVault(document, preferences = defaultVault()) {
       archivedAt: utcTimestampOrNull(tab.archivedAt),
       hiddenUntil: utcTimestampOrNull(tab.hiddenUntil),
     }));
-  const tabOrders = vaultTabs.reduce((orders, tab) => {
+  const tabOrders = tabs.reduce<Record<string, string[]>>((orders, tab) => {
     const key = orderKey(tab.groupId);
     orders[key] = [...(orders[key] ?? []), tab.id];
     return orders;
@@ -293,9 +329,9 @@ export function serverDocumentToVault(document, preferences = defaultVault()) {
   return {
     schemaVersion: 3,
     propertySchema,
-    tabs: vaultTabs,
+    tabs,
     vaultGroups,
-    tagCatalog: tags.reduce((catalog, tag) => {
+    tagCatalog: remoteTags.reduce<Record<string, string>>((catalog, tag) => {
       catalog[String(tag.name)] =
         typeof tag.description === "string" ? tag.description : "";
       return catalog;

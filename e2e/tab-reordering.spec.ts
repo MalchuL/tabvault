@@ -55,7 +55,7 @@ test("archiving clears membership and hard deletion is offered only in Archive",
     .click();
   await expect(archived).toHaveCount(0);
   const saved = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("tabvault-v2") || "{}")
+    JSON.parse(localStorage.getItem("tabvault-v3") || "{}")
   );
   expect(
     saved.tabs.some((tab: { id: string }) => tab.id === "t-research")
@@ -107,15 +107,13 @@ test("manual groups are the only quick and selected move targets", async ({
   const rowMove = page
     .getByTestId("tab-row-t-1001")
     .getByLabel("Move Agents can organize the web better than we can");
-  await rowMove.click();
-  await expect(page.getByRole("menuitem")).toHaveText(["Research"]);
-  await page.keyboard.press("Escape");
-  await page
+  await expect(rowMove.locator("option:not(:disabled)")).toHaveText([
+    "Research",
+  ]);
+  const currentMove = page
     .getByTestId("tab-row-t-research")
-    .getByLabel("Move Model Context Protocol specification")
-    .click();
-  await expect(page.getByRole("menuitem", { name: "Research" })).toBeDisabled();
-  await page.keyboard.press("Escape");
+    .getByLabel("Move Model Context Protocol specification");
+  await expect(currentMove.locator("option[value='research']")).toBeDisabled();
 
   await page
     .getByTestId("tab-row-advanced-new")
@@ -137,9 +135,9 @@ test("manual groups are the only quick and selected move targets", async ({
     .getByTestId("tab-row-t-1001")
     .getByLabel("Move Agents can organize the web better than we can");
   await expect(compactMove).toBeVisible();
-  await compactMove.click();
-  await expect(page.getByRole("menuitem")).toHaveText(["Research"]);
-  await page.keyboard.press("Escape");
+  await expect(compactMove.locator("option:not(:disabled)")).toHaveText([
+    "Research",
+  ]);
 });
 
 test("group board keeps every tab visible and emphasizes search matches", async ({
@@ -147,7 +145,7 @@ test("group board keeps every tab visible and emphasizes search matches", async 
 }) => {
   await openSchemaV2Library(page);
   await page.evaluate(() => {
-    const vault = JSON.parse(localStorage.getItem("tabvault-v2") || "{}");
+    const vault = JSON.parse(localStorage.getItem("tabvault-v3") || "{}");
     const source = vault.tabs.find(
       (tab: { id: string }) => tab.id === "advanced-new"
     );
@@ -161,7 +159,7 @@ test("group board keeps every tab visible and emphasizes search matches", async 
       });
       vault.tabOrders.session.push(id);
     }
-    localStorage.setItem("tabvault-v2", JSON.stringify(vault));
+    localStorage.setItem("tabvault-v3", JSON.stringify(vault));
   });
   await page.reload();
   await page.getByLabel("Collection-group board view").click();
@@ -261,13 +259,11 @@ test("empty Session groups remain until explicitly deleted", async ({
   await page
     .getByTestId("tab-row-t-duplicate")
     .getByLabel("Move Agents can organize the web better than we can")
-    .click();
-  await page.getByRole("menuitem", { name: "Research", exact: true }).click();
+    .selectOption("research");
   await page
     .getByTestId("tab-row-advanced-new")
     .getByLabel("Move New title")
-    .click();
-  await page.getByRole("menuitem", { name: "Research", exact: true }).click();
+    .selectOption("research");
 
   await expect(page.getByTestId("group-separator-session")).toContainText(
     "0 tabs"
@@ -275,7 +271,7 @@ test("empty Session groups remain until explicitly deleted", async ({
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const vault = JSON.parse(localStorage.getItem("tabvault-v2") || "{}");
+        const vault = JSON.parse(localStorage.getItem("tabvault-v3") || "{}");
         return vault.vaultGroups?.some(
           (group: { id: string }) => group.id === "session"
         );
@@ -349,7 +345,7 @@ test("Advanced Deduplicator previews and applies an exact-URL fixed plan", async
   await expect(page.getByText(/operations succeeded; 0 failed/)).toBeVisible();
 
   const saved = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem("tabvault-v2") || "{}")
+    JSON.parse(localStorage.getItem("tabvault-v3") || "{}")
   );
   expect(
     saved.tabs.find((tab: { id: string }) => tab.id === "advanced-old").archived

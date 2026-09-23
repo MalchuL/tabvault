@@ -11,12 +11,15 @@ from pydantic import BaseModel
 from clients.web_capture.client import WebCaptureClient
 from config.settings import Settings
 from db.session import get_session_factory
+from domain.indexing.repository import IndexingRepository
+from domain.indexing.vector_index import LocalVectorIndex
+from domain.previews.repository import PreviewRepository
+from domain.previews.service import PreviewService
+from domain.transfer.repository import TransferRepository
+from domain.transfer.service import TransferService
 from lib.time import utc_now
 
-from .preview import PreviewService
-from .repository import SystemRepository
-from .search import LocalVectorIndex
-from .transfer import TransferService
+from .repository import JobRepository
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +53,7 @@ class JobWorker:
         the source of truth, while the in-memory wake signal only reduces polling latency.
         """
         async with get_session_factory()() as db:
-            await SystemRepository(db).reset_running_jobs()
+            await JobRepository(db).reset_running()
             await db.commit()
         self._task = asyncio.create_task(self._run(), name="tabvault-jobs")
 
@@ -97,11 +100,11 @@ class JobWorker:
             bool: Result produced by the operation described above.
         """
         async with get_session_factory()() as db:
-            repository = SystemRepository(db)
-            job = await repository.next_pending_job()
+            repository = JobRepository(db)
+            job = await repository.next_pending()
             if job is None:
                 return False
-            await repository.update_job(job, status="running", progress=0.05)
+            repository.update(job, status="running", progress=0.05)
             await db.commit()
             try:
                 result_value: BaseModel | dict[str, object]
@@ -110,10 +113,10 @@ class JobWorker:
                         db,
                         self.settings,
                         WebCaptureClient(self.settings),
-                        repository,
+                        PreviewRepository(db),
                     ).capture_tab(job.target_id)
                 elif job.kind == "search_reindex":
-                    tabs = await repository.active_tabs(utc_now())
+                    tabs = await IndexingRepository(db).active_tabs(utc_now())
                     result_value = {
                         "indexedCount": await self.vectors.rebuild(
                             [
@@ -131,9 +134,12 @@ class JobWorker:
                         )
                     }
                 elif job.kind == "backup_restore" and job.result and "content" in job.result:
-                    result_value = await TransferService(db, self.settings, repository).apply(
-                        job.result["content"], "json", "replace"
-                    )
+                    result_value = await TransferService(
+                        db,
+                        self.settings,
+                        TransferRepository(db),
+                        repository,
+                    ).apply(job.result["content"], "json", "replace")
                 else:
                     result_value = {"skipped": "unknown_job"}
                 result = (
@@ -141,7 +147,7 @@ class JobWorker:
                     if isinstance(result_value, BaseModel)
                     else result_value
                 )
-                await repository.update_job(
+                repository.update(
                     job,
                     status="done",
                     progress=1,
@@ -150,6 +156,6 @@ class JobWorker:
                 )
             except Exception as error:
                 logger.exception("Background job %s failed", job.id)
-                await repository.update_job(job, status="failed", error=str(error))
+                repository.update(job, status="failed", error=str(error))
             await db.commit()
             return True
