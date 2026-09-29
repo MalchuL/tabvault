@@ -112,7 +112,6 @@ class MCPClient:
         Raises:
             MCPClientError: The request fails, the API rejects it, or its response is malformed.
         """
-        await self._ensure_property_schema()
         try:
             response = await self._http.request(
                 method,
@@ -154,10 +153,13 @@ class MCPClient:
             raise MCPClientError("TabVault API returned an invalid response shape") from error
 
     async def _ensure_property_schema(self) -> None:
-        """Register the MCP-owned viewed property once on the first live connection.
+        """Register viewed once before a write that explicitly supplies its value.
+
+        Existing boolean definitions retain their metadata and default. An incompatible
+        definition stops the write rather than changing the meaning of stored library data.
 
         Raises:
-            MCPClientError: The schema cannot be read or updated.
+            MCPClientError: The schema cannot be read or updated, or viewed is not boolean.
         """
         if self._schema_ready:
             return
@@ -180,11 +182,9 @@ class MCPClient:
                 viewed = (
                     cast(dict[str, object], viewed_value) if isinstance(viewed_value, dict) else {}
                 )
-                if not (
-                    viewed.get("type") == "boolean"
-                    and viewed.get("default") is False
-                    and viewed.get("description") == ""
-                ):
+                if "viewed" in properties and viewed.get("type") != "boolean":
+                    raise MCPClientError("The existing viewed property must have type boolean")
+                if "viewed" not in properties:
                     update = await self._http.post(
                         "property-schema",
                         json={
@@ -212,11 +212,36 @@ class MCPClient:
         return await self._request("GET", f"/tabs/{tab_id}", TabResponseDTO)
 
     async def create_tab(self, body: TabCreateDTO) -> TabCreateResponseDTO:
-        """Create one Saved Tab occurrence."""
+        """Create one Saved Tab occurrence, registering viewed only when supplied.
+
+        Args:
+            body (TabCreateDTO): Validated tab fields, including optional custom properties.
+
+        Returns:
+            TabCreateResponseDTO: Created occurrence and capture-job metadata.
+
+        Raises:
+            MCPClientError: Schema registration or creation fails, or viewed is incompatible.
+        """
+        if "viewed" in body.custom_properties:
+            await self._ensure_property_schema()
         return await self._request("POST", "/tabs", TabCreateResponseDTO, body=body)
 
     async def update_tab(self, tab_id: str, body: TabUpdateDTO) -> TabResponseDTO:
-        """Patch explicitly supplied fields on one Saved Tab."""
+        """Patch one Saved Tab, registering viewed only when supplied.
+
+        Args:
+            tab_id (str): Private identifier of the tab selected by the caller.
+            body (TabUpdateDTO): Validated fields to update; omitted fields stay unchanged.
+
+        Returns:
+            TabResponseDTO: Updated Saved Tab.
+
+        Raises:
+            MCPClientError: Schema registration or update fails, or viewed is incompatible.
+        """
+        if body.custom_properties is not None and "viewed" in body.custom_properties:
+            await self._ensure_property_schema()
         return await self._request("PATCH", f"/tabs/{tab_id}", TabResponseDTO, body=body)
 
     async def delete_tab(self, tab_id: str) -> TabDeleteResponseDTO:

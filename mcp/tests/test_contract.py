@@ -7,6 +7,7 @@ from typing import Any, get_args, get_origin, get_type_hints
 
 import pytest
 from factories import group, tab
+from mcp import Client
 
 from mcp_tabvault import main
 from mcp_tabvault.client import MCPClient
@@ -69,7 +70,11 @@ async def test_tools_have_id_free_typed_contracts_and_safety_annotations() -> No
 
     assert set(by_name) == TOOLS
     for tool in by_name.values():
+        assert tool.title and tool.description
         assert tool.input_schema["type"] == "object"
+        assert all(
+            parameter.get("description") for parameter in tool.input_schema["properties"].values()
+        )
         assert tool.output_schema is not None
         assert not (property_names(tool.output_schema) & FORBIDDEN)
         assert not (property_names(tool.input_schema) & FORBIDDEN)
@@ -79,6 +84,52 @@ async def test_tools_have_id_free_typed_contracts_and_safety_annotations() -> No
         assert tool.annotations.idempotent_hint is not None
         assert tool.annotations.open_world_hint is not None
     assert "meta" not in by_name["save_tab"].output_schema["properties"]
+    for name in ("list_tabs", "list_groups", "list_tags", "search_tabs"):
+        parameters = by_name[name].input_schema["properties"]
+        assert parameters["limit"]["minimum"] == 1
+        assert parameters["limit"]["maximum"] == (50 if name == "search_tabs" else 100)
+        if name != "search_tabs":
+            assert parameters["offset"]["minimum"] == 0
+    assert by_name["save_tab"].annotations.open_world_hint is True
+    for name in ("update_tab", "update_group", "delete_tab", "delete_group"):
+        assert by_name[name].annotations.destructive_hint is True
+        assert by_name[name].annotations.idempotent_hint is False
+    assert by_name["untag_tab"].annotations.destructive_hint is True
+    assert by_name["untag_tab"].annotations.idempotent_hint is True
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("list_tabs", {"limit": 0}),
+        ("list_groups", {"limit": 101}),
+        ("list_tags", {"offset": -1}),
+        ("search_tabs", {"query": "docs", "limit": 51, "unassignedOnly": True}),
+        ("search_tabs", {"query": ""}),
+        ("get_tab", {"url": ""}),
+        ("save_tab", {"url": "https://exact", "tags": ["docs"] * 65}),
+        ("update_tab", {"url": "https://exact", "newUrl": ""}),
+        ("create_group", {"name": ""}),
+        ("tag_tab", {"url": "https://exact", "tagName": ""}),
+        ("untag_tab", {"url": "https://exact", "tagName": "x" * 257}),
+    ],
+)
+async def test_tool_constraints_reject_input_before_api_access(
+    name: str, arguments: dict[str, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    def unexpected_client() -> None:
+        calls.append("client")
+        raise AssertionError("Invalid arguments must be rejected before API access")
+
+    for module in (tab_tools, group_tools, tag_tools, tab_utils, group_utils):
+        monkeypatch.setattr(module, "get_client", unexpected_client)
+    async with Client(main.mcp, read_timeout_seconds=10) as client:
+        result = await client.call_tool(name, arguments)
+        assert result.is_error
+    assert calls == []
 
 
 @pytest.mark.anyio

@@ -221,7 +221,7 @@ async def test_all_client_operations_are_typed_and_use_current_routes() -> None:
 
 
 @pytest.mark.anyio
-async def test_first_connection_registers_viewed_property() -> None:
+async def test_viewed_write_registers_property_once_after_read_only_requests() -> None:
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -231,7 +231,11 @@ async def test_first_connection_registers_viewed_property() -> None:
         if request.url.path == "/api/v1/property-schema" and request.method == "POST":
             return httpx.Response(200, json={"success": True, "data": {"properties": {}}})
         if request.url.path == "/api/v1/tabs":
-            return httpx.Response(200, json={"data": []})
+            if request.method == "GET":
+                return httpx.Response(200, json={"data": []})
+            return httpx.Response(200, json={"data": tab().model_dump(mode="json", by_alias=True)})
+        if request.url.path == "/api/v1/tabs/tab":
+            return httpx.Response(200, json={"data": tab().model_dump(mode="json", by_alias=True)})
         raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
 
     client = MCPClient("http://server", "secret")
@@ -239,8 +243,11 @@ async def test_first_connection_registers_viewed_property() -> None:
         base_url="http://server/api/v1/", transport=httpx.MockTransport(handler)
     )
     assert not (await client.list_tabs(TabListQueryDTO())).data
-    assert [request.method for request in seen] == ["GET", "POST", "GET"]
-    assert seen[1].content == (
+    assert [request.method for request in seen] == ["GET"]
+    await client.create_tab(TabCreateDTO(url="https://exact", viewed=False))
+    await client.update_tab("tab", TabUpdateDTO(viewed=True))
+    assert [request.method for request in seen] == ["GET", "GET", "POST", "POST", "PATCH"]
+    assert seen[2].content == (
         b'{"name":"viewed","description":"","type":"boolean","default":false}'
     )
     await client.aclose()
@@ -294,3 +301,38 @@ async def test_client_translates_connection_failure() -> None:
     with pytest.raises(MCPClientError, match="unavailable"):
         await client.list_tabs(TabListQueryDTO())
     await client.aclose()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "definition",
+    [
+        {"type": "boolean", "description": "Keep this", "default": True},
+        {"type": "string", "description": "Keep this", "default": "no"},
+    ],
+)
+async def test_viewed_write_preserves_existing_schema(definition: dict[str, object]) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/api/v1/property-schema":
+            assert request.method == "GET"
+            return httpx.Response(200, json={"data": {"properties": {"viewed": definition}}})
+        return httpx.Response(200, json={"data": tab().model_dump(mode="json", by_alias=True)})
+
+    client = MCPClient("http://server")
+    await client._http.aclose()  # noqa: SLF001
+    client._http = httpx.AsyncClient(  # noqa: SLF001
+        base_url="http://server/api/v1/", transport=httpx.MockTransport(handler)
+    )
+    try:
+        if definition["type"] == "boolean":
+            await client.update_tab("tab", TabUpdateDTO(viewed=True))
+            assert [request.method for request in seen] == ["GET", "PATCH"]
+        else:
+            with pytest.raises(MCPClientError, match="type boolean"):
+                await client.update_tab("tab", TabUpdateDTO(viewed=True))
+            assert [request.method for request in seen] == ["GET"]
+    finally:
+        await client.aclose()

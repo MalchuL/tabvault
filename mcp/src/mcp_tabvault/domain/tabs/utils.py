@@ -38,8 +38,11 @@ async def first_visible_tab(url: str) -> TabDTO:
         TabDTO: Oldest exact visible match.
 
     Raises:
-        MCPClientError: Pagination is invalid or a full projection is not returned.
+        ValueError: The URL is missing or blank.
+        MCPClientError: No accessible match exists, pagination is invalid, or projection is partial.
     """
+    if not url.strip():
+        raise ValueError("An exact Saved Tab URL is required")
     client = get_client()
     offset = 0
     while True:

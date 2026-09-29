@@ -13,9 +13,17 @@ from .dto import GroupListViewDTO
 @mcp.resource(
     "tabvault://groups",
     name="groups",
-    description="Visible TabVault Groups with counts and metadata.",
+    title="Visible Groups",
+    description="First 100 visible Groups with counts and pagination; use list_groups for more.",
     mime_type="application/json",
 )
 async def groups() -> GroupListViewDTO:
-    """Return the first page of visible Groups."""
+    """Return the first page of visible Groups without changing the library.
+
+    Returns:
+        GroupListViewDTO: Up to 100 ID-free Groups and pagination metadata.
+
+    Raises:
+        MCPClientError: API access fails.
+    """
     return mapper.to_page(await get_client().list_groups(GroupListQueryDTO(limit=100)))

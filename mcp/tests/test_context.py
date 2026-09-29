@@ -86,3 +86,116 @@ async def test_prompts_are_registered_and_require_approval_before_mutation() -> 
     assert "explicitly approve" in tab_prompts.organize_unassigned(10)
     assert "Do not change" in group_prompts.research_digest("Research")
     assert "outside" in tab_prompts.weekly_tab_review()
+
+
+@pytest.mark.anyio
+async def test_context_through_mcp_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    from urllib.parse import urlencode
+
+    import httpx
+    from mcp import Client
+    from mcp.shared.exceptions import MCPError
+
+    seen: list[httpx.Request] = []
+    original_url = "https://example.com/a/b?q=one&next=two#anchor"
+    fail = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        assert request.method == "GET"
+        assert request.headers["X-API-Key"] == "secret"
+        assert request.url.path != "/api/v1/property-schema"
+        if fail:
+            return httpx.Response(503, text="offline")
+        path = request.url.path
+        if path == "/api/v1/groups":
+            assert request.url.params["visibility"] == "visible"
+            data = [group().model_dump(mode="json", by_alias=True)]
+        elif path == "/api/v1/tags":
+            data = [tag().model_dump(mode="json", by_alias=True)]
+        elif path == "/api/v1/tabs":
+            assert request.url.params["visibility"] == "visible"
+            assert request.url.params["fields"] == "full"
+            if "search" in request.url.params:
+                assert request.url.params["search"] == original_url
+            data = [tab(url=original_url).model_dump(mode="json", by_alias=True)]
+        else:
+            raise AssertionError(path)
+        return httpx.Response(200, json={"data": data, "size": 1, "total": 1, "hasNext": False})
+
+    api = MCPClient("http://server", "secret")
+    await api._http.aclose()  # noqa: SLF001
+    api._http = httpx.AsyncClient(  # noqa: SLF001
+        base_url="http://server/api/v1/",
+        headers={"X-API-Key": "secret"},
+        transport=httpx.MockTransport(handler),
+    )
+    monkeypatch.setattr(MCPClient, "from_environment", classmethod(lambda cls: api))
+
+    async with Client(main.mcp, read_timeout_seconds=10) as client:
+        resources = (await client.list_resources()).resources
+        templates = (await client.list_resource_templates()).resource_templates
+        prompts = (await client.list_prompts()).prompts
+        assert len(resources) == 2 and len(templates) == 3 and len(prompts) == 3
+        assert all(item.title and item.description for item in [*resources, *templates, *prompts])
+        assert all(arg.description for prompt in prompts for arg in prompt.arguments or [])
+        assert seen == []
+
+        for uri in [
+            "tabvault://groups",
+            "tabvault://tags",
+            "tabvault://recent",
+            "tabvault://unassigned?limit=8",
+            "tabvault://tabs?" + urlencode({"url": original_url}),
+        ]:
+            result = await client.read_resource(uri, cache_mode="bypass")
+            content = result.contents[0]
+            assert str(content.uri) == uri
+            assert content.mime_type == "application/json"
+            payload = json.loads(content.text)
+            records = payload["data"] if isinstance(payload["data"], list) else [payload["data"]]
+            assert all(not ({"id", "groupId", "position"} & set(record)) for record in records)
+            if isinstance(payload["data"], list):
+                assert payload["size"] == payload["total"] == 1
+                assert payload["hasNext"] is False
+        queries = [request.url.params for request in seen if request.url.path == "/api/v1/tabs"]
+        assert queries[0]["limit"] == "50" and queries[0]["sortBy"] == "updatedAt"
+        assert queries[1]["limit"] == "8" and queries[1]["groupId"] == "unassigned"
+
+        count = len(seen)
+        for name, arguments in [
+            ("organize_unassigned", {}),
+            ("organize_unassigned", {"limit": "10"}),
+            ("weekly_tab_review", {}),
+            ("weekly_tab_review", {"period": "14 days"}),
+            ("research_digest", {"group": "Research"}),
+            ("research_digest", {"group": "Research", "audience": "engineers", "format": "text"}),
+        ]:
+            rendered = await client.get_prompt(name, arguments)
+            assert len(rendered.messages) == 1
+            assert rendered.messages[0].role == "user"
+            assert rendered.messages[0].content.type == "text"
+        assert len(seen) == count
+
+        for uri in [
+            "tabvault://recent?limit=0",
+            "tabvault://unassigned?limit=101",
+            "tabvault://recent?limit=bad",
+            "tabvault://tabs",
+            "tabvault://tabs?url=%20",
+        ]:
+            with pytest.raises(MCPError):
+                await client.read_resource(uri, cache_mode="bypass")
+        for name, arguments in [
+            ("organize_unassigned", {"limit": "0"}),
+            ("organize_unassigned", {"limit": "101"}),
+            ("organize_unassigned", {"limit": "bad"}),
+            ("research_digest", {}),
+        ]:
+            with pytest.raises(MCPError):
+                await client.get_prompt(name, arguments)
+        assert len(seen) == count
+        fail = True
+        with pytest.raises(MCPError):
+            await client.read_resource("tabvault://groups", cache_mode="bypass")

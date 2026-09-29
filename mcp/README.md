@@ -118,6 +118,41 @@ These names follow TabVault's domain model: Unassigned is not an Inbox, Saved UR
 and repeated URLs are separate save occurrences. Prompts propose a plan before any mutation and use
 single-record tools after approval.
 
+Resources are read-only snapshots. Groups and tags include their first 100 records; recent and
+Unassigned tabs default to 50 and accept `limit` from 1 to 100. Pagination metadata indicates when
+more records exist; use `list_groups`, `list_tags`, or `list_tabs` with `limit` and `offset` for more.
+Prompts render instructions only, without fetching context or executing changes. Organization
+accepts a `limit` from 1 to 100; weekly review defaults to `period="7 days"`; research digest requires
+a Group name and defaults to `audience="general"` and `format="markdown"`.
+
+In MCP Inspector:
+
+1. Open **Resources** and list resources: `tabvault://groups` and `tabvault://tags`.
+2. List resource templates to discover recent tabs, Unassigned tabs, and exact-URL lookup.
+3. Read `tabvault://recent?limit=10` or `tabvault://unassigned?limit=10`.
+4. For exact-URL lookup, percent-encode the complete original URL as one query value. For example,
+   `https://example.com/a?q=one&next=two#anchor` becomes
+   `tabvault://tabs?url=https%3A%2F%2Fexample.com%2Fa%3Fq%3Done%26next%3Dtwo%23anchor`.
+   Missing or blank URLs are rejected; stored URLs are never normalized for matching.
+5. Open **Prompts**, list prompts, and render `organize_unassigned` with `limit="10"`,
+   `weekly_tab_review` with `period="14 days"`, or `research_digest` with `group="Research"`.
+   MCP prompt arguments travel as strings, even when validated as integers.
+
+The host decides how to display resources and user-selected prompts; a tools-only host panel does
+not mean these server capabilities are absent. Templates are listed separately from static
+resources. Duplicate URLs cannot be individually selected by these MCP tools: each mutation targets
+the oldest visible exact match. Weekly review uses current timestamps rather than a complete event
+history and must disclose incomplete coverage.
+
+Reading resources and calling read tools never registers property definitions. A tab write that
+supplies `viewed` registers the boolean definition if absent, preserves an existing boolean
+definition, and rejects an incompatible definition before writing the tab.
+
+Implementation references: the official [MCP server concepts](https://modelcontextprotocol.io/docs/learn/server-concepts),
+[Python resource guide](https://py.sdk.modelcontextprotocol.io/servers/resources/),
+[prompt guide](https://py.sdk.modelcontextprotocol.io/servers/prompts/), and
+[in-memory testing guide](https://py.sdk.modelcontextprotocol.io/get-started/testing/).
+
 ## Development
 
 ```bash
