@@ -7,11 +7,11 @@ stacks unless the task explicitly calls for a migration.
 
 ## Project Structure & Module Organization
 
-`client/src/` contains the React/Vite application: pages live in `pages/`, the app shell in `components/shell/`, cross-feature components in `components/shared/`, shadcn UI primitives in `components/ui/`, and browser/storage logic in `lib/`. Extension assets and its MV3 manifest are in `client/public/`; builds go to `dist/public/`. Shared TypeScript constants live in `shared/`.
+`chrome_extension/src/` contains the React/Vite application: pages live in `pages/`, the app shell in `components/shell/`, cross-feature components in `components/shared/`, shadcn UI primitives in `components/ui/`, and browser/storage logic in `lib/`. Extension assets and its MV3 manifest are in `chrome_extension/public/`; builds go to `dist/public/`. Shared TypeScript constants live in `shared/`.
 
-Library UI stays within `client/src/domain/library/components/`: `workspace/` owns page composition and interaction hooks, `tabs/` renders and edits saved tabs, `collections/` renders collection boards and drop targets, `tags/` owns tag management, and `shared/` holds controls reused across those library areas. Keep domain state and data rules in the parent `domain/library/` modules.
+Library UI stays within `chrome_extension/src/domain/library/components/`: `workspace/` owns page composition and interaction hooks, `tabs/` renders and edits saved tabs, `collections/` renders collection boards and drop targets, `tags/` owns tag management, and `shared/` holds controls reused across those library areas. Keep domain state and data rules in the parent `domain/library/` modules.
 
-The FastAPI service is under `local-server/`, with code in `tabvault_server/`, JSON contracts in `schema/` and `errors/`, and Python tests in `tests/`. Root `tests/` covers extension synchronization; `e2e/` contains Playwright tests. Design references belong in `docs/`.
+The FastAPI service is under `server/`, with code in `tabvault_server/`, JSON contracts in `schema/` and `errors/`, and Python tests in `tests/`. Root `tests/` covers extension synchronization; `e2e/` contains Playwright tests. Design references belong in `docs/`.
 
 ## Build, Test, and Development Commands
 
@@ -20,9 +20,9 @@ The FastAPI service is under `local-server/`, with code in `tabvault_server/`, J
 - `pnpm validate` runs Prettier checks, ESLint, TypeScript, and a production build; use it for frontend changes that need the full gate.
 - `pnpm test:extension` runs the Node synchronization tests.
 - `pnpm test:e2e` runs Playwright with its configured Vite server.
-- `cd local-server && uv sync --group dev` prepares the Python environment.
-- `make -C local-server check` runs Ruff formatting/linting, strict mypy, and unittest tests for backend changes.
-- `make -C local-server run` starts the API locally.
+- `cd server && uv sync --group dev` prepares the Python environment.
+- `make -C server check` runs Ruff formatting/linting, strict mypy, and unittest tests for backend changes.
+- `make -C server run` starts the API locally.
 
 The root `make check` currently references a legacy `mcp-server/` directory that is not present; use the package-level commands above.
 

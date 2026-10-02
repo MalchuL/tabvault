@@ -1,6 +1,6 @@
 # Current API and MCP contract
 
-The FastAPI OpenAPI document (`/openapi.json`, interactive `/docs`) and [schema-v5 JSON schema](../local-server/schema/v5.tabvault.schema.json) are the canonical field contracts. All `/api/v1` operations require the configured `X-API-Key`.
+The FastAPI OpenAPI document (`/openapi.json`, interactive `/docs`) and [schema-v5 JSON schema](../server/schema/v5.tabvault.schema.json) are the canonical field contracts. All `/api/v1` operations require the configured `X-API-Key`.
 
 ## HTTP surface
 

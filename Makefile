@@ -4,7 +4,7 @@ frontend-check:
 	pnpm validate && pnpm test:extension
 
 api-check:
-	$(MAKE) -C local-server check
+	$(MAKE) -C server check
 
 mcp-check:
 	$(MAKE) -C mcp check

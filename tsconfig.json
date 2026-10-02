@@ -1,5 +1,5 @@
 {
-  "include": ["client/src/**/*", "server/**/*"],
+  "include": ["chrome_extension/src/**/*", "server/**/*"],
   "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
   "compilerOptions": {
     "incremental": true,
@@ -17,7 +17,7 @@
     "baseUrl": ".",
     "types": ["node", "vite/client", "chrome"],
     "paths": {
-      "@/*": ["./client/src/*"]
+      "@/*": ["./chrome_extension/src/*"]
     }
   }
 }

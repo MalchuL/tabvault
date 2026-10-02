@@ -12,7 +12,7 @@ pnpm dev
 Build with `pnpm build`. Load `dist/public/` as an unpacked Chrome extension for tab capture, or serve that directory as a static website. The website can organize saved records; browser capture requires the extension.
 
 ```bash
-cd local-server
+cd server
 uv sync --group dev
 uv run tabvault-server
 ```
@@ -45,6 +45,6 @@ pnpm validate
 pnpm test:unit
 pnpm test:extension
 pnpm test:e2e
-make -C local-server check
+make -C server check
 make -C mcp check
 ```

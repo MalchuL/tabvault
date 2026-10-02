@@ -4,7 +4,10 @@ import animate from "tailwindcss-animate";
 
 export default {
   darkMode: ["class"],
-  content: ["./client/index.html", "./client/src/**/*.{js,ts,jsx,tsx}"],
+  content: [
+    "./chrome_extension/index.html",
+    "./chrome_extension/src/**/*.{js,ts,jsx,tsx}",
+  ],
   theme: {
     extend: {
       fontFamily: {

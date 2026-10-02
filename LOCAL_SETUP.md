@@ -12,7 +12,7 @@ Load `dist/public/` as an unpacked Chrome extension. Local-only mode needs no se
 ## SQLite API
 
 ```bash
-cd local-server
+cd server
 uv sync --group dev
 TABVAULT_HTTP__API_KEY=admin uv run tabvault-server
 ```
@@ -33,7 +33,7 @@ and `POST /api/v1/import/validate`. Replace import and clear-library operations 
 ## Semantic search
 
 ```bash
-cd local-server
+cd server
 uv sync --extra semantic
 TABVAULT_HTTP__API_KEY=admin uv run tabvault-server
 ```
@@ -62,4 +62,4 @@ make check
 
 The root check validates the frontend/extension plus the uv-managed backend and MCP service. The
 MCP package runs Ruff, strict Pyright, and pytest with a 90% coverage floor. Build the standalone
-server image with `make -C local-server docker-build`.
+server image with `make -C server docker-build`.

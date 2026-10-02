@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 
 failures: list[str] = []
-for root in (Path("local-server/src"), Path("mcp/src")):
+for root in (Path("server/src"), Path("mcp/src")):
     classes: dict[str, tuple[set[str], list[str]]] = {}
     locations: dict[str, str] = {}
     for path in root.rglob("*.py"):

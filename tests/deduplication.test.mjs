@@ -3,8 +3,8 @@ import test from "node:test";
 import {
   buildAdvancedDedupePlan,
   buildQuickCleanPlan,
-} from "../client/src/domain/deduplication/model.ts";
-import { executeDedupePlan } from "../client/src/domain/deduplication/execution.ts";
+} from "../chrome_extension/src/domain/deduplication/model.ts";
+import { executeDedupePlan } from "../chrome_extension/src/domain/deduplication/execution.ts";
 
 function tab(id, overrides = {}) {
   return {

@@ -1,6 +1,6 @@
 # TabVault Chrome Extension Foundation
 
-This project includes a Chrome Manifest V3 package in `client/public/`. After building the project, the unpacked extension files are emitted into `dist/public/` alongside `manifest.json`, `background.js`, `popup.html`, `popup.js`, `popup.css`, and the TabVault icons.
+This project includes a Chrome Manifest V3 package in `chrome_extension/public/`. After building the project, the unpacked extension files are emitted into `dist/public/` alongside `manifest.json`, `background.js`, `popup.html`, `popup.js`, `popup.css`, and the TabVault icons.
 
 To install the extension locally, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the `dist/public/` directory. The toolbar action opens the **TabVault fast-save popup**; its button at the top, **Open TabVault workspace**, opens the TabVault side panel in the current browser window. `Command+Shift+S` on macOS or `Ctrl+Shift+S` on other platforms also opens the side panel and requests a capture of the active tab.
 

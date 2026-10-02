@@ -39,7 +39,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["client/src/components/ui/**/*.{ts,tsx}"],
+    files: ["chrome_extension/src/components/ui/**/*.{ts,tsx}"],
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
       "react-hooks/purity": "off",
@@ -48,7 +48,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["client/src/contexts/**/*.{ts,tsx}"],
+    files: ["chrome_extension/src/contexts/**/*.{ts,tsx}"],
     rules: { "react-refresh/only-export-components": "off" },
   }
 );
