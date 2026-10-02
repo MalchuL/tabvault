@@ -15,7 +15,7 @@ router = APIRouter(tags=["system"])
 
 @router.get("/health", response_model=HealthDTO)
 async def health(service: Annotated[SystemService, Depends(get_system_service)]) -> HealthDTO:
-    """Return process, storage, and vector-index health.
+    """Return process and storage health.
 
     Args:
         service (Annotated[SystemService, Depends(get_system_service)]): Request-scoped system

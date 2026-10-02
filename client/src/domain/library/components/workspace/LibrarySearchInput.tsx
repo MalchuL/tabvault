@@ -1,7 +1,7 @@
 import type { VaultGroup } from "@/domain/library/types";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Search, Sparkles } from "lucide-react";
+import { Search } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
 /** Search state and handlers for LibrarySearchInputProps. */
@@ -17,17 +17,10 @@ type LibrarySearchInputFilter = {
   groups: Array<Pick<VaultGroup, "id" | "details">>;
   onGroupFilterChange: (groupId: string) => void;
 };
-/** Semantic index state for LibrarySearchInputProps. */
-type LibrarySearchInputIndex = {
-  semanticLensTone: string;
-  semanticLensLabel: string;
-  isRemoteSearching: boolean;
-};
 /** Properties supplied to LibrarySearchInput. */
 type LibrarySearchInputProps = {
   search: LibrarySearchInputSearch;
   filter: LibrarySearchInputFilter;
-  index: LibrarySearchInputIndex;
 };
 /**
  * Show library search, collection filtering, and index state in one input row.
@@ -38,7 +31,6 @@ type LibrarySearchInputProps = {
 export function LibrarySearchInput({
   search: { query, activeResultId, onQueryChange, onKeyDown },
   filter: { searchGroupFilter, groups, onGroupFilterChange },
-  index: { semanticLensTone, semanticLensLabel, isRemoteSearching },
 }: LibrarySearchInputProps) {
   return (
     <label className="flex h-10 items-center gap-3 border-b border-[#bcb6a8] bg-[#fffdf8] px-4 transition focus-within:border-[#e95224] focus-within:shadow-[0_8px_24px_rgba(24,38,31,0.04)]">
@@ -47,7 +39,7 @@ export function LibrarySearchInput({
         value={query}
         onChange={event => onQueryChange(event.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Search tabs, notes, and tags…"
+        placeholder="Search tabs, tags, and properties…"
         aria-label="Search your TabVault library"
         aria-activedescendant={
           query && activeResultId
@@ -69,16 +61,6 @@ export function LibrarySearchInput({
           </option>
         ))}
       </NativeSelect>
-      <span
-        className={`hidden items-center gap-1.5 pl-2 font-mono text-[9px] uppercase tracking-[0.08em] sm:flex ${semanticLensTone}`}
-        title="Semantic lens: local matching and meaning-based ranking when the index is ready"
-      >
-        <Sparkles
-          className={`h-3 w-3 ${isRemoteSearching ? "animate-pulse" : ""}`}
-        />
-
-        <span>{semanticLensLabel}</span>
-      </span>
       {query && (
         <span className="hidden rounded border border-[#ded9cd] px-1.5 py-1 font-mono text-[8px] text-[#858980] 2xl:inline">
           ↑↓ navigate · ↵ open

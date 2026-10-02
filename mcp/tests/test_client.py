@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 
 import httpx
@@ -85,10 +86,13 @@ async def test_environment_defaults_and_dto_aliases(monkeypatch: pytest.MonkeyPa
     assert client.base_url == DEFAULT_SERVER_URL
     assert client.api_key is None
     assert TabCreateDTO.model_validate(
-        {"content": {"url": "https://example.com"}, "annotations": {"agent_review": "ok"}}
+        {
+            "content": {"url": "https://example.com"},
+            "annotations": {"customProperties": {"agentReview": "ok"}},
+        }
     ).model_dump(by_alias=True, exclude_unset=True) == {
         "content": {"url": "https://example.com"},
-        "annotations": {"agentReview": "ok"},
+        "annotations": {"customProperties": {"agentReview": "ok"}},
     }
     naive = tab().model_dump(mode="json", by_alias=True)
     naive["timestamps"]["createdAt"] = "2026-08-24T16:38:22.557000"
@@ -125,12 +129,11 @@ async def test_all_client_operations_are_typed_and_use_current_routes() -> None:
                             {
                                 "tab": tab().model_dump(mode="json", by_alias=True),
                                 "score": 1,
-                                "matchType": "both",
                                 "matchedOn": "url",
                             }
                         ]
                     },
-                    "meta": {"queryEmbeddingMs": 1, "searchMs": 2},
+                    "meta": {"searchMs": 2},
                 },
             )
         if path == "/api/v1/tabs/order":
@@ -152,7 +155,6 @@ async def test_all_client_operations_are_typed_and_use_current_routes() -> None:
                 json={
                     "success": True,
                     "data": tab().model_dump(mode="json", by_alias=True),
-                    "meta": {"job": {"tabId": "tab", "jobId": "job"}},
                 },
             )
         if path.startswith("/api/v1/tabs/tab"):
@@ -201,7 +203,7 @@ async def test_all_client_operations_are_typed_and_use_current_routes() -> None:
     created = await client.create_tab(
         TabCreateDTO.model_validate({"content": {"url": "https://example.com"}})
     )
-    assert created.meta is not None and created.meta.job.job_id == "job"
+    assert created.data.id == "tab"
     assert (
         await client.update_tab(
             "tab", TabUpdateDTO.model_validate({"content": {"title": "Changed"}})
@@ -267,13 +269,26 @@ async def test_viewed_write_registers_property_once_after_read_only_requests() -
     assert [request.method for request in seen] == ["GET"]
     await client.create_tab(
         TabCreateDTO.model_validate(
-            {"content": {"url": "https://exact"}, "annotations": {"viewed": False}}
+            {
+                "content": {"url": "https://exact"},
+                "annotations": {"customProperties": {"viewed": False}},
+            }
         )
     )
-    await client.update_tab("tab", TabUpdateDTO.model_validate({"annotations": {"viewed": True}}))
-    assert [request.method for request in seen] == ["GET", "GET", "POST", "POST", "PATCH"]
-    assert seen[2].content == (
-        b'{"name":"viewed","description":"","type":"boolean","default":false}'
+    await client.update_tab(
+        "tab", TabUpdateDTO.model_validate({"annotations": {"customProperties": {"viewed": True}}})
+    )
+    assert [request.method for request in seen] == [
+        "GET",
+        "GET",
+        "POST",
+        "POST",
+        "GET",
+        "POST",
+        "PATCH",
+    ]
+    assert json.loads(seen[2].content) == json.loads(
+        b'{"name":"viewed","description":"Whether this saved tab has been viewed","type":"boolean","default":false}'
     )
     await client.aclose()
 
@@ -354,13 +369,19 @@ async def test_viewed_write_preserves_existing_schema(definition: dict[str, obje
     try:
         if definition["type"] == "boolean":
             await client.update_tab(
-                "tab", TabUpdateDTO.model_validate({"annotations": {"viewed": True}})
+                "tab",
+                TabUpdateDTO.model_validate(
+                    {"annotations": {"customProperties": {"viewed": True}}}
+                ),
             )
             assert [request.method for request in seen] == ["GET", "PATCH"]
         else:
             with pytest.raises(MCPClientError, match="type boolean"):
                 await client.update_tab(
-                    "tab", TabUpdateDTO.model_validate({"annotations": {"viewed": True}})
+                    "tab",
+                    TabUpdateDTO.model_validate(
+                        {"annotations": {"customProperties": {"viewed": True}}}
+                    ),
                 )
             assert [request.method for request in seen] == ["GET"]
     finally:

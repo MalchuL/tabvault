@@ -1,4 +1,4 @@
-import { patchTab } from "@/domain/library/patch";
+import { updateTab } from "@/domain/library/operations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -11,27 +11,17 @@ import {
   type StringReducer,
   type SurvivorRule,
   type TagsReducer,
-  type ViewedReducer,
+  type BooleanReducer,
 } from "@/domain/deduplication/model";
-import {
-  executeDedupePlan,
-  type DedupeMutation,
-} from "@/domain/deduplication/execution";
+import { executeDedupePlan } from "@/domain/deduplication/execution";
 import type { PersistedVault } from "@/domain/library/types";
 import { useLibrary } from "@/domain/library/library-context";
-import { updateTabOnLocalServer } from "@/domain/server/libraryApi";
-import {
-  readApiKey,
-  readLocalServerUrl,
-  readStorageMode,
-} from "@/domain/server/browserStorage";
 
 const DEFAULT_OPTIONS: AdvancedDedupeOptions = {
   survivor: "OLDEST_CREATED",
   title: "SURVIVOR_VALUE",
-  note: "CONCAT",
-  agentReview: "CONCAT",
-  viewed: "ANY",
+  strings: "CONCAT",
+  booleans: "ANY",
   tags: "UNION",
   separator: "\n\n",
 };
@@ -45,10 +35,10 @@ const OPTION_HELP: Record<string, string> = {
   LONGEST: "Use the longest value found across the duplicate cluster.",
   SHORTEST: "Use the shortest value found across the duplicate cluster.",
   SURVIVOR_VALUE: "Keep this property's value from the selected survivor.",
-  ANY: "Mark the survivor viewed when at least one duplicate was viewed.",
-  ALL: "Mark the survivor viewed only when every duplicate was viewed.",
+  ANY: "Mark the survivor true when at least one duplicate was true.",
+  ALL: "Mark the survivor true only when every duplicate was true.",
   MAJORITY:
-    "Use the majority viewed state; a tie keeps the survivor's current state.",
+    "Use the majority true state; a tie keeps the survivor's current state.",
   UNION: "Keep every tag, merging tag names case-insensitively.",
   INTERSECTION: "Keep only tags that appear on every Saved Tab in the cluster.",
 };
@@ -70,47 +60,13 @@ function visibleTabs(vault: PersistedVault) {
 }
 
 /**
- * Mirror one completed server mutation into browser state.
- * Duplicate tabs are archived and removed from every order bucket; survivor
- * patches preserve their existing placement.
- * @param {PersistedVault} vault - Current browser library.
- * @param {DedupeMutation} mutation - Successfully persisted dedupe change.
- * @returns {PersistedVault} Updated local library snapshot.
- */
-function applyMutation(vault: PersistedVault, mutation: DedupeMutation) {
-  const now = new Date().toISOString();
-  const tabs = vault.library.tabs.map(tab =>
-    tab.id === mutation.id
-      ? mutation.role === "duplicate"
-        ? {
-            ...tab,
-            placement: { ...tab.placement, groupId: null },
-            lifecycle: { ...tab.lifecycle, archived: true, archivedAt: now },
-            timestamps: { ...tab.timestamps, updatedAt: now },
-          }
-        : patchTab(tab, { ...mutation.updates, timestamps: { updatedAt: now } })
-      : tab
-  );
-  const tabOrders =
-    mutation.role === "duplicate"
-      ? Object.fromEntries(
-          Object.entries(vault.library.tabOrders).map(([groupId, ids]) => [
-            groupId,
-            ids.filter(id => id !== mutation.id),
-          ])
-        )
-      : vault.library.tabOrders;
-  return { ...vault, library: { ...vault.library, tabs, tabOrders } };
-}
-
-/**
  * Review and execute duplicate plans against visible saved tabs.
  * Keeps the selected plan fixed while mutations run so UI option changes
  * cannot alter the in-flight operation.
  * @returns {JSX.Element} Dedupe options, preview, and execution results.
  */
 export default function Deduplicator() {
-  const { vault, dispatch } = useLibrary();
+  const { vault, mutate } = useLibrary();
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [generatedPlan, setGeneratedPlan] = useState<DedupePlan>();
   const [fixedPlan, setFixedPlan] = useState<DedupePlan>();
@@ -120,13 +76,17 @@ export default function Deduplicator() {
   const candidates = useMemo(() => visibleTabs(vault), [vault]);
   useEffect(() => {
     let cancelled = false;
-    void buildAdvancedDedupePlan(candidates, options).then(next => {
+    void buildAdvancedDedupePlan(
+      candidates,
+      options,
+      vault.propertySchema
+    ).then(next => {
       if (!cancelled) setGeneratedPlan(next);
     });
     return () => {
       cancelled = true;
     };
-  }, [candidates, options]);
+  }, [candidates, options, vault.propertySchema]);
   const plan = fixedPlan ?? generatedPlan;
 
   /**
@@ -141,28 +101,13 @@ export default function Deduplicator() {
     setResult(undefined);
     const executionPlan = plan;
     setFixedPlan(executionPlan);
-    let nextVault = vault;
-    const [mode, serverUrl, apiKey] = await Promise.all([
-      readStorageMode(),
-      readLocalServerUrl(),
-      readApiKey(),
-    ]);
     const completed = await executeDedupePlan(
       executionPlan,
       async mutation => {
-        if (mode === "backend")
-          await updateTabOnLocalServer(
-            serverUrl,
-            mutation.id,
-            mutation.updates,
-            apiKey
-          );
+        await mutate(v => updateTab(v, mutation.id, mutation.updates));
       },
-      mutation => {
-        nextVault = applyMutation(nextVault, mutation);
-      }
+      () => undefined
     );
-    dispatch({ type: "replace", vault: nextVault });
     setResult(completed);
     if (!completed.failed) setFixedPlan(undefined);
     setRunning(false);
@@ -199,10 +144,10 @@ export default function Deduplicator() {
               }))
             }
           />
-          {(["title", "note", "agentReview"] as const).map(field => (
+          {(["title", "strings"] as const).map(field => (
             <Choice
               key={field}
-              label={field === "agentReview" ? "Agent review" : field}
+              label={field === "strings" ? "String properties" : field}
               value={options[field]}
               values={["CONCAT", "LONGEST", "SHORTEST", "SURVIVOR_VALUE"]}
               onChange={value =>
@@ -214,13 +159,13 @@ export default function Deduplicator() {
             />
           ))}
           <Choice
-            label="Viewed"
-            value={options.viewed}
+            label="Boolean properties"
+            value={options.booleans}
             values={["ANY", "ALL", "MAJORITY", "SURVIVOR_VALUE"]}
             onChange={value =>
               setOptions(current => ({
                 ...current,
-                viewed: value as ViewedReducer,
+                booleans: value as BooleanReducer,
               }))
             }
           />
@@ -254,9 +199,8 @@ export default function Deduplicator() {
               className="w-full border border-[#d9d3c6] bg-[#fffdf8] px-3 py-2 font-mono text-xs outline-none focus:border-[#e95224]"
             />
             <ContextHelp title="CONCAT separator" side="left" align="center">
-              Inserted between title, note, or Agent Review values whenever that
-              property uses CONCAT. Escape sequences are treated as the
-              characters you enter.
+              Inserted between string values whenever that property uses CONCAT.
+              Escape sequences are treated as the characters you enter.
             </ContextHelp>
           </div>
         </section>

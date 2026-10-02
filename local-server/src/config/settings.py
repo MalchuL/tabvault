@@ -56,48 +56,11 @@ class SettingsStorage(BaseModel):
             return self.database_url
         return f"sqlite+aiosqlite:///{self.data_dir / 'tabvault.sqlite3'}"
 
-    @property
-    def asset_dir(self) -> Path:
-        """Return the directory used for captured preview assets.
-
-        Returns:
-            Path: Path under ``data_dir`` for captured preview assets.
-        """
-        return self.data_dir / "assets"
-
-    @property
-    def model_dir(self) -> Path:
-        """Return the directory used for downloaded embedding models.
-
-        Returns:
-            Path: Path under ``data_dir`` for downloaded embedding models.
-        """
-        return self.data_dir / "models"
-
 
 class SettingsLogging(BaseModel):
     """Logging fields for Settings."""
 
     level: str = "INFO"
-    model_config = SettingsConfigDict(extra="forbid")
-
-
-class SettingsPreview(BaseModel):
-    """Preview fields for Settings."""
-
-    timeout_seconds: float = 12.0
-    max_html_bytes: int = 2_000_000
-    max_image_bytes: int = 5_000_000
-    max_total_bytes: int = 20_000_000
-    allow_private_hosts: bool = False
-    model_config = SettingsConfigDict(extra="forbid")
-
-
-class SettingsEmbedding(BaseModel):
-    """Embedding fields for Settings."""
-
-    model: str = "deepvk/USER-bge-m3"
-    batch_size: int = 16
     model_config = SettingsConfigDict(extra="forbid")
 
 
@@ -125,8 +88,6 @@ class Settings(BaseSettings):
     http: SettingsHttp = Field(default_factory=SettingsHttp)
     storage: SettingsStorage = Field(default_factory=SettingsStorage)
     logging: SettingsLogging = Field(default_factory=SettingsLogging)
-    preview: SettingsPreview = Field(default_factory=SettingsPreview)
-    embedding: SettingsEmbedding = Field(default_factory=SettingsEmbedding)
 
 
 @lru_cache

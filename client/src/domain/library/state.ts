@@ -22,7 +22,7 @@ export type LibraryAction =
 
 /**
  * Apply one atomic replacement or update within a library group.
- * @param {LibraryState} state - Current schema-v4 library state.
+ * @param {LibraryState} state - Current schema-v5 library state.
  * @param {LibraryAction} action - Replacement or typed group-field update.
  * @returns {LibraryState} The next immutable library state.
  */

@@ -10,9 +10,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import Settings
-from domain.jobs.dto import JobQueuedDTO
-from domain.jobs.mapper import JobMapper
-from domain.jobs.repository import JobRepository
 from lib.responses import IssueDTO, WarningDTO, issue
 from lib.time import stored_utc, utc_now
 
@@ -44,9 +41,7 @@ class TransferService:
         db (AsyncSession): Request-scoped session used until the service commits or rolls back.
         settings (Settings): Validated process settings shared for this instance lifetime.
         repository (TransferRepository): Persistence adapter retained for this service instance.
-        jobs (JobRepository): Repository used to queue or inspect background jobs.
         mapper (TransferMapper): Stateless converter between ORM rows and API DTOs.
-        job_mapper (JobMapper): Stateless converter for background-job DTOs.
     """
 
     def __init__(
@@ -54,7 +49,6 @@ class TransferService:
         db: AsyncSession,
         settings: Settings,
         repository: TransferRepository,
-        jobs: JobRepository,
     ) -> None:
         """Keep the session and repositories used by one transfer request.
 
@@ -62,14 +56,11 @@ class TransferService:
             db (AsyncSession): Request-scoped asynchronous database session.
             settings (Settings): Validated runtime settings for this operation.
             repository (TransferRepository): Persistence adapter used by this service.
-            jobs (JobRepository): Background-job repository or worker dependency.
         """
         self.db = db
         self.settings = settings
         self.repository = repository
-        self.jobs = jobs
         self.mapper = TransferMapper()
-        self.job_mapper = JobMapper()
 
     async def document(self, *, include_hidden: bool = True) -> TransferDocumentDTO:
         """Build a portable document; public exports omit currently hidden records.
@@ -78,17 +69,17 @@ class TransferService:
             include_hidden (bool): Whether hidden active tabs belong in the result.
 
         Returns:
-            TransferDocumentDTO: Portable library document in schema v4.
+            TransferDocumentDTO: Portable library document in schema v5.
         """
         tags, groups, tabs = await self.repository.transfer_rows(
             include_hidden=include_hidden,
             now=utc_now() if not include_hidden else None,
         )
-        schema = await self.repository.get_property_schema()
+        schema = await self.repository.property_definitions()
         return TransferDocumentDTO.model_validate(
             {
                 "exported_at": utc_now(),
-                "property_schema": dict(schema.properties or {}) if schema is not None else {},
+                "property_schema": schema,
                 "library": {
                     "tags": [self.mapper.tag_to_dto(tag) for tag in tags],
                     "groups": [self.mapper.group_to_dto(group) for group in groups],
@@ -167,7 +158,6 @@ class TransferService:
                                     "content": {
                                         "url": tab.content.url,
                                         "title": tab.content.title,
-                                        "favicon": tab.content.favicon,
                                     },
                                     "placement": {"group_id": tab.placement.group_id},
                                     "annotations": {"tags": tab.annotations.tags},
@@ -180,7 +170,10 @@ class TransferService:
             )
         if format == "json":
             return TransferExportDTO(content=content, media_type="application/json")
-        lines: list[str] = []
+        lines: list[str] = [
+            "  propertySchema: " + json.dumps(document.property_schema, ensure_ascii=False),
+            "",
+        ]
 
         def write_tabs(group_id: str | None) -> None:
             """Append active tabs for a group in the interchange format.
@@ -194,8 +187,6 @@ class TransferService:
                     lines.append(f"  id: {tab.id}")
                     lines.append(f"  tags: {', '.join(tab.annotations.tags)}")
                     if fields != "minimal":
-                        lines.append(f"  note: {tab.annotations.note or ''}")
-                        lines.append(f"  agentReview: {tab.annotations.agent_review or ''}")
                         lines.append(
                             "  customProperties: "
                             + json.dumps(
@@ -330,7 +321,6 @@ class TransferService:
         dto, errors, warnings = self._validated_document(content, format)
         if dto is None:
             return ImportApplyResultDTO(success=False, errors=errors, warnings=warnings)
-        await self.repository.replace_property_schema(dict(dto.property_schema))
         backup_id: str | None = None
         if mode == "replace":
             backup = await self.create_backup("pre_replace_import")
@@ -340,6 +330,9 @@ class TransferService:
             elif scope.startswith("group:"):
                 group_id = scope.split(":", 1)[1]
                 await self.repository.replace_group(group_id)
+        await self.repository.replace_property_schema(
+            dict(dto.property_schema), replace=mode == "replace"
+        )
         created = ImportCountsDTO()
         updated = ImportCountsDTO()
         for tag_dto in dto.library.tags:
@@ -399,26 +392,41 @@ class TransferService:
             warnings=warnings,
         )
 
-    async def restore_backup(self, backup_id: str) -> str | None:
-        """Queue a stored backup for restoration, or return None if its file is missing.
+    async def backup_path(self, backup_id: str) -> Path:
+        """Locate a registered backup without accepting a caller-controlled path.
 
         Args:
-            backup_id (str): Identifier of the backup to restore.
+            backup_id (str): Stored backup identity.
 
         Returns:
-            str | None: Queued restore-job ID, or None if the backup file is unavailable.
+            Path: Existing JSON snapshot file.
+
+        Raises:
+            BackupNotFoundError: Metadata or file is missing.
         """
         backup = await self.repository.get_backup(backup_id)
-        if backup is None or not Path(backup.path).exists():
-            return None
-        job = self.job_mapper.create(
-            "backup_restore",
-            target_id=backup_id,
-            result={"content": json.loads(Path(backup.path).read_text(encoding="utf-8"))},
-        )
-        await self.jobs.add(job)
-        await self.db.commit()
-        return job.id
+        if backup is None or not Path(backup.path).is_file():
+            raise BackupNotFoundError(f"Backup {backup_id!r} was not found")
+        return Path(backup.path)
+
+    async def restore_backup(self, backup_id: str) -> ImportApplyResultDTO:
+        """Validate and restore a backup directly, preserving a pre-replacement backup.
+
+        Args:
+            backup_id (str): Existing backup identifier.
+
+        Returns:
+            ImportApplyResultDTO: Completed transactional replacement result.
+
+        Raises:
+            BackupNotFoundError: The backup metadata or file is missing.
+        """
+        path = await self.backup_path(backup_id)
+        try:
+            return await self.apply(json.loads(path.read_text()), "json", "replace")
+        except Exception:
+            await self.db.rollback()
+            raise
 
     async def backups(self) -> list[BackupDTO]:
         """List available backup snapshots.
@@ -427,23 +435,6 @@ class TransferService:
             list[BackupDTO]: Matching records in display order.
         """
         return [self.mapper.backup_to_dto(row) for row in await self.repository.backups()]
-
-    async def queue_restore(self, backup_id: str) -> JobQueuedDTO:
-        """Queue restoration of an existing backup.
-
-        Args:
-            backup_id (str): Identifier of the backup to restore.
-
-        Returns:
-            JobQueuedDTO: Identifier and state of the queued background job.
-
-        Raises:
-            BackupNotFoundError: No stored backup has the requested ID.
-        """
-        job_id = await self.restore_backup(backup_id)
-        if job_id is None:
-            raise BackupNotFoundError(f"Backup {backup_id!r} was not found")
-        return JobQueuedDTO(job_id=job_id)
 
     async def clear_library(self) -> LibraryClearDTO:
         """Back up and clear the complete local library atomically.

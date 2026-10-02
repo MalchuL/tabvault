@@ -17,15 +17,13 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import { emptyBrowserVault } from "@/domain/library/codec";
 import { useLibrary } from "@/domain/library/library-context";
 import { libraryStats } from "@/domain/library/selectors";
-import { refreshLibraryFromServer } from "@/domain/server/libraryApi";
+
 import { checkLocalServer } from "@/domain/server/search";
 import { isExtensionContext } from "@/extension/bridge";
 import {
   readApiKey,
-  readBrowserVault,
   readLocalServerUrl,
   readStorageMode,
 } from "@/domain/server/browserStorage";
@@ -42,7 +40,7 @@ import {
  * @returns {string} Classes for the browse navigation button.
  */
 function browseClass(active: boolean) {
-  return `flex w-full items-center gap-2.5 rounded-lg border-l-2 px-3 py-2 text-left text-[13px] font-semibold transition ${
+  return `flex w-full items-center justify-start gap-2.5 rounded-lg border-l-2 px-3 py-2 text-left text-[13px] font-semibold transition ${
     active
       ? "border-[#e95224] bg-[#eeece4] text-[#18261f]"
       : "border-transparent text-[#666c65] hover:bg-[#efede6] hover:text-[#18261f]"
@@ -56,7 +54,7 @@ function browseClass(active: boolean) {
  * @returns {string} Classes for the library navigation button.
  */
 function libraryClass(active: boolean) {
-  return `flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[#666c65] hover:bg-[#efede6] hover:text-[#18261f] ${
+  return `flex w-full items-center justify-start gap-2.5 rounded-lg border-l-2 border-transparent px-3 py-2 text-left text-[#666c65] hover:bg-[#efede6] hover:text-[#18261f] ${
     active ? "bg-[#eeece4] text-[#18261f]" : ""
   }`;
 }
@@ -69,7 +67,7 @@ function libraryClass(active: boolean) {
  */
 export function WorkspaceSidebar({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
-  const { vault, dispatch } = useLibrary();
+  const { vault, synchronize } = useLibrary();
   const [open, setOpen] = useState(false);
   const [bridge, setBridge] = useState<LibrarySidebarBridge | null>(null);
   const [isRefreshingFallback, setIsRefreshingFallback] = useState(false);
@@ -77,7 +75,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
   const contextValue = useMemo(
     () => ({
       setBridge: (next: LibrarySidebarBridge | null) => {
-        if (next) setBridge(next);
+        setBridge(next);
       },
     }),
     []
@@ -120,10 +118,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
    */
   const refreshLibrary = async () => {
     if (bridge) {
-      if (
-        bridge.connection.storageMode !== "backend" ||
-        !bridge.connection.serverOnline
-      ) {
+      if (bridge.connection.storageMode !== "backend") {
         toast.error(
           "Connect the TabVault server before refreshing the library"
         );
@@ -152,12 +147,8 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
         );
         return;
       }
-      const current = (await readBrowserVault()) ?? emptyBrowserVault();
-      const { vault } = await refreshLibraryFromServer(url, key, current);
-      dispatch({ type: "replace", vault });
-      toast.success("Library refreshed", {
-        description: `${vault.library.tabs.length} tabs merged with the server.`,
-      });
+      await synchronize();
+      toast.success("Library refreshed");
     } catch {
       toast.error("Could not refresh tabs and collections");
     } finally {

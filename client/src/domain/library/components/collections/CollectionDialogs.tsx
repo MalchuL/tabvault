@@ -24,7 +24,7 @@ type EditCollectionDialogProps = {
 
 /**
  * Edit a collection name, description, and category.
- * Name or description edits turn the collection into a manual category.
+ * Categories change only when explicitly selected.
  * @param {EditCollectionDialogProps} props - Current collection, category choices, and edit/save/close callbacks.
  * @returns {React.ReactElement} Collection editor dialog.
  */
@@ -58,7 +58,6 @@ export function EditCollectionDialog({
                 details: {
                   ...collection.details,
                   name: event.target.value,
-                  category: "manual",
                 },
               })
             }
@@ -78,7 +77,6 @@ export function EditCollectionDialog({
                 details: {
                   ...collection.details,
                   description: event.target.value,
-                  category: "manual",
                 },
               })
             }

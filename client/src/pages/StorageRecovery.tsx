@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 /**
- * Block library startup when stored data cannot be read as schema v4.
+ * Block library startup when stored data cannot be read as schema v5.
  * Offers a download of the untouched value before the user chooses to clear it.
  * @param {{ raw: unknown; storageKey: string; onClear: () => Promise<void> }} props - Invalid data, its key, and the explicit clear action.
  * @returns {JSX.Element} Recovery choices for the incompatible browser vault.
@@ -42,12 +42,12 @@ export function StorageRecovery({
           Recovery required
         </p>
         <h1 className="mt-3 text-3xl font-bold tracking-[-0.05em]">
-          This browser library is not schema v4.
+          This browser library is not schema v5.
         </h1>
         <p className="mt-4 max-w-xl text-sm leading-6 text-[#687067]">
           TabVault stopped before loading <code>{storageKey}</code>. Download
           the untouched data first if you may want to adapt it later, or clear
-          it and start with an empty v3 library.
+          it and start with an empty v5 library.
         </p>
         <div className="mt-7 flex flex-row gap-3">
           <Button

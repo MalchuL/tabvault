@@ -2,13 +2,14 @@
 
 from datetime import datetime
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.tabs.visibility import visible_tabs
 from lib.base_repository import BaseRepository
 from lib.model_changes import apply_model_changes
 from lib.pagination import ListOptions, Page
+from lib.time import utc_now
 from models import Tab, Tag, tab_tags
 
 
@@ -127,11 +128,17 @@ class TagRepository(BaseRepository[Tag]):
             or 0
         )
 
-    async def delete_tag(self, tag: Tag) -> None:
+    async def delete_tag(self, tag: Tag, changed_at: datetime | None = None) -> None:
         """Detach and permanently delete a tag.
 
         Args:
             tag (Tag): Tag row being converted or persisted.
+            changed_at (datetime | None): Sync timestamp, or current time for direct writes.
         """
+        await self.session.execute(
+            update(Tab)
+            .where(Tab.tags.any(Tag.name == tag.name))
+            .values(_updated_at=changed_at or utc_now())
+        )
         await self.session.execute(delete(tab_tags).where(tab_tags.c.tag_name == tag.name))
         await self.session.delete(tag)

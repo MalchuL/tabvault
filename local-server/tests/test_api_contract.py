@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -40,7 +41,7 @@ def test_auth_prefix_health_and_required_group_category(
     assert client.get("/v1/tabs", headers=headers).status_code == 404
     health = client.get("/api/v1/health", headers=headers)
     assert health.status_code == 200
-    assert health.json()["schemaVersion"] == 4
+    assert health.json()["schemaVersion"] == 5
     invalid = client.post("/api/v1/groups", headers=headers, json={"details": {"name": "Missing"}})
     assert invalid.status_code == 422
     assert invalid.json()["success"] is False
@@ -114,7 +115,7 @@ def test_batch_create_is_atomic_and_preserves_distinct_occurrences(
     payload = response.json()
     assert [tab["id"] for tab in payload["data"]] == ["batch-one", "batch-two"]
     assert [tab["placement"]["position"] for tab in payload["data"]] == [0.0, 1.0]
-    assert [job["tabId"] for job in payload["meta"]["jobs"]] == ["batch-one", "batch-two"]
+    assert "jobs" not in payload.get("meta", {})
     replay = client.post("/api/v1/tabs/batch", headers=request_headers, json=body)
     assert replay.status_code == 201
     assert replay.json() == payload
@@ -182,16 +183,18 @@ def test_patch_is_the_only_move_restore_and_metadata_update(
         json={
             "placement": {"groupId": group["id"]},
             "annotations": {
-                "note": "Human note",
-                "agentReview": "Agent note",
-                "customProperties": {"viewed": True},
+                "customProperties": {
+                    "viewed": True,
+                    "note": "Human note",
+                    "agentReview": "Agent note",
+                }
             },
             "lifecycle": {"hiddenUntil": "2030-01-01T00:00:00Z"},
         },
     ).json()["data"]
     assert changed["placement"]["groupId"] == group["id"]
-    assert changed["annotations"]["note"] == "Human note"
-    assert changed["annotations"]["agentReview"] == "Agent note"
+    assert changed["annotations"]["customProperties"]["note"] == "Human note"
+    assert changed["annotations"]["customProperties"]["agentReview"] == "Agent note"
     assert changed["annotations"]["customProperties"]["viewed"] is True
     assert changed["lifecycle"]["hiddenUntil"].startswith("2030-01-01")
     archived = client.patch(
@@ -369,10 +372,10 @@ def test_tab_filters_errors_and_group_scoped_listing(
         headers=headers,
         json={
             "content": {"title": "Changed"},
-            "annotations": {"note": None, "tags": ["alpha", "beta"]},
+            "annotations": {"tags": ["alpha", "beta"], "customProperties": {"note": ""}},
         },
     ).json()["data"]
-    assert updated["annotations"]["note"] == ""
+    assert updated["annotations"]["customProperties"]["note"] == ""
     filtered = client.get(
         "/api/v1/tabs?tags=beta&tagsAll=beta&search=changed&sortBy=title&sortDir=desc",
         headers=headers,
@@ -441,65 +444,6 @@ def test_tag_catalog_markdown_detach_delete_and_missing(
     )
 
 
-def test_search_jobs_preview_fallback_and_meta_routes(
-    client: TestClient, headers: dict[str, str]
-) -> None:
-    tab = create_tab(client, headers, "https://example.com/python")
-    client.patch(
-        f"/api/v1/tabs/{tab['id']}",
-        headers=headers,
-        json={
-            "annotations": {"note": "async python guide", "agentReview": "quantum filing summary"}
-        },
-    )
-    keyword = client.get("/api/v1/search?q=python&mode=keyword", headers=headers).json()
-    assert keyword["data"]["results"][0]["matchType"] == "keyword"
-    agent = client.get("/api/v1/search?q=quantum&mode=keyword", headers=headers).json()
-    assert agent["data"]["results"][0]["matchedOn"] == "agentReview"
-    hybrid = client.get("/api/v1/search?q=example&mode=hybrid", headers=headers).json()
-    assert hybrid["warnings"][0]["code"] == "W_SEMANTIC_UNAVAILABLE"
-    assert client.get("/api/v1/search?q=example&mode=semantic", headers=headers).status_code == 503
-    queued = client.post("/api/v1/search/reindex", headers=headers)
-    assert queued.status_code == 202
-    job_id = queued.json()["data"]["jobId"]
-    assert (
-        client.get(f"/api/v1/jobs/{job_id}", headers=headers).json()["data"]["status"] == "pending"
-    )
-    assert client.get("/api/v1/jobs/missing", headers=headers).status_code == 404
-    assert (
-        client.get(f"/api/v1/tabs/{tab['id']}/preview", headers=headers).json()["data"]["capture"][
-            "status"
-        ]
-        == "pending"
-    )
-    assert (
-        client.post(f"/api/v1/tabs/{tab['id']}/preview/refresh", headers=headers).status_code == 202
-    )
-    assert client.get("/api/v1/tabs/missing/preview", headers=headers).status_code == 404
-    assert client.post("/api/v1/tabs/missing/preview/refresh", headers=headers).status_code == 404
-    fallback = client.get("/api/v1/assets/missing", headers=headers)
-    assert fallback.status_code == 200
-    assert fallback.headers["content-type"].startswith("image/svg+xml")
-    assert client.get("/api/v1/schema", headers=headers).json()["properties"]["schemaVersion"]
-    assert client.get("/api/v1/errors", headers=headers).status_code == 200
-
-
-def test_health_schedule_status_and_missing_backup(
-    client: TestClient, headers: dict[str, str]
-) -> None:
-    configured = client.put(
-        "/api/v1/index/health-check",
-        headers=headers,
-        json={"intervalSeconds": 60, "notifyOnNeedsAttention": True},
-    ).json()["data"]
-    assert configured["enabled"] is True
-    assert client.get("/api/v1/index/health-check", headers=headers).status_code == 200
-    run = client.post("/api/v1/index/health-check/run", headers=headers).json()["data"]
-    assert run["lastResult"] == "needs_attention"
-    assert client.get("/api/v1/index/status", headers=headers).status_code == 200
-    assert client.post("/api/v1/backups/missing/restore", headers=headers).status_code == 404
-
-
 def test_markdown_import_scoped_export_replace_and_restore_job(
     client: TestClient, headers: dict[str, str]
 ) -> None:
@@ -513,7 +457,7 @@ def test_markdown_import_scoped_export_replace_and_restore_job(
     exported = client.get(
         "/api/v1/export?format=json&scope=tag:note&fields=minimal", headers=headers
     ).json()
-    assert exported["schemaVersion"] == 4 and len(exported["library"]["tabs"]) == 1
+    assert exported["schemaVersion"] == 5 and len(exported["library"]["tabs"]) == 1
     document = client.get("/api/v1/export?format=json", headers=headers).json()
     replaced = client.post(
         "/api/v1/import",
@@ -522,7 +466,7 @@ def test_markdown_import_scoped_export_replace_and_restore_job(
     )
     assert replaced.status_code == 200
     backup_id = replaced.json()["data"]["backupSnapshotId"]
-    assert client.post(f"/api/v1/backups/{backup_id}/restore", headers=headers).status_code == 202
+    assert client.post(f"/api/v1/backups/{backup_id}/restore", headers=headers).status_code == 200
     assert client.post("/api/v1/import", headers=headers, json=document).status_code == 422
 
 
@@ -606,7 +550,7 @@ def test_visibility_policy_is_shared_by_lists_groups_search_counts_and_export(
         == hidden_mixed["id"]
     )
     assert client.get("/api/v1/groups?visibility=archived", headers=headers).json()["data"] == []
-    search = client.get("/api/v1/search?q=keyword&mode=keyword", headers=headers).json()
+    search = client.get("/api/v1/search?q=keyword", headers=headers).json()
     assert {item["tab"]["id"] for item in search["data"]["results"]} == {
         visible["id"],
         elapsed["id"],
@@ -620,7 +564,7 @@ def test_visibility_policy_is_shared_by_lists_groups_search_counts_and_export(
     assert {hidden_mixed["id"], hidden_only["id"]}.isdisjoint(exported_ids)
     synced = client.get("/api/v1/sync", headers=headers).json()
     synced_ids = {tab["id"] for tab in synced["library"]["tabs"]}
-    assert synced["schemaVersion"] == 4
+    assert synced["schemaVersion"] == 5
     assert {
         visible["id"],
         elapsed["id"],
@@ -668,14 +612,27 @@ def test_nested_patch_preserves_unspecified_fields(client, headers) -> None:
         headers=headers,
         json={
             "content": {"url": "https://example.com", "title": "Original"},
-            "annotations": {"note": "Keep", "tags": ["docs"]},
+            "annotations": {"tags": ["docs"], "customProperties": {"note": "Keep"}},
         },
     ).json()["data"]["id"]
     changed = client.patch(
         f"/api/v1/tabs/{tab_id}",
         headers=headers,
-        json={"content": {"title": "Changed"}, "annotations": {"tags": []}},
+        json={"content": {"title": "Changed"}, "annotations": {"tags": [], "customProperties": {}}},
     ).json()["data"]
-    assert changed["content"] == {"url": "https://example.com", "title": "Changed", "favicon": None}
-    assert changed["annotations"]["note"] == "Keep"
+    assert changed["content"] == {"url": "https://example.com", "title": "Changed"}
+    assert changed["annotations"]["customProperties"]["note"] == "Keep"
     assert changed["annotations"]["tags"] == []
+
+
+@pytest.fixture(autouse=True)
+def annotation_definitions(client, headers):
+    for name in ("note", "agentReview"):
+        assert (
+            client.post(
+                "/api/v1/property-schema",
+                headers=headers,
+                json={"name": name, "type": "string", "default": ""},
+            ).status_code
+            == 200
+        )

@@ -222,15 +222,19 @@ function SortableCollectionTab({
   const { ref, isDragging } = useSortable({
     id: tab.id,
     index,
+    collisionDetector: pointerIntersection,
+    collisionPriority: 3,
     group: groupId ?? "unassigned",
   });
   return (
     <Button
       variant="ghost"
+      size="icon"
       ref={ref}
       type="button"
       onClick={() => onBrowse(groupId)}
       data-testid={`grouped-tab-${tab.id}`}
+      data-tab-id={tab.id}
       data-search-state={searchActive ? (matched ? "match" : "dimmed") : "idle"}
       aria-label={tab.content.title}
       className={`flex h-9 w-9 shrink-0 touch-none items-center justify-center rounded-md border transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] ${

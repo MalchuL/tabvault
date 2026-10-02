@@ -20,6 +20,7 @@ export type SyncStatus = {
   state: "local_only" | "synced" | "pending";
   localSavedAt: number;
   serverSyncedAt?: number;
+  error?: string;
 };
 
 export type StorageMode = "local" | "backend";
@@ -36,20 +37,22 @@ export type BrowserVaultInspection =
  */
 export async function inspectBrowserVault(): Promise<BrowserVaultInspection> {
   const storageKey = TABVAULT_STORAGE_KEY;
-  if (window.chrome?.storage?.local) {
-    const stored = await window.chrome.storage.local.get(storageKey);
+  if (globalThis.chrome?.storage?.local) {
+    const stored = await globalThis.chrome.storage.local.get(storageKey);
     const raw: unknown = stored[storageKey];
     if (raw === undefined) return { status: "empty" };
-    return isPersistedVault(raw)
-      ? { status: "compatible", vault: raw }
+    const vault = isPersistedVault(raw) ? raw : null;
+    return vault
+      ? { status: "compatible", vault }
       : { status: "incompatible", raw, storageKey };
   }
-  const raw = window.localStorage.getItem(storageKey);
+  const raw = globalThis.localStorage.getItem(storageKey);
   if (raw === null) return { status: "empty" };
   try {
     const value: unknown = JSON.parse(raw);
-    return isPersistedVault(value)
-      ? { status: "compatible", vault: value }
+    const vault = isPersistedVault(value) ? value : null;
+    return vault
+      ? { status: "compatible", vault }
       : { status: "incompatible", raw, storageKey };
   } catch {
     return { status: "incompatible", raw, storageKey };
@@ -60,28 +63,34 @@ export async function inspectBrowserVault(): Promise<BrowserVaultInspection> {
  * Load a compatible vault, preserving an incompatible value for recovery.
  *
  * @returns {Promise<PersistedVault | undefined>} Compatible saved vault, or undefined when storage is empty.
- * @throws {Error} When stored data does not match schema v4.
+ * @throws {Error} When stored data does not match schema v5.
  */
 export async function readBrowserVault() {
   const inspection = await inspectBrowserVault();
   if (inspection.status === "incompatible")
-    throw new Error("Browser library is not schema v4");
+    throw new Error("Browser library is not schema v5");
   return inspection.status === "compatible" ? inspection.vault : undefined;
 }
 
 /**
  * Reject invalid vaults before they can replace a recoverable local copy.
  *
- * @param {PersistedVault} vault - Schema-v3 library to persist.
+ * @param {PersistedVault} vault - Schema-v5 library to persist.
  * @returns {Promise<void>} Resolves once the validated vault is stored.
  * @throws {Error} When the vault fails schema validation.
  */
 export async function writeBrowserVault(vault: PersistedVault) {
   if (!isPersistedVault(vault))
-    throw new Error("Refusing to persist an invalid schema-v4 vault");
-  if (window.chrome?.storage?.local)
-    await window.chrome.storage.local.set({ [TABVAULT_STORAGE_KEY]: vault });
-  else window.localStorage.setItem(TABVAULT_STORAGE_KEY, JSON.stringify(vault));
+    throw new Error("Refusing to persist an invalid schema-v5 vault");
+  if (globalThis.chrome?.storage?.local)
+    await globalThis.chrome.storage.local.set({
+      [TABVAULT_STORAGE_KEY]: vault,
+    });
+  else
+    globalThis.localStorage.setItem(
+      TABVAULT_STORAGE_KEY,
+      JSON.stringify(vault)
+    );
 }
 
 /**
@@ -91,8 +100,10 @@ export async function writeBrowserVault(vault: PersistedVault) {
  * @returns {Promise<unknown>} Stored scalar value, or null/undefined when absent.
  */
 async function readStoredValue(key: string): Promise<unknown> {
-  const stored = await window.chrome?.storage?.local?.get(key);
-  return stored?.[key] ?? window.localStorage.getItem(key);
+  const stored = await globalThis.chrome?.storage?.local?.get(key);
+  return globalThis.chrome?.storage?.local
+    ? stored?.[key]
+    : globalThis.localStorage.getItem(key);
 }
 
 /**
@@ -106,10 +117,10 @@ async function writeStoredValue(
   key: string,
   value: string | number | SyncStatus
 ): Promise<void> {
-  if (window.chrome?.storage?.local)
-    await window.chrome.storage.local.set({ [key]: value });
+  if (globalThis.chrome?.storage?.local)
+    await globalThis.chrome.storage.local.set({ [key]: value });
   else
-    window.localStorage.setItem(
+    globalThis.localStorage.setItem(
       key,
       typeof value === "string" ? value : JSON.stringify(value)
     );
@@ -239,10 +250,10 @@ export async function writeLibraryRefreshInterval(seconds: number) {
  * @returns {Promise<void>} Resolves after browser-local library data is cleared.
  */
 export async function clearBrowserLibrary() {
-  if (window.chrome?.storage?.local) {
-    await window.chrome.storage.local.remove([TABVAULT_STORAGE_KEY]);
+  if (globalThis.chrome?.storage?.local) {
+    await globalThis.chrome.storage.local.remove([TABVAULT_STORAGE_KEY]);
   } else {
-    window.localStorage.removeItem(TABVAULT_STORAGE_KEY);
+    globalThis.localStorage.removeItem(TABVAULT_STORAGE_KEY);
   }
   await writeBrowserVault(emptyBrowserVault());
   await writeSyncStatus({

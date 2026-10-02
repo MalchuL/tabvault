@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { openSchemaV4Library } from "./schema-v4-fixture";
+import { openSchemaV5Library } from "./schema-v5-fixture";
 
 test("All Tabs, Hidden, and Archive share grouped lifecycle behavior", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   await expect(page.getByTestId("tab-row-t-hidden")).toHaveCount(0);
   await expect(page.getByTestId("tab-row-t-archived")).toHaveCount(0);
   await expect(page.getByTestId("tab-group-unassigned")).toBeVisible();
@@ -41,7 +41,7 @@ test("All Tabs, Hidden, and Archive share grouped lifecycle behavior", async ({
 test("archiving clears membership and hard deletion is offered only in Archive", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   const row = page.getByTestId("tab-row-t-research");
   await row.hover();
   await row.getByLabel("Archive Model Context Protocol specification").click();
@@ -50,6 +50,7 @@ test("archiving clears membership and hard deletion is offered only in Archive",
   await page.getByRole("button", { name: /^Archive \d/ }).click();
   const archived = page.getByTestId("tab-row-t-research");
   await archived.hover();
+  page.once("dialog", dialog => dialog.accept());
   await archived
     .getByLabel("Permanently delete Model Context Protocol specification")
     .click();
@@ -65,7 +66,7 @@ test("archiving clears membership and hard deletion is offered only in Archive",
 test("group hide is client-orchestrated and category colors are deterministic", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   const manualDot = page
     .getByTestId("group-separator-research")
     .locator("span[title='Category: manual']");
@@ -86,64 +87,27 @@ test("group hide is client-orchestrated and category colors are deterministic", 
   await expect(page.getByTestId("tab-row-t-hidden")).toBeVisible();
 });
 
-test("manual groups are the only quick and selected move targets", async ({
+test("Quick Move sits under search and offers only manual collections", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   await expect(page.getByTestId("collection-drop-research")).toBeVisible();
   await expect(page.getByTestId("collection-drop-session")).toHaveCount(0);
   await expect(page.getByTestId("collection-drop-empty")).toHaveCount(0);
-
-  await page.getByRole("button", { name: "Select tabs" }).click();
-  await page
-    .getByTestId("tab-row-t-1001")
-    .getByRole("checkbox", { name: /^Select / })
-    .check();
-  const moveSelected = page.getByLabel("Move selected tabs to collection");
-  await moveSelected.click();
-  await expect(page.getByRole("menuitem")).toHaveText(["Research"]);
-  await page.keyboard.press("Escape");
-
-  const rowMove = page
-    .getByTestId("tab-row-t-1001")
-    .getByLabel("Move Agents can organize the web better than we can");
-  await expect(rowMove.locator("option:not(:disabled)")).toHaveText([
-    "Research",
-  ]);
-  const currentMove = page
-    .getByTestId("tab-row-t-research")
-    .getByLabel("Move Model Context Protocol specification");
-  await expect(currentMove.locator("option[value='research']")).toBeDisabled();
-
-  await page
-    .getByTestId("tab-row-advanced-new")
-    .getByLabel("Edit New title")
-    .click();
-  const editCollection = page
-    .getByRole("dialog", { name: "Edit tab" })
-    .getByLabel("Collection");
-  await expect(editCollection.locator("option")).toHaveText([
-    "Move from current session…",
-    "[Unassigned]",
-    "Research",
-    "Empty shelf",
-  ]);
-  await page.getByRole("button", { name: "Close dialog" }).click();
-
-  await page.getByLabel("Compact tab view").click();
-  const compactMove = page
-    .getByTestId("tab-row-t-1001")
-    .getByLabel("Move Agents can organize the web better than we can");
-  await expect(compactMove).toBeVisible();
-  await expect(compactMove.locator("option:not(:disabled)")).toHaveText([
-    "Research",
-  ]);
+  await expect(page.getByRole("button", { name: "Select tabs" })).toHaveCount(
+    0
+  );
+  const search = await page
+    .getByLabel("Search your TabVault library")
+    .boundingBox();
+  const move = await page.getByTestId("collection-drop-research").boundingBox();
+  expect(move!.y).toBeGreaterThan(search!.y);
 });
 
 test("group board keeps every tab visible and emphasizes search matches", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   await page.evaluate(() => {
     const vault = JSON.parse(localStorage.getItem("tabvault-v3") || "{}");
     const source = vault.library.tabs.find(
@@ -157,7 +121,10 @@ test("group board keeps every tab visible and emphasizes search matches", async 
         content: { ...source.content, title: `Extra session tab ${index}` },
         url: `https://example.com/group-board-${index}`,
       });
-      vault.library.tabOrders.session.push(id);
+      vault.library.tabs.at(-1).placement = {
+        groupId: "session",
+        position: index + 1,
+      };
     }
     localStorage.setItem("tabvault-v3", JSON.stringify(vault));
   });
@@ -186,7 +153,7 @@ test("group board keeps every tab visible and emphasizes search matches", async 
 test("saved links use extension tabs instead of capturable anchor navigation", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   await page.evaluate(() => {
     const target = window as unknown as {
       chrome: unknown;
@@ -231,7 +198,7 @@ test("saved links use extension tabs instead of capturable anchor navigation", a
 test("workspace sidebar remains available on secondary pages", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   const sidebar = page.getByTestId("workspace-sidebar");
   await expect(sidebar).toBeVisible();
   await expect(
@@ -255,7 +222,7 @@ test("workspace sidebar remains available on secondary pages", async ({
 test("empty Session groups remain until explicitly deleted", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   await page
     .getByTestId("tab-row-t-duplicate")
     .getByLabel("Move Agents can organize the web better than we can")
@@ -283,7 +250,7 @@ test("empty Session groups remain until explicitly deleted", async ({
 test("empty groups delete immediately while populated groups require approval", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
 
   await page.getByLabel("Delete Empty shelf").click();
   await expect(page.getByTestId("group-separator-empty")).toHaveCount(0);
@@ -297,10 +264,10 @@ test("empty groups delete immediately while populated groups require approval", 
   ).toBeVisible();
 });
 
-test("Quick Clean merges tags/viewed and archives later exact occurrences", async ({
+test("Quick Clean archives later exact records without changing their properties", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   page.once("dialog", dialog => void dialog.dismiss());
   await page.getByRole("button", { name: "Quick clean" }).click();
   await expect(page.getByTestId("tab-row-t-duplicate")).toBeVisible();
@@ -308,12 +275,12 @@ test("Quick Clean merges tags/viewed and archives later exact occurrences", asyn
   await page.getByRole("button", { name: "Quick clean" }).click();
   await expect(page.getByTestId("tab-row-t-duplicate")).toHaveCount(0);
   const survivor = page.getByTestId("tab-row-t-1001");
-  await expect(survivor).toContainText("merged");
+  await expect(survivor).toContainText("product");
   await expect(
     survivor.getByRole("checkbox", {
       name: "Mark Agents can organize the web better than we can as viewed",
     })
-  ).toBeChecked();
+  ).not.toBeChecked();
   await page.getByRole("button", { name: /^Archive \d/ }).click();
   await expect(page.getByTestId("tab-row-t-duplicate")).toBeVisible();
 });
@@ -321,7 +288,7 @@ test("Quick Clean merges tags/viewed and archives later exact occurrences", asyn
 test("Advanced Deduplicator previews and applies an exact-URL fixed plan", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   await page
     .getByTestId("workspace-sidebar")
     .getByRole("button", { name: "Deduplicate" })
@@ -355,4 +322,46 @@ test("Advanced Deduplicator previews and applies an exact-URL fixed plan", async
     saved.library.tabs.find((tab: { id: string }) => tab.id === "advanced-new")
       .lifecycle.archived
   ).not.toBe(true);
+});
+
+test("collection favicons retain their square dimensions", async ({ page }) => {
+  await page.route("https://www.google.com/s2/favicons?*", route =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="green"/></svg>',
+    })
+  );
+  await openSchemaV5Library(page);
+  await page.getByLabel("Collection-group board view").click();
+  const icon = page.getByTestId("grouped-tab-icon-advanced-new");
+  await expect(icon).toBeVisible();
+  await expect(icon).toHaveJSProperty("naturalWidth", 64);
+  const bounds = (await icon.boundingBox())!;
+  expect(bounds.width).toBe(24);
+  expect(bounds.height).toBe(24);
+});
+
+test("Unassigned shares group lifecycle commands without becoming a stored collection", async ({
+  page,
+}) => {
+  await openSchemaV5Library(page);
+  await page
+    .getByTestId("group-separator-unassigned")
+    .getByRole("button", { name: "Hide [Unassigned]", exact: true })
+    .click();
+  await page.getByRole("button", { name: "10 min", exact: true }).click();
+  await expect(page.getByTestId("tab-row-t-1001")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Hidden \d/ }).click();
+  await expect(page.getByTestId("tab-row-t-1001")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Unhide [Unassigned]", exact: true })
+    .click();
+  await expect(page.getByTestId("tab-row-t-1001")).toHaveCount(0);
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("tabvault-v3")!).library.vaultGroups.some(
+        (g: { id: string }) => g.id === "unassigned"
+      )
+    )
+  ).toBe(false);
 });

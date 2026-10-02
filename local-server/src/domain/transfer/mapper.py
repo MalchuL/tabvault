@@ -86,13 +86,8 @@ class TransferMapper:
                 "content": {
                     "url": tab.content.url,
                     "title": tab.content.title,
-                    "favicon": f"/api/v1/assets/{tab.content.favicon_asset_id}"
-                    if tab.content.favicon_asset_id
-                    else None,
                 },
                 "annotations": {
-                    "note": tab.annotations.note,
-                    "agent_review": tab.annotations.agent_review,
                     "custom_properties": dict(tab.annotations.custom_properties or {}),
                     "tags": [tag.name for tag in tab.tags],
                 },
@@ -203,8 +198,6 @@ class TransferMapper:
             tags=tags,
             content=TabContent(url=dto.content.url, title=dto.content.title),
             annotations=TabAnnotations(
-                note=dto.annotations.note or "",
-                agent_review=dto.annotations.agent_review or "",
                 custom_properties=dict(dto.annotations.custom_properties),
             ),
             placement=TabPlacement(
@@ -236,8 +229,6 @@ class TransferMapper:
         return {
             "url": dto.content.url,
             "title": dto.content.title,
-            "note": dto.annotations.note or "",
-            "agent_review": dto.annotations.agent_review or "",
             "custom_properties": dict(dto.annotations.custom_properties),
             "group_id": None if dto.lifecycle.archived else dto.placement.group_id,
             "position": dto.placement.position,

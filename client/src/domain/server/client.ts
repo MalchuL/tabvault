@@ -26,27 +26,7 @@ export function apiHeaders(apiKey: string) {
   };
 }
 
-type ApiConfig = { baseUrl: string; apiKey: string };
-
-/** Capture for PreviewWire. */
-type PreviewWireCapture = {
-  status: string;
-  sourceUrl?: string | null;
-  error?: string | null;
-};
-/** Article for PreviewWire. */
-type PreviewWireArticle = {
-  title?: string | null;
-  byline?: string | null;
-  siteName?: string | null;
-  excerpt?: string | null;
-  contentHtml?: string | null;
-  length?: number;
-};
-type PreviewWire = {
-  capture: PreviewWireCapture;
-  article: PreviewWireArticle;
-};
+type ApiConfig = { baseUrl: string; apiKey: string; signal?: AbortSignal };
 
 /**
  * Create a configured client for the local TabVault HTTP API.
@@ -67,14 +47,21 @@ export function createTabVaultApi(config: ApiConfig) {
    */
   async function raw(path: string, init: RequestInit = {}): Promise<Response> {
     const response = await fetch(`${root}/api/v1${path}`, {
+      signal: config.signal,
       ...init,
       headers: { ...headers, ...init.headers },
     });
-    if (!response.ok)
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      const message =
+        typeof body?.detail === "string"
+          ? body.detail
+          : body?.errors?.[0]?.message;
       throw new TabVaultApiError(
         response.status,
-        `Request failed (${response.status})`
+        message || `Request failed (${response.status})`
       );
+    }
     return response;
   }
 
@@ -93,51 +80,8 @@ export function createTabVaultApi(config: ApiConfig) {
 
   return {
     request,
-    tabs: {
-      list: <T>() => request<T>("/tabs"),
-      get: <T>(id: string) => request<T>(`/tabs/${encodeURIComponent(id)}`),
-      create: <T>(body: unknown) =>
-        request<T>("/tabs", { method: "POST", body: JSON.stringify(body) }),
-      createBatch: <T>(body: unknown, idempotencyKey: string) =>
-        request<T>("/tabs/batch", {
-          method: "POST",
-          headers: { "Idempotency-Key": idempotencyKey },
-          body: JSON.stringify(body),
-        }),
-      update: <T>(id: string, body: unknown) =>
-        request<T>(`/tabs/${encodeURIComponent(id)}`, {
-          method: "PATCH",
-          body: JSON.stringify(body),
-        }),
-      remove: <T>(id: string, hard = false) =>
-        request<T>(`/tabs/${encodeURIComponent(id)}?hard=${hard}`, {
-          method: "DELETE",
-        }),
-    },
-    groups: {
-      list: <T>() => request<T>("/groups"),
-      create: <T>(body: unknown) =>
-        request<T>("/groups", { method: "POST", body: JSON.stringify(body) }),
-      update: <T>(id: string, body: unknown) =>
-        request<T>(`/groups/${encodeURIComponent(id)}`, {
-          method: "PATCH",
-          body: JSON.stringify(body),
-        }),
-      remove: <T>(id: string) =>
-        request<T>(`/groups/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    },
-    search: {
-      query: <T>(query: URLSearchParams) => request<T>(`/search?${query}`),
-      structured: <T>(body: unknown) =>
-        request<T>("/search", { method: "POST", body: JSON.stringify(body) }),
-      index: {
-        status: <T>() => request<T>("/index/status"),
-        rebuild: <T>() => request<T>("/search/reindex", { method: "POST" }),
-      },
-    },
     transfer: {
       export: (format: "json" | "markdown") => raw(`/export?format=${format}`),
-      sync: <T>() => request<T>("/sync"),
       import: <T>(body: unknown) =>
         request<T>("/import", { method: "POST", body: JSON.stringify(body) }),
       validate: <T>(body: unknown) =>
@@ -145,65 +89,6 @@ export function createTabVaultApi(config: ApiConfig) {
           method: "POST",
           body: JSON.stringify(body),
         }),
-    },
-    properties: {
-      get: <T>() => request<T>("/property-schema"),
-      upsert: <T>(body: unknown) =>
-        request<T>("/property-schema", {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      remove: <T>(name: string) =>
-        request<T>(`/property-schema/${encodeURIComponent(name)}`, {
-          method: "DELETE",
-        }),
-    },
-    previews: {
-      loadArticle: async (tab: { id: string; title: string; url: string }) => {
-        const { data: preview } = await request<{ data: PreviewWire }>(
-          `/tabs/${encodeURIComponent(tab.id)}/preview`
-        );
-        if (preview.capture.status !== "ready" || !preview.article.contentHtml)
-          throw new Error(
-            preview.capture.error ||
-              "The cached server preview is not ready yet."
-          );
-
-        let content = preview.article.contentHtml;
-        const assetIds = Array.from(
-          new Set(
-            Array.from(
-              content.matchAll(/tabvault-asset:\/\/([\w-]+)/g),
-              match => match[1]
-            )
-          )
-        );
-        const objectUrls: string[] = [];
-        await Promise.all(
-          assetIds.map(async id => {
-            const response = await fetch(
-              `${root}/api/v1/assets/${encodeURIComponent(id)}`,
-              { headers }
-            );
-            if (!response.ok) return;
-            const objectUrl = URL.createObjectURL(await response.blob());
-            objectUrls.push(objectUrl);
-            content = content.replaceAll(`tabvault-asset://${id}`, objectUrl);
-          })
-        );
-        return {
-          article: {
-            title: preview.article.title || tab.title,
-            byline: preview.article.byline,
-            siteName: preview.article.siteName,
-            excerpt: preview.article.excerpt,
-            content,
-            length: preview.article.length || 0,
-            url: preview.capture.sourceUrl || tab.url,
-          },
-          objectUrls,
-        };
-      },
     },
   };
 }

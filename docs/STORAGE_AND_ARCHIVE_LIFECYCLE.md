@@ -1,49 +1,37 @@
-# Storage and Archive Lifecycle
+# Storage, lifecycle, and synchronization
 
-This document summarizes the storage lifecycle defined in
-[`GROUPS_AND_AGENTS.md`](./GROUPS_AND_AGENTS.md). The ADRs in [`adr/`](./adr/)
-record the individual decisions.
+## Local commit
 
-## Storage modes
+All browser mutations go through `commitLibrary` and pure library operations. A Web Lock serializes read/modify/write across app windows and the extension worker. A single storage write contains the effective library and pending resource changes. React observes committed snapshots; drag previews remain in memory until drop. Capture closes source tabs only after that write succeeds.
 
-TabVault writes browser-local schema-v4 data immediately. In backend mode, routine mutations use
-single-resource API requests; a failed backend request does not make browser-local data unreadable.
-Browser capture is the bounded exception: it writes one complete Session locally and sends its tabs
-through one transactional batch endpoint. Explicit synchronization may also use the transactional
-schema-v4 transfer command. Saved Tab IDs—not URL equality—identify the same occurrence across
-browser and server storage, and record-level `updatedAt` last-write-wins resolves supported
-synchronization conflicts.
+The browser stores schema v5 under the existing `tabvault-v3` key so incompatible data can be detected and exported intact. No migration runs. Failed validation or persistence does not overwrite a prior copy.
 
-## Saved URL and occurrence identity
+## Shared sync
 
-- Store the original HTTP(S) Saved URL exactly as supplied.
-- Do not store a normalized or canonical URL.
-- Every save creates a distinct Saved Tab occurrence, including repeated exact URLs.
-- `POST /api/v1/tabs` never searches for, merges, restores, or reuses a URL match.
-- Duplicate reduction is an explicit client workflow and archives non-survivors through individual
-  requests.
+`POST /api/v1/sync` accepts `schemaVersion`, `generation`, and `changes`. Each change contains `kind` (`tab`, `group`, `tag`, or `property`), stable `id`, unique `token`, offset-aware `updatedAt`, and a complete portable `data` object or null for deletion.
 
-## Archive
+The server validates and stages prerequisites before tabs, applies deletions last, and commits once. Any invalid change rolls back the whole batch. It returns the generation, full raw document, acknowledged tokens, property timestamps, and tombstones. Newer record timestamps win; exact ties retain the server value. Property defaults are resolved at read time and are not copied into raw tab values.
 
-- Archiving sets `archivedAt`, clears `groupId`, and removes the Saved Tab from ordinary ordering.
-- Archive takes precedence over a future `hiddenUntil` deadline.
-- Restore is an ordinary PATCH that clears archive state; the Saved Tab remains Unassigned and may
-  appear in Hidden if its visibility deadline is still in the future.
-- Permanent `DELETE /api/v1/tabs/{id}?hard=true` is available only for an already archived Saved
-  Tab.
-- Deleting a Group atomically archives and Unassigns its current member tabs before permanently
-  deleting the Group.
+The client removes only the tokens actually acknowledged, then overlays edits made while the request was in flight. Failed requests and lost responses retain pending changes. Permanent tab/group tombstones defeat stale upserts. Tag/property deletion keeps a timestamp so newer explicit recreation is possible. Group deletion archives and unassigns members; tag deletion detaches links and updates affected tab timestamps.
 
-## Hidden
+Resource-specific HTTP/MCP writes use the same stored timestamps and tombstones, so browser sync observes them. Positions live on records; no separate persisted order lists exist. Saved views and display preferences remain local.
 
-Only Saved Tabs carry `hiddenUntil`. All Tabs, search, counts, and user export omit active tabs with
-future deadlines. Hidden is a dedicated human view; MCP cannot read or mutate hidden or archived
-content. Group visibility is derived from current member tabs, and empty Groups remain visible in
-All Tabs.
+The extension owns sync in extension contexts. Other browser contexts use a shared sync lock. Startup, reconnection, explicit refresh, and periodic checks retry durable pending work. User refresh intervals control clean-state polling; pending work remains retryable when periodic refresh is off.
 
-## User interface
+## Authoritative replacement
 
-All Tabs, Hidden, and Archive reuse the grouped tab-list component with lifecycle-specific actions.
-All Tabs offers Archive and Hide; Hidden offers Archive, Unhide, and Prolong; Archive offers Restore
-and permanent Delete. `[Unassigned]` is a virtual collection shown when the current view contains
-Saved Tabs without Group membership.
+Clear, full replacement, scoped replacement, and backup restore change the server generation. Clients with an older generation receive 409 without uploading. Settings offers **Export local copy and load server library**: export the local copy, then explicitly replace its library and pending queue with the current server snapshot. Preferences remain local.
+
+A fresh client with no generation may upload its pending local records. A client that has learned a generation cannot silently switch to a restored or unrelated server library.
+
+## Lifecycle
+
+A Saved Tab is one occurrence with its own ID, original URL, optional group, and position. Saving the same URL creates another occurrence. Unassigned is a null group reference, not a stored Group.
+
+Archive clears group membership and records an archive timestamp. Permanent deletion is exposed only for archived records. Restore clears archive state but retains a future hidden-until time. Deleting a Group archives and unassigns all members, including hidden ones. Empty Groups remain until explicitly removed.
+
+Hidden and archived content stays outside MCP visibility. Browser views expose the appropriate lifecycle actions per record; there is no saved-tab multi-selection. Collection-level operations and extension multi-tab capture remain available.
+
+## Imports and backups
+
+JSON exports preserve definitions, raw values, identity, positions, and lifecycle. Markdown remains a readable interchange for active links and property metadata. Import validation runs before mutation. Server replacement first saves a complete JSON backup; direct restore validates the backup and replaces the library within the request transaction. Backups do not depend on background jobs.

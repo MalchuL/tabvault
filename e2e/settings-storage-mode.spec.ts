@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { openSchemaV4Library } from "./schema-v4-fixture";
+import { openSchemaV5Library } from "./schema-v5-fixture";
 
 test("local-only mode hides API and other server settings", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 
@@ -26,7 +26,7 @@ test("local-only mode hides API and other server settings", async ({
   await expect(
     page.getByRole("button", { name: "Save & check" })
   ).toBeVisible();
-  await expect(page.getByText("Semantic mode")).toBeVisible();
+  await expect(page.getByText("Semantic mode")).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Clear server library" })
   ).toBeVisible();
@@ -40,7 +40,7 @@ test("local-only mode hides API and other server settings", async ({
 test("clear-data cancellation preserves the library and local mode cancels server clearing", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   const originalVault = await page.evaluate(() =>
     localStorage.getItem("tabvault-v3")
   );

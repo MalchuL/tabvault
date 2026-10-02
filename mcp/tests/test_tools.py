@@ -48,15 +48,11 @@ class ToolClient:
         return SearchResponseDTO(
             data=SearchDataDTO(
                 results=[
-                    SearchItemDTO(
-                        tab=self.assigned, score=1, match_type="keyword", matched_on="title"
-                    ),
-                    SearchItemDTO(
-                        tab=self.unassigned, score=0.5, match_type="keyword", matched_on="url"
-                    ),
+                    SearchItemDTO(tab=self.assigned, score=1, matched_on="title"),
+                    SearchItemDTO(tab=self.unassigned, score=0.5, matched_on="url"),
                 ]
             ),
-            meta=SearchMetaDTO(query_embedding_ms=1, search_ms=2),
+            meta=SearchMetaDTO(search_ms=2),
         )
 
     async def create_tab(self, body: Any) -> TabCreateResponseDTO:

@@ -1,15 +1,23 @@
 import type { Page } from "@playwright/test";
-const now = "2026-08-23T10:00:00.000Z";
-const later = "2026-08-23T11:00:00.000Z";
-export const schemaV4Vault = {
+export const schemaV5Vault = {
   propertySchema: {
     viewed: {
       description: "",
       type: "boolean",
       default: false,
     },
+    note: {
+      type: "string",
+      description: "Saved note",
+      default: "",
+    },
+    agentReview: {
+      type: "string",
+      description: "Agent review",
+      default: "",
+    },
   },
-  schemaVersion: 4,
+  schemaVersion: 5,
   library: {
     vaultGroups: [
       {
@@ -21,8 +29,11 @@ export const schemaV4Vault = {
           accent: "#829b65",
         },
         timestamps: {
-          createdAt: later,
-          updatedAt: later,
+          createdAt: "2026-08-23T11:00:00.000Z",
+          updatedAt: "2026-08-23T11:00:00.000Z",
+        },
+        placement: {
+          position: 0,
         },
       },
       {
@@ -34,8 +45,11 @@ export const schemaV4Vault = {
           accent: "#829b65",
         },
         timestamps: {
-          createdAt: now,
-          updatedAt: now,
+          createdAt: "2026-08-23T10:00:00.000Z",
+          updatedAt: "2026-08-23T10:00:00.000Z",
+        },
+        placement: {
+          position: 1,
         },
       },
       {
@@ -47,8 +61,11 @@ export const schemaV4Vault = {
           accent: "#829b65",
         },
         timestamps: {
-          createdAt: now,
-          updatedAt: now,
+          createdAt: "2026-08-23T10:00:00.000Z",
+          updatedAt: "2026-08-23T10:00:00.000Z",
+        },
+        placement: {
+          position: 2,
         },
       },
     ],
@@ -63,19 +80,25 @@ export const schemaV4Vault = {
           icon: "A",
         },
         annotations: {
-          note: "A useful framing for the agent-facing contract.",
-          agentReview: "",
-          viewed: false,
           tags: ["product"],
-          customProperties: {},
+          customProperties: {
+            note: "A useful framing for the agent-facing contract.",
+            agentReview: "",
+            viewed: false,
+          },
         },
         placement: {
           groupId: null,
+          position: 0,
         },
-        lifecycle: {},
+        lifecycle: {
+          archived: false,
+          archivedAt: null,
+          hiddenUntil: null,
+        },
         timestamps: {
-          createdAt: now,
-          updatedAt: now,
+          createdAt: "2026-08-23T10:00:00.000Z",
+          updatedAt: "2026-08-23T10:00:00.000Z",
         },
       },
       {
@@ -88,19 +111,25 @@ export const schemaV4Vault = {
           icon: "A",
         },
         annotations: {
-          note: "A useful framing for the agent-facing contract.",
-          agentReview: "",
-          viewed: true,
-          tags: ["Product", "merged"],
-          customProperties: {},
+          tags: ["product"],
+          customProperties: {
+            note: "A useful framing for the agent-facing contract.",
+            agentReview: "",
+            viewed: false,
+          },
         },
         placement: {
           groupId: "session",
+          position: 0,
         },
-        lifecycle: {},
+        lifecycle: {
+          archived: false,
+          archivedAt: null,
+          hiddenUntil: null,
+        },
         timestamps: {
-          createdAt: later,
-          updatedAt: later,
+          createdAt: "2026-08-23T11:00:00.000Z",
+          updatedAt: "2026-08-23T11:00:00.000Z",
         },
       },
       {
@@ -113,19 +142,25 @@ export const schemaV4Vault = {
           icon: "M",
         },
         annotations: {
-          note: "Reference implementation details.",
-          agentReview: "",
-          viewed: false,
           tags: ["mcp"],
-          customProperties: {},
+          customProperties: {
+            note: "Reference implementation details.",
+            agentReview: "",
+            viewed: false,
+          },
         },
         placement: {
           groupId: "research",
+          position: 0,
         },
-        lifecycle: {},
+        lifecycle: {
+          archived: false,
+          archivedAt: null,
+          hiddenUntil: null,
+        },
         timestamps: {
-          createdAt: now,
-          updatedAt: now,
+          createdAt: "2026-08-23T10:00:00.000Z",
+          updatedAt: "2026-08-23T10:00:00.000Z",
         },
       },
       {
@@ -138,21 +173,25 @@ export const schemaV4Vault = {
           icon: "H",
         },
         annotations: {
-          note: "Come back later",
-          agentReview: "",
-          viewed: false,
           tags: [],
-          customProperties: {},
+          customProperties: {
+            note: "Come back later",
+            agentReview: "",
+            viewed: false,
+          },
         },
         placement: {
           groupId: "research",
+          position: 1,
         },
         lifecycle: {
+          archived: false,
+          archivedAt: null,
           hiddenUntil: "2999-01-01T00:00:00.000Z",
         },
         timestamps: {
-          createdAt: now,
-          updatedAt: now,
+          createdAt: "2026-08-23T10:00:00.000Z",
+          updatedAt: "2026-08-23T10:00:00.000Z",
         },
       },
       {
@@ -165,23 +204,25 @@ export const schemaV4Vault = {
           icon: "R",
         },
         annotations: {
-          note: "Archived",
-          agentReview: "",
-          viewed: false,
           tags: [],
-          customProperties: {},
+          customProperties: {
+            note: "Archived",
+            agentReview: "",
+            viewed: false,
+          },
         },
         placement: {
           groupId: null,
+          position: 0,
         },
         lifecycle: {
           archived: true,
-          archivedAt: later,
+          archivedAt: "2026-08-23T11:00:00.000Z",
           hiddenUntil: "2999-01-01T00:00:00.000Z",
         },
         timestamps: {
-          createdAt: now,
-          updatedAt: now,
+          createdAt: "2026-08-23T10:00:00.000Z",
+          updatedAt: "2026-08-23T10:00:00.000Z",
         },
       },
       {
@@ -194,19 +235,25 @@ export const schemaV4Vault = {
           icon: "O",
         },
         annotations: {
-          note: "Old note",
-          agentReview: "old review",
-          viewed: false,
           tags: ["shared", "old"],
-          customProperties: {},
+          customProperties: {
+            note: "Old note",
+            agentReview: "old review",
+            viewed: false,
+          },
         },
         placement: {
           groupId: null,
+          position: 1,
         },
-        lifecycle: {},
+        lifecycle: {
+          archived: false,
+          archivedAt: null,
+          hiddenUntil: null,
+        },
         timestamps: {
-          createdAt: now,
-          updatedAt: now,
+          createdAt: "2026-08-23T10:00:00.000Z",
+          updatedAt: "2026-08-23T10:00:00.000Z",
         },
       },
       {
@@ -219,41 +266,66 @@ export const schemaV4Vault = {
           icon: "N",
         },
         annotations: {
-          note: "New note",
-          agentReview: "new review",
-          viewed: true,
           tags: ["shared", "new"],
-          customProperties: {},
+          customProperties: {
+            note: "New note",
+            agentReview: "new review",
+            viewed: true,
+          },
         },
         placement: {
           groupId: "session",
+          position: 1,
         },
-        lifecycle: {},
+        lifecycle: {
+          archived: false,
+          archivedAt: null,
+          hiddenUntil: null,
+        },
         timestamps: {
-          createdAt: later,
-          updatedAt: later,
+          createdAt: "2026-08-23T11:00:00.000Z",
+          updatedAt: "2026-08-23T11:00:00.000Z",
         },
       },
     ],
-    tagCatalog: { product: "Product", mcp: "Protocol", merged: "Merged" },
-    tabOrders: {
-      unassigned: ["t-1001", "advanced-old"],
-      session: ["t-duplicate", "advanced-new"],
-      research: ["t-research", "t-hidden"],
-      empty: [],
-    },
     savedSearches: [],
+    tags: [
+      {
+        name: "product",
+        description: "Product",
+        createdAt: "2026-08-23T10:00:00.000Z",
+        updatedAt: "2026-08-23T10:00:00.000Z",
+      },
+      {
+        name: "mcp",
+        description: "Protocol",
+        createdAt: "2026-08-23T10:00:00.000Z",
+        updatedAt: "2026-08-23T10:00:00.000Z",
+      },
+      {
+        name: "merged",
+        description: "Merged",
+        createdAt: "2026-08-23T10:00:00.000Z",
+        updatedAt: "2026-08-23T10:00:00.000Z",
+      },
+    ],
   },
   preferences: {
     tabView: "standard",
   },
+  sync: {
+    generation: null,
+    pending: {},
+    propertyTimes: {},
+  },
 };
-export async function openSchemaV4Library(page: Page) {
+export async function openSchemaV5Library(page: Page) {
   await page.goto("/");
   await page.evaluate(vault => {
     localStorage.clear();
+    localStorage.setItem("tabvault-storage-mode", "local");
     localStorage.setItem("tabvault-v3", JSON.stringify(vault));
-  }, schemaV4Vault);
+  }, schemaV5Vault);
   await page.reload();
   await page.getByTestId("tab-row-t-1001").waitFor();
 }

@@ -12,24 +12,10 @@ dependencies = [
   "aiosqlite>=0.21",
   "fastapi>=0.110",
   "httpx>=0.28",
-  "nh3>=0.3",
   "pydantic-settings>=2.10",
-  "readability-lxml>=0.8.4",
   "sqlalchemy[asyncio]>=2.0.43",
   "uvicorn[standard]>=0.29",
-  "zvec>=0.6; platform_machine == 'x86_64' or platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'arm64'",
 ]
-
-[project.optional-dependencies]
-semantic = ["sentence-transformers>=5.1", "torch>=2.9"]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[tool.uv.sources]
-torch = { index = "pytorch-cpu" }
 
 [project.scripts]
 tabvault-server = "api.main:main"

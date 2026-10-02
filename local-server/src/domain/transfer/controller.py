@@ -5,16 +5,16 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from api.routes.service_dependencies import get_transfer_service
-from domain.jobs.dto import JobQueuedDTO
 from lib.responses import SuccessResponseDTO, failure, issue, json_data, success
 
 from .dto import (
     BackupListDataDTO,
     ExportFields,
+    ImportApplyResultDTO,
     ImportEnvelopeDTO,
     ImportMode,
     LibraryClearDTO,
@@ -42,30 +42,45 @@ async def backups(
     return success(BackupListDataDTO(backups=await transfer.backups()))
 
 
+@router.get("/backups/{backup_id}/download")
+async def download_backup(
+    backup_id: str,
+    transfer: Annotated[TransferService, Depends(get_transfer_service)],
+) -> FileResponse:
+    """Download a registered JSON backup with normal API authentication.
+
+    Args:
+        backup_id (str): Existing snapshot identifier.
+        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Transfer service.
+
+    Returns:
+        FileResponse: Unmodified portable JSON snapshot.
+    """
+    path = await transfer.backup_path(backup_id)
+    return FileResponse(
+        path, media_type="application/json", filename=f"tabvault-backup-{backup_id}.json"
+    )
+
+
 @router.post(
     "/backups/{backup_id}/restore",
-    status_code=202,
-    response_model=SuccessResponseDTO[JobQueuedDTO],
+    response_model=ImportApplyResultDTO,
 )
 async def restore_backup(
     backup_id: str,
-    request: Request,
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
-) -> SuccessResponseDTO[JobQueuedDTO]:
-    """Queue restoration of a backup snapshot.
+) -> ImportApplyResultDTO:
+    """Complete backup restoration in one request transaction.
 
     Args:
         backup_id (str): Identifier of the backup to restore.
-        request (Request): Incoming HTTP request.
         transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped
             transfer service for import, export, and backup operations.
 
     Returns:
-        SuccessResponseDTO[JobQueuedDTO]: Response envelope containing the job queued.
+        ImportApplyResultDTO: Completed restore result.
     """
-    result = await transfer.queue_restore(backup_id)
-    request.app.state.worker.wake()
-    return success(result)
+    return await transfer.restore_backup(backup_id)
 
 
 @router.delete("/library", response_model=SuccessResponseDTO[LibraryClearDTO])
@@ -120,7 +135,7 @@ async def export_data(
 async def sync_document(
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
 ) -> JSONResponse:
-    """Return the complete schema-v4 synchronization document.
+    """Return the complete schema-v5 synchronization document.
 
     Args:
         transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped

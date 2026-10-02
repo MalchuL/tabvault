@@ -39,13 +39,8 @@ class TabMapper:
                 "content": {
                     "url": tab.content.url,
                     "title": tab.content.title,
-                    "favicon": f"/api/v1/assets/{tab.content.favicon_asset_id}"
-                    if tab.content.favicon_asset_id
-                    else None,
                 },
                 "annotations": {
-                    "note": tab.annotations.note,
-                    "agent_review": tab.annotations.agent_review,
                     "custom_properties": custom_properties,
                     "tags": [tag.name for tag in tab.tags],
                 },
@@ -134,8 +129,6 @@ class TabMapper:
         values: dict[str, Any] = {
             "content": TabContent(url=dto.content.url, title=dto.content.title or dto.content.url),
             "annotations": TabAnnotations(
-                note=dto.annotations.note or "",
-                agent_review=dto.annotations.agent_review or "",
                 custom_properties=dict(dto.annotations.custom_properties),
             ),
             "placement": TabPlacement(group_id=group_id, position=position),
@@ -165,7 +158,4 @@ class TabMapper:
             for group in dto.model_dump(exclude_unset=True).values()
             for field, value in group.items()
         }
-        for field in ("note", "agent_review"):
-            if field in values and values[field] is None:
-                values[field] = ""
         return values

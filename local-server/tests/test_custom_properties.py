@@ -53,7 +53,6 @@ def test_defaults_partial_updates_unset_and_typed_search(
         headers=headers,
         json={
             "query": "Custom",
-            "mode": "keyword",
             "propertyFilters": [{"name": "priority", "operator": "gte", "value": 7}],
         },
     )

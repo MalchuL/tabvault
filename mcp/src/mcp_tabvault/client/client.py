@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -18,6 +17,9 @@ from .dto import (
     GroupResponseDTO,
     GroupTabsQueryDTO,
     GroupUpdateDTO,
+    PropertyDefinitionDTO,
+    PropertySchemaResponseDTO,
+    PropertyUnsetDTO,
     SearchQueryDTO,
     SearchResponseDTO,
     TabCreateDTO,
@@ -69,8 +71,6 @@ class MCPClient:
         self._http = httpx.AsyncClient(
             base_url=f"{self.base_url}/api/v1/", headers=headers, timeout=30.0
         )
-        self._schema_ready = False
-        self._schema_lock = asyncio.Lock()
 
     @classmethod
     def from_environment(cls) -> MCPClient:
@@ -148,52 +148,65 @@ class MCPClient:
         except ValidationError as error:
             raise MCPClientError("TabVault API returned an invalid response shape") from error
 
-    async def _ensure_property_schema(self) -> None:
-        """Register viewed once before a write that explicitly supplies its value.
+    async def _ensure_properties(self, values: dict[str, Any]) -> None:
+        """Register missing client conventions only for explicitly written properties.
 
-        Existing boolean definitions retain their metadata and default. An incompatible
-        definition stops the write rather than changing the meaning of stored library data.
+        Args:
+            values (dict[str, Any]): Explicit custom-property patch.
 
         Raises:
-            MCPClientError: The schema cannot be read or updated, or viewed is not boolean.
+            MCPClientError: A convention has an incompatible existing definition.
         """
-        if self._schema_ready:
+        if not values:
             return
-        async with self._schema_lock:
-            if self._schema_ready:
-                return
-            try:
-                response = await self._http.get("property-schema")
-                response.raise_for_status()
-                payload = cast(dict[str, object], response.json())
-                data = payload.get("data")
-                data_record = cast(dict[str, object], data) if isinstance(data, dict) else {}
-                properties_value = data_record.get("properties")
-                properties = (
-                    cast(dict[str, object], properties_value)
-                    if isinstance(properties_value, dict)
-                    else {}
+        conventions = {
+            "note": {"type": "string", "default": "", "description": "Saved note"},
+            "agentReview": {"type": "string", "default": "", "description": "Agent-written review"},
+            "viewed": {
+                "type": "boolean",
+                "default": False,
+                "description": "Whether this saved tab has been viewed",
+            },
+        }
+        schema = await self.property_schema()
+        for name in values:
+            expected = conventions.get(name)
+            if expected is None:
+                continue
+            existing = schema.data.properties.get(name)
+            if existing is not None and existing.type != expected["type"]:
+                raise MCPClientError(
+                    f"Property {name!r} must have type {expected['type']} for this operation"
                 )
-                viewed_value = properties.get("viewed")
-                viewed = (
-                    cast(dict[str, object], viewed_value) if isinstance(viewed_value, dict) else {}
+            if existing is None:
+                await self.upsert_property(
+                    PropertyDefinitionDTO.model_validate({"name": name, **expected})
                 )
-                if "viewed" in properties and viewed.get("type") != "boolean":
-                    raise MCPClientError("The existing viewed property must have type boolean")
-                if "viewed" not in properties:
-                    update = await self._http.post(
-                        "property-schema",
-                        json={
-                            "name": "viewed",
-                            "description": "",
-                            "type": "boolean",
-                            "default": False,
-                        },
-                    )
-                    update.raise_for_status()
-            except (httpx.HTTPError, ValueError, TypeError) as error:
-                raise MCPClientError(f"Could not register the viewed property: {error}") from error
-            self._schema_ready = True
+
+    async def property_schema(self) -> PropertySchemaResponseDTO:
+        """Read definitions without modifying server state."""
+        return await self._request("GET", "/property-schema", PropertySchemaResponseDTO)
+
+    async def upsert_property(self, body: PropertyDefinitionDTO) -> PropertySchemaResponseDTO:
+        """Create or explicitly replace one property definition."""
+        return await self._request("POST", "/property-schema", PropertySchemaResponseDTO, body=body)
+
+    async def delete_property(self, name: str) -> PropertySchemaResponseDTO:
+        """Remove a definition while retaining existing raw tab values."""
+        from urllib.parse import quote
+
+        return await self._request(
+            "DELETE", f"/property-schema/{quote(name, safe='')}", PropertySchemaResponseDTO
+        )
+
+    async def unset_properties(self, tab_id: str, names: list[str]) -> TabResponseDTO:
+        """Remove explicit values from a previously resolved visible occurrence."""
+        return await self._request(
+            "POST",
+            f"/tabs/{tab_id}/custom-properties/unset",
+            TabResponseDTO,
+            body=PropertyUnsetDTO(properties=names),
+        )
 
     @staticmethod
     def _query_parameters(query: BaseModel) -> dict[str, str | int | float | bool | None]:
@@ -238,8 +251,7 @@ class MCPClient:
         Raises:
             MCPClientError: Schema registration or creation fails, or viewed is incompatible.
         """
-        if "viewed" in body.annotations.custom_properties:
-            await self._ensure_property_schema()
+        await self._ensure_properties(body.annotations.custom_properties)
         return await self._request("POST", "/tabs", TabCreateResponseDTO, body=body)
 
     async def update_tab(self, tab_id: str, body: TabUpdateDTO) -> TabResponseDTO:
@@ -255,11 +267,8 @@ class MCPClient:
         Raises:
             MCPClientError: Schema registration or update fails, or viewed is incompatible.
         """
-        if (
-            body.annotations.custom_properties is not None
-            and "viewed" in body.annotations.custom_properties
-        ):
-            await self._ensure_property_schema()
+        if body.annotations.custom_properties is not None:
+            await self._ensure_properties(body.annotations.custom_properties)
         return await self._request("PATCH", f"/tabs/{tab_id}", TabResponseDTO, body=body)
 
     async def delete_tab(self, tab_id: str) -> TabDeleteResponseDTO:

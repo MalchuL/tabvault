@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from sqlalchemy import event
+from sqlalchemy import event, insert, inspect, select
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from config.settings import Settings, get_settings
-from models import Base
+from models import Base, LibraryMetadata
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -107,4 +107,19 @@ async def initialize_database(engine: AsyncEngine) -> None:
         engine (AsyncEngine): Configured engine for the process-owned database.
     """
     async with engine.begin() as connection:
+        tables = await connection.run_sync(lambda conn: inspect(conn).get_table_names())
+        if tables and "library_metadata" not in tables:
+            raise RuntimeError(
+                "Incompatible database. Export with the previous version and choose a fresh schema-v5 database; no data was modified."
+            )
+        if "library_metadata" in tables:
+            version = await connection.scalar(
+                select(LibraryMetadata.schema_version).where(LibraryMetadata.id == 1)
+            )
+            if version != 5:
+                raise RuntimeError(
+                    "Incompatible database schema; expected v5. No data was modified."
+                )
         await connection.run_sync(Base.metadata.create_all)
+        if not tables:
+            await connection.execute(insert(LibraryMetadata).values(id=1, schema_version=5))

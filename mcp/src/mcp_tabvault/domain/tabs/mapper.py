@@ -30,12 +30,8 @@ def to_view(tab: TabDTO, groups: list[GroupDTO]) -> TabViewDTO:
             "content": {
                 "url": tab.content.url,
                 "title": tab.content.title,
-                "favicon": tab.content.favicon,
             },
             "annotations": {
-                "note": tab.annotations.note,
-                "agent_review": tab.annotations.agent_review,
-                "viewed": bool(tab.annotations.custom_properties.get("viewed", False)),
                 "custom_properties": tab.annotations.custom_properties,
                 "tags": tab.annotations.tags,
             },
@@ -76,7 +72,6 @@ def to_search(response: SearchResponseDTO, groups: list[GroupDTO]) -> SearchResp
                 SearchItemViewDTO(
                     tab=to_view(item.tab, groups),
                     score=item.score,
-                    match_type=item.match_type,
                     matched_on=item.matched_on,
                 )
                 for item in response.data.results

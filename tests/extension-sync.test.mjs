@@ -8,6 +8,22 @@ function chromeHarness({ failVaultWrite = false } = {}) {
   let messageListener;
   let vaultWrites = 0;
 
+  const queues = new Map();
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      locks: {
+        request: (key, work) => {
+          const next = (queues.get(key) ?? Promise.resolve())
+            .catch(() => {})
+            .then(work);
+          queues.set(key, next);
+          return next;
+        },
+      },
+    },
+  });
+  globalThis.dispatchEvent = () => true;
   globalThis.chrome = {
     alarms: {
       clear: async () => undefined,
@@ -17,6 +33,7 @@ function chromeHarness({ failVaultWrite = false } = {}) {
     commands: { onCommand: { addListener: () => undefined } },
     notifications: { create: () => undefined },
     runtime: {
+      onStartup: { addListener: () => undefined },
       onInstalled: { addListener: () => undefined },
       onMessage: {
         addListener: listener => {
@@ -51,12 +68,20 @@ function chromeHarness({ failVaultWrite = false } = {}) {
   };
   globalThis.fetch = async (url, options = {}) => {
     fetches.push({ url, options });
-    if (url.endsWith("/api/v1/property-schema") && !options.method)
-      return {
-        ok: true,
-        json: async () => ({ success: true, data: { properties: {} } }),
-      };
-    return { ok: true, json: async () => ({ success: true }) };
+    if (!url.endsWith("/sync")) throw new Error("Unexpected endpoint");
+    const { vaultToServerDocument } = await import(
+      "../dist/public/library-sync.js"
+    );
+    return {
+      ok: true,
+      json: async () => ({
+        generation: "server",
+        document: vaultToServerDocument(storage["tabvault-v3"]),
+        acknowledged: JSON.parse(options.body).changes.map(c => c.token),
+        propertyTimes: {},
+        tombstones: [],
+      }),
+    };
   };
 
   return {
@@ -79,93 +104,64 @@ async function capture(listener, tabs) {
   });
 }
 
-test("capture creates one Session and distinct exact-URL occurrences", async () => {
-  const harness = chromeHarness();
-  await import(`../dist/public/background.js?test=${Date.now()}-session`);
-  const listener = harness.listener();
-  assert.equal(typeof listener, "function");
-
-  const exactUrl = "https://Example.com/project/?utm_source=news&b=2&a=1#part";
-  const response = await capture(listener, [
-    { id: 41, url: exactUrl, title: "First", pinned: true },
-    { id: 42, url: exactUrl, title: "Second" },
-    { id: 43, url: "chrome://settings", title: "Internal" },
+test("capture commits one session and distinct URL occurrences before closing, then syncs once", async () => {
+  const h = chromeHarness();
+  await import("../dist/public/background.js?capture");
+  const url = "https://Example.com/path?a=1#part";
+  const result = await capture(h.listener(), [
+    { id: 1, url, title: "One" },
+    { id: 2, url, title: "Two" },
+    { id: 3, url: "chrome://settings" },
   ]);
-
-  assert.equal(response.savedCount, 2);
-  assert.equal(response.closedCount, 2);
-  assert.equal(response.skippedCount, 1);
-  assert.equal(response.failedCount, 0);
-  assert.deepEqual(harness.closed, [41, 42]);
-
-  const vault = harness.storage["tabvault-v3"];
-  assert.equal(vault.schemaVersion, 4);
-  assert.equal(vault.propertySchema.viewed.default, false);
+  assert.equal(result.savedCount, 2);
+  assert.equal(result.closedCount, 2);
+  assert.equal(result.skippedCount, 1);
+  assert.deepEqual(h.closed, [1, 2]);
+  const vault = h.storage["tabvault-v3"];
+  assert.equal(vault.schemaVersion, 5);
+  assert.deepEqual(vault.propertySchema, {});
   assert.equal(vault.library.vaultGroups.length, 1);
   assert.equal(vault.library.vaultGroups[0].details.category, "session");
-  assert.match(
-    vault.library.vaultGroups[0].details.name,
-    /^Session [A-Z][a-z]{2} \d{2} \d{2}:\d{2}$/
-  );
-  assert.equal(vault.library.tabs.length, 2);
-  assert.equal(new Set(vault.library.tabs.map(tab => tab.id)).size, 2);
-  assert.ok(vault.library.tabs.every(tab => tab.content.url === exactUrl));
-  assert.ok(
-    vault.library.tabs.every(
-      tab => tab.placement.groupId === vault.library.vaultGroups[0].id
-    )
-  );
-  assert.ok(vault.library.tabs.every(tab => tab.annotations.tags.length === 0));
-  assert.equal("quick save" in vault.library.tagCatalog, false);
-
-  assert.equal(harness.vaultWrites(), 1);
-  assert.equal(harness.fetches.length, 4);
-  const groupRequest = harness.fetches.find(request =>
-    /\/api\/v1\/groups$/.test(request.url)
-  );
-  assert.ok(groupRequest);
-  const batchRequest = harness.fetches.find(request =>
-    /\/api\/v1\/tabs\/batch$/.test(request.url)
-  );
-  assert.ok(batchRequest);
-  assert.match(batchRequest.url, /\/api\/v1\/tabs\/batch$/);
-  const batch = JSON.parse(batchRequest.options.body);
-  assert.equal(batch.tabs.length, 2);
-  assert.ok(batch.tabs.every(tab => tab.content.url === exactUrl));
-  assert.equal(
-    batchRequest.options.headers["Idempotency-Key"],
-    vault.library.vaultGroups[0].id
-  );
-  assert.equal(harness.storage["tabvault-sync-status"].state, "synced");
+  assert.equal(new Set(vault.library.tabs.map(t => t.id)).size, 2);
+  assert.ok(vault.library.tabs.every(t => t.content.url === url));
+  assert.deepEqual(vault.sync.pending, {});
+  assert.equal(h.fetches.length, 1);
+  assert.equal(JSON.parse(h.fetches[0].options.body).changes.length, 3);
 });
-
-test("an atomic local batch failure leaves every source tab open", async () => {
-  const harness = chromeHarness({ failVaultWrite: true });
-  await import(`../dist/public/background.js?test=${Date.now()}-batch-failure`);
-  const response = await capture(harness.listener(), [
-    { id: 1, url: "https://example.com/one", title: "One" },
-    { id: 2, url: "https://example.com/two", title: "Two" },
-    { id: 3, url: "https://example.com/three", title: "Three" },
+test("failed local persistence leaves every source open", async () => {
+  const h = chromeHarness({ failVaultWrite: true });
+  await import("../dist/public/background.js?failed");
+  const result = await capture(h.listener(), [
+    { id: 1, url: "https://example.com" },
   ]);
-
-  assert.match(response.error, /simulated local write failure/);
-  assert.deepEqual(harness.closed, []);
-  assert.equal(harness.storage["tabvault-v3"], undefined);
+  assert.match(result.error, /simulated local write failure/);
+  assert.deepEqual(h.closed, []);
+  assert.equal(h.fetches.length, 0);
 });
-
-test("a capture with no eligible tabs still keeps its empty Session", async () => {
-  const harness = chromeHarness();
-  await import(`../dist/public/background.js?test=${Date.now()}-empty`);
-  const response = await capture(harness.listener(), [
-    { id: 9, url: "chrome://settings", title: "Settings" },
+test("offline capture remains durable and retryable", async () => {
+  const h = chromeHarness();
+  globalThis.fetch = async () => {
+    throw new Error("offline");
+  };
+  await import("../dist/public/background.js?offline");
+  const result = await capture(h.listener(), [
+    { id: 1, url: "https://example.com" },
   ]);
-
-  assert.equal(response.savedCount, 0);
-  assert.equal(response.skippedCount, 1);
-  assert.equal(harness.storage["tabvault-v3"].library.vaultGroups.length, 1);
-  assert.equal(harness.storage["tabvault-v3"].library.tabs.length, 0);
-  assert.equal(harness.fetches.length, 3);
-  assert.ok(
-    harness.fetches.some(request => /\/api\/v1\/groups$/.test(request.url))
-  );
+  assert.equal(result.savedCount, 1);
+  assert.equal(result.serverSynced, false);
+  assert.equal(Object.keys(h.storage["tabvault-v3"].sync.pending).length, 2);
+  assert.deepEqual(h.closed, [1]);
+});
+test("legacy storage is preserved and capture closes nothing", async () => {
+  const h = chromeHarness();
+  const legacy = { schemaVersion: 4, library: { tabs: [] } };
+  h.storage["tabvault-v3"] = legacy;
+  await import("../dist/public/background.js?legacy");
+  const result = await capture(h.listener(), [
+    { id: 1, url: "https://example.com" },
+  ]);
+  assert.match(result.error, /schema v5/);
+  assert.deepEqual(h.storage["tabvault-v3"], legacy);
+  assert.deepEqual(h.closed, []);
+  assert.equal(h.vaultWrites(), 0);
 });

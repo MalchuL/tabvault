@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { openSchemaV4Library } from "./schema-v4-fixture";
+import { openSchemaV5Library } from "./schema-v5-fixture";
 
 test("sidebar stays visible while a new page loads", async ({ page }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   const sidebar = page.getByTestId("workspace-sidebar");
   const originalSidebar = await sidebar.elementHandle();
   const originalCount = await sidebar
@@ -52,7 +52,7 @@ test("sidebar stays visible while a new page loads", async ({ page }) => {
 for (const width of [1440, 390]) {
   test(`workspace pages fit at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
-    await openSchemaV4Library(page);
+    await openSchemaV5Library(page);
     for (const [route, heading] of [
       ["/", "All tabs"],
       ["/dashboard", "Dashboard"],
@@ -96,9 +96,9 @@ for (const width of [1440, 390]) {
 test("reserved group spacing stays stable during drag reordering", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   const group = page.getByTestId("tab-group-unassigned");
-  await expect(group).toHaveAttribute("data-drop-gap-height", "128");
+  await expect(group).toHaveAttribute("data-drop-gap-height", "96");
   const nextGroupTop = (await page
     .getByTestId("tab-group-session")
     .boundingBox())!.y;
@@ -118,7 +118,7 @@ test("reserved group spacing stays stable during drag reordering", async ({
     { steps: 3 }
   );
   await expect(page.getByTestId("tab-drag-preview")).toBeVisible();
-  await expect(group).toHaveAttribute("data-drop-gap-height", "128");
+  await expect(group).toHaveAttribute("data-drop-gap-height", "96");
   expect((await page.getByTestId("tab-group-session").boundingBox())!.y).toBe(
     nextGroupTop
   );
@@ -132,7 +132,7 @@ test("reserved group spacing stays stable during drag reordering", async ({
   await expect(
     group.locator('[data-testid^="tab-row-"]').first()
   ).toHaveAttribute("data-testid", "tab-row-advanced-old");
-  await expect(group).toHaveAttribute("data-drop-gap-height", "128");
+  await expect(group).toHaveAttribute("data-drop-gap-height", "96");
   await expect
     .poll(() =>
       page.evaluate(() => {
@@ -141,7 +141,10 @@ test("reserved group spacing stays stable during drag reordering", async ({
           groupId: vault.library.tabs.find(
             (tab: { id: string }) => tab.id === "t-1001"
           ).placement.groupId,
-          order: vault.library.tabOrders.unassigned,
+          order: vault.library.tabs
+            .filter(t => !t.lifecycle.archived && t.placement.groupId === null)
+            .sort((a, b) => a.placement.position - b.placement.position)
+            .map(t => t.id),
         };
       })
     )
@@ -149,11 +152,11 @@ test("reserved group spacing stays stable during drag reordering", async ({
 });
 
 for (const width of [1440, 390]) {
-  test(`search and selection stay reachable while scrolling at ${width}px`, async ({
+  test(`search and Quick Move stay reachable while scrolling at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 700 });
-    await openSchemaV4Library(page);
+    await openSchemaV5Library(page);
     const toolbar = page.getByTestId("library-search-toolbar");
     const search = page.getByRole("textbox", {
       name: "Search your TabVault library",
@@ -162,25 +165,7 @@ for (const width of [1440, 390]) {
     await page.evaluate(() => window.scrollTo(0, 400));
     await expect.poll(async () => (await toolbar.boundingBox())!.y).toBe(top);
     await expect(search).toBeInViewport();
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page
-      .getByRole("button", { name: "Select tabs", exact: true })
-      .click();
-    await page.evaluate(() => window.scrollTo(0, 400));
-    await expect.poll(async () => (await toolbar.boundingBox())!.y).toBe(top);
-    await toolbar
-      .getByRole("button", { name: "Select all", exact: true })
-      .click();
-    await expect(
-      toolbar.getByLabel("Move selected tabs to collection")
-    ).toBeInViewport();
-    await expect(
-      toolbar.getByRole("button", {
-        name: "Archive selected tabs",
-        exact: true,
-      })
-    ).toBeInViewport();
-    await expect(search).toBeInViewport();
+    await expect(page.getByTestId("collection-drop-research")).toBeInViewport();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth
@@ -188,28 +173,3 @@ for (const width of [1440, 390]) {
     ).toBe(true);
   });
 }
-
-test("move icon describes its action and moves selected tabs", async ({
-  page,
-}) => {
-  await openSchemaV4Library(page);
-  await page.getByRole("button", { name: "Select tabs", exact: true }).click();
-  await page
-    .getByTestId("tab-row-t-1001")
-    .getByRole("checkbox", { name: /^Select / })
-    .check();
-  const move = page.getByRole("button", {
-    name: "Move selected tabs to collection",
-  });
-  await move.hover();
-  await expect(page.getByRole("tooltip")).toHaveText(
-    "Move selected tabs to collection"
-  );
-  await move.focus();
-  await page.keyboard.press("Enter");
-  await expect(page.getByRole("menuitem")).toHaveText(["Research"]);
-  await page.getByRole("menuitem", { name: "Research", exact: true }).click();
-  await expect(
-    page.getByTestId("tab-group-research").getByTestId("tab-row-t-1001")
-  ).toBeVisible();
-});

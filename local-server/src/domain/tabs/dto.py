@@ -50,8 +50,6 @@ class TabCreateContentDTO(BaseModel):
 class TabCreateAnnotationsDTO(BaseModel):
     """Annotations fields for TabCreateDTO."""
 
-    note: str | None = Field(default="", max_length=20_000)
-    agent_review: str | None = Field(default="", max_length=20_000)
     custom_properties: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list, max_length=64)
     model_config = model_config()
@@ -79,7 +77,7 @@ class TabBatchCreateDTO(BaseModel):
     """Describe an atomic batch of distinct Saved Tab occurrences.
 
     Browser capture uses this command to persist one Session's tabs in a single transaction while
-    preserving a separate identity and preview job for every occurrence. Validation rejects empty
+    preserving a separate identity for every occurrence. Validation rejects empty
     and unbounded batches before the service opens a transaction.
 
     Attributes:
@@ -133,8 +131,6 @@ class TabUpdateContentDTO(DTO):
 class TabUpdateAnnotationsDTO(DTO):
     """Annotations fields for TabUpdateDTO."""
 
-    note: str | None = Field(default=None, max_length=20_000)
-    agent_review: str | None = Field(default=None, max_length=20_000)
     custom_properties: dict[str, Any] | None = None
     tags: list[str] | None = Field(default=None, max_length=64)
 
@@ -229,14 +225,11 @@ class TabContentDTO(DTO):
 
     url: str
     title: str
-    favicon: str | None
 
 
 class TabAnnotationsDTO(DTO):
     """Annotations fields for TabDTO."""
 
-    note: str
-    agent_review: str
     custom_properties: dict[str, Any]
     tags: list[str]
 
@@ -279,14 +272,11 @@ class TabProjectionContentDTO(DTO):
 
     url: str | None = None
     title: str | None = None
-    favicon: str | None = None
 
 
 class TabProjectionAnnotationsDTO(DTO):
     """Annotations fields for TabProjectionDTO."""
 
-    note: str | None = None
-    agent_review: str | None = None
     custom_properties: dict[str, Any] | None = None
     tags: list[str] | None = None
 
@@ -322,50 +312,6 @@ class TabProjectionDTO(DTO):
     placement: TabProjectionPlacementDTO = Field(default_factory=TabProjectionPlacementDTO)
     lifecycle: TabProjectionLifecycleDTO = Field(default_factory=TabProjectionLifecycleDTO)
     timestamps: TabProjectionTimestampsDTO = Field(default_factory=TabProjectionTimestampsDTO)
-
-
-class TabJobDTO(BaseModel):
-    """Identify the preview job created for a Saved Tab.
-
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
-
-    Attributes:
-        tab_id (str): Stable identifier of the related tab.
-        job_id (str): Stable identifier of the related job.
-    """
-
-    tab_id: str
-    job_id: str
-    model_config = model_config()
-
-
-class TabCreateMetaDTO(BaseModel):
-    """Expose the preview job queued by creation.
-
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
-
-    Attributes:
-        job (TabJobDTO): Background job created for preview capture.
-    """
-
-    job: TabJobDTO
-    model_config = model_config()
-
-
-class TabBatchCreateMetaDTO(BaseModel):
-    """Expose preview jobs queued by one atomic batch creation.
-
-    The job order matches the returned Saved Tab order so clients can correlate asynchronous
-    preview work without issuing per-tab creation requests.
-
-    Attributes:
-        jobs (list[TabJobDTO]): Preview jobs created in the same transaction as the Saved Tabs.
-    """
-
-    jobs: list[TabJobDTO]
-    model_config = model_config()
 
 
 class TabListResponseDTO(PaginatedResponse[TabDTO | TabProjectionDTO]):

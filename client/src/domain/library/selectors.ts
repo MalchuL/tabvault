@@ -1,146 +1,75 @@
-import { domainFromUrl, orderKey } from "./codec";
-import type { LocalSearchResponse } from "@/domain/server/search";
-import type { GroupId, PersistedVault, VaultGroup, VaultTab } from "./types";
-
-/**
- * Return whether a non-archived tab is hidden at the supplied instant.
- *
- * @param {VaultTab} tab - Saved tab being checked.
- * @param {number} now - Current instant used for consistent visibility decisions.
- * @returns {boolean} True when the active tab has a future hide deadline.
- */
-export function isCurrentlyHidden(tab: VaultTab, now = Date.now()): boolean {
+import { resolveProperty } from "./properties";
+import type { PersistedVault, VaultTab } from "./types";
+/** Test visibility at one consistent instant. @param {VaultTab} tab - Saved occurrence. @param {number} now - Current milliseconds. @returns {boolean} Whether the tab is hidden. */
+export function isCurrentlyHidden(tab: VaultTab, now = Date.now()) {
   return (
     !tab.lifecycle.archived &&
     Boolean(tab.lifecycle.hiddenUntil) &&
     Date.parse(tab.lifecycle.hiddenUntil ?? "") > now
   );
 }
-
-/**
- * Count library navigation categories from one consistent time boundary.
- *
- * @param {PersistedVault} vault - Browser library to read, write, or render.
- * @param {number} now - Current instant used for consistent visibility decisions.
- * @returns {{ activeCount: number; archivedCount: number; hiddenCount: number; tagCount: number; }} Counts of active, archived, hidden, and tagged library items.
- */
+/** Derive sidebar counts from current data. @param {PersistedVault} vault - Library. @param {number} now - Visibility instant. @returns {object} Navigation counts. */
 export function libraryStats(vault: PersistedVault, now = Date.now()) {
   return {
     activeCount: vault.library.tabs.filter(
-      tab => !tab.lifecycle.archived && !isCurrentlyHidden(tab, now)
+      t => !t.lifecycle.archived && !isCurrentlyHidden(t, now)
     ).length,
-    archivedCount: vault.library.tabs.filter(tab => tab.lifecycle.archived)
+    archivedCount: vault.library.tabs.filter(t => t.lifecycle.archived).length,
+    hiddenCount: vault.library.tabs.filter(t => isCurrentlyHidden(t, now))
       .length,
-    hiddenCount: vault.library.tabs.filter(tab => isCurrentlyHidden(tab, now))
-      .length,
-    tagCount: Object.keys(vault.library.tagCatalog).length,
+    tagCount: vault.library.tags.length,
   };
 }
-
-/**
- * Sort tabs by collection order followed by their stored relative order.
- *
- * @param {VaultTab[]} tabs - Tabs to sort or display.
- * @param {Pick<PersistedVault, "vaultGroups" | "tabOrders">} vault - Browser library to read, write, or render.
- * @returns {VaultTab[]} New tab array in collection and saved tab order.
- */
+/** Sort by group position, then occurrence position. @param {VaultTab[]} tabs - Records. @param {Pick<PersistedVault,"library">} vault - Group placement data. @returns {VaultTab[]} Ordered copy. */
 export function sortTabs(
   tabs: VaultTab[],
-  vault: {
-    library: Pick<PersistedVault["library"], "vaultGroups" | "tabOrders">;
-  }
-): VaultTab[] {
-  return [...tabs].sort((left, right) => {
-    if (left.placement.groupId !== right.placement.groupId)
-      return (
-        vault.library.vaultGroups.findIndex(
-          group => group.id === left.placement.groupId
-        ) -
-        vault.library.vaultGroups.findIndex(
-          group => group.id === right.placement.groupId
-        )
-      );
-    return (
-      (vault.library.tabOrders[orderKey(left.placement.groupId)] ?? []).indexOf(
-        left.id
-      ) -
-      (
-        vault.library.tabOrders[orderKey(right.placement.groupId)] ?? []
-      ).indexOf(right.id)
-    );
-  });
+  vault: Pick<PersistedVault, "library">
+) {
+  const groups = new Map(
+    vault.library.vaultGroups.map(g => [g.id, g.placement.position])
+  );
+  return [...tabs].sort(
+    (a, b) =>
+      (groups.get(a.placement.groupId ?? "") ?? -1) -
+        (groups.get(b.placement.groupId ?? "") ?? -1) ||
+      a.placement.position - b.placement.position ||
+      a.id.localeCompare(b.id)
+  );
 }
-
-/**
- * Accept server results only for the search currently shown in All Tabs.
- *
- * @param {LocalSearchResponse | null} response - Last server search response, if any.
- * @param {string} query - Current search query.
- * @param {"all" | GroupId} groupId - Selected collection ID.
- * @param {boolean} isAllTabsPage - Whether the all-tabs view is active.
- * @returns {LocalSearchResponse | null} Response for the active query and group, or null when stale.
- */
-export function currentSearchResponse(
-  response: LocalSearchResponse | null,
+/** Match text against titles, original URLs, tags, and resolved custom properties. @param {VaultTab[]} tabs - Visibility-filtered records. @param {string} query - Text query. @param {PersistedVault} vault - Property definitions. @returns {VaultTab[]} Matches ranked using the server's text-score rule. */
+export function searchTabs(
+  tabs: VaultTab[],
   query: string,
-  groupId: "all" | GroupId,
-  isAllTabsPage: boolean
-): LocalSearchResponse | null {
-  return query.trim() &&
-    isAllTabsPage &&
-    response?.query.toLowerCase() === query.trim().toLowerCase() &&
-    (response.group ?? "all") === groupId
-    ? response
-    : null;
-}
-
-/**
- * Reuse current browser tabs when server search returns matching IDs.
- *
- * @param {LocalSearchResponse["results"]} results - Ranked server search results.
- * @param {VaultTab[]} activeTabs - Current browser-local active tabs.
- * @param {VaultGroup[]} groups - Current collection records.
- * @param {string} now - Current instant used for consistent visibility decisions.
- * @returns {VaultTab[]} Local tab records supplemented by server-only result tabs.
- */
-export function searchResultTabs(
-  results: LocalSearchResponse["results"],
-  activeTabs: VaultTab[],
-  groups: VaultGroup[],
-  now = new Date().toISOString()
-): VaultTab[] {
-  const tabsById = new Map(activeTabs.map(tab => [tab.id, tab]));
-  const groupIds = new Set(groups.map(group => group.id));
-  return results.map(({ tab }) => {
-    const local = tabsById.get(tab.id);
-    if (local) return local;
-    return {
-      id: tab.id,
-      placement: {
-        groupId:
-          tab.placement.groupId && groupIds.has(tab.placement.groupId)
-            ? tab.placement.groupId
-            : null,
-      },
-      content: {
-        title: tab.content.title,
-        url: tab.content.url,
-        domain: domainFromUrl(tab.content.url),
-        color: "#6b8c7e",
-        icon: tab.content.title.slice(0, 1).toUpperCase() || "T",
-      },
-      annotations: {
-        note: tab.annotations.note ?? "",
-        agentReview: tab.annotations.agentReview ?? "",
-        customProperties: tab.annotations.customProperties ?? {},
-        viewed: Boolean(tab.annotations.customProperties?.viewed),
-        tags: tab.annotations.tags ?? [],
-      },
-      timestamps: {
-        createdAt: tab.timestamps.updatedAt ?? now,
-        updatedAt: tab.timestamps.updatedAt ?? now,
-      },
-      lifecycle: {},
-    };
-  });
+  vault: PersistedVault
+) {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return tabs;
+  return tabs
+    .map(tab => {
+      const properties = Object.fromEntries(
+        Object.keys(vault.propertySchema)
+          .sort()
+          .map(name => [
+            name,
+            resolveProperty(
+              tab.annotations.customProperties,
+              vault.propertySchema,
+              name
+            ),
+          ])
+      );
+      const fields = [
+        tab.content.title,
+        tab.content.url,
+        JSON.stringify(properties),
+        tab.annotations.tags.join(" "),
+      ].map(text => text.toLowerCase());
+      const score = Math.max(
+        ...fields.map(text => terms.filter(term => text.includes(term)).length)
+      );
+      return { tab, score };
+    })
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.tab.id.localeCompare(b.tab.id))
+    .map(item => item.tab);
 }

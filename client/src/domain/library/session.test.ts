@@ -9,6 +9,7 @@ it("uses one capture instant for the session name and stored timestamps", () => 
   const capturedAt = new Date(2026, 8, 4, 3, 7);
   expect(createSessionGroup(capturedAt)).toEqual({
     id: "session-id",
+    placement: { position: 0 },
     details: {
       name: "Session Sep 04 03:07",
       description: "Captured from the browser",

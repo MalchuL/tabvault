@@ -17,11 +17,9 @@ def tab(
     return TabDTO.model_validate(
         {
             "id": tab_id,
-            "content": {"url": url, "title": "Title", "favicon": None},
+            "content": {"url": url, "title": "Title"},
             "annotations": {
-                "note": "Note",
-                "agent_review": "Review",
-                "viewed": False,
+                "customProperties": {"note": "Note", "agentReview": "Review", "viewed": False},
                 "tags": ["docs"],
             },
             "placement": {"group_id": None, "position": 0},

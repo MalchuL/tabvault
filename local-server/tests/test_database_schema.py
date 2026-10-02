@@ -30,6 +30,6 @@ async def test_initialize_creates_only_the_current_schema(tmp_path) -> None:
             tab_columns = {row[1] for row in connection.execute("PRAGMA table_info(tabs)")}
             assert {"hidden_until", "custom_properties"} <= tab_columns
             assert {"viewed", "normalized_url"}.isdisjoint(tab_columns)
-            assert "property_schemas" in tables
+            assert "property_definitions" in tables
     finally:
         await dispose_database()

@@ -1,95 +1,69 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { emptyBrowserVault } from "@/domain/library/codec";
 import {
   clearBrowserLibrary,
   inspectBrowserVault,
-  readApiKey,
   readBrowserVault,
-  readLibraryRefreshInterval,
-  readLocalServerUrl,
-  readStorageMode,
-  readSyncStatus,
   writeBrowserVault,
-  writeLibraryRefreshInterval,
-  writeLocalServerUrl,
+  readStorageMode,
   writeStorageMode,
+  writeLocalServerUrl,
+  readLocalServerUrl,
+  writeLibraryRefreshInterval,
+  readLibraryRefreshInterval,
   writeSyncStatus,
+  readSyncStatus,
 } from "./browserStorage";
-
 afterEach(() => vi.unstubAllGlobals());
-
-function localStore() {
-  const values = new Map<string, string>();
-  return {
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => values.set(key, value),
-    removeItem: (key: string) => values.delete(key),
-  };
-}
-
-describe("browser storage", () => {
-  it("persists and clears a vault in ordinary browser storage", async () => {
-    const localStorage = localStore();
-    vi.stubGlobal("window", { localStorage });
-    const vault = { ...emptyBrowserVault(), tagCatalog: { docs: "Docs" } };
-
-    await writeBrowserVault(vault);
-    expect(await readBrowserVault()).toEqual(vault);
+it.each(["browser", "extension"])(
+  "round trips current data and preserves incompatible %s bytes",
+  async mode => {
+    const values: Record<string, unknown> = {};
+    if (mode === "extension")
+      vi.stubGlobal("chrome", {
+        storage: {
+          local: {
+            remove: async (keys: string[]) => {
+              for (const key of keys) delete values[key];
+            },
+            get: async (key: string) => ({ [key]: values[key] }),
+            set: async (next: object) => Object.assign(values, next),
+          },
+        },
+      });
+    else
+      vi.stubGlobal("localStorage", {
+        removeItem: (key: string) => {
+          delete values[key];
+        },
+        getItem: (key: string) => values[key] ?? null,
+        setItem: (key: string, value: string) => {
+          values[key] = value;
+        },
+      });
+    expect(await readBrowserVault()).toBeUndefined();
+    await writeBrowserVault(emptyBrowserVault());
+    expect(await readBrowserVault()).toEqual(emptyBrowserVault());
     await writeStorageMode("backend");
-    await writeLocalServerUrl("http://localhost:47821/");
-    await writeLibraryRefreshInterval(15.7);
     expect(await readStorageMode()).toBe("backend");
+    await writeLocalServerUrl("http://localhost:47821/");
     expect(await readLocalServerUrl()).toBe("http://localhost:47821");
+    await writeLibraryRefreshInterval(15.7);
     expect(await readLibraryRefreshInterval()).toBe(16);
-
+    await writeSyncStatus({ state: "pending", localSavedAt: 1 });
+    expect((await readSyncStatus())?.state).toBe("pending");
+    const legacy = { schemaVersion: 4, library: { tabs: [] } };
+    values["tabvault-v3"] =
+      mode === "extension" ? legacy : JSON.stringify(legacy);
+    const raw = values["tabvault-v3"];
+    expect((await inspectBrowserVault()).status).toBe("incompatible");
+    await expect(readBrowserVault()).rejects.toThrow("schema v5");
+    expect(values["tabvault-v3"]).toEqual(raw);
+    await expect(
+      writeBrowserVault({ ...emptyBrowserVault(), schemaVersion: 4 } as never)
+    ).rejects.toThrow("invalid");
+    expect(values["tabvault-v3"]).toEqual(raw);
     await clearBrowserLibrary();
     expect(await readBrowserVault()).toEqual(emptyBrowserVault());
-    expect(await readSyncStatus()).toEqual(
-      expect.objectContaining({ state: "local_only" })
-    );
-  });
-
-  it("prefers extension storage and keeps incompatible vaults available for recovery", async () => {
-    const localStorage = localStore();
-    localStorage.setItem("tabvault-api-key", "stale-local-key");
-    const values: Record<string, unknown> = {
-      "tabvault-api-key": "extension-key",
-      "tabvault-v3": { schemaVersion: 99 },
-    };
-    const storage = {
-      get: vi.fn(async (keys: string | string[]) =>
-        Object.fromEntries(
-          (Array.isArray(keys) ? keys : [keys]).map(key => [key, values[key]])
-        )
-      ),
-      set: vi.fn(async (items: Record<string, unknown>) => {
-        Object.assign(values, items);
-      }),
-      remove: vi.fn(async (keys: string[]) => {
-        keys.forEach(key => delete values[key]);
-      }),
-    };
-    vi.stubGlobal("window", {
-      localStorage,
-      chrome: { storage: { local: storage } },
-    });
-
-    expect(await readApiKey()).toBe("extension-key");
-    expect(await inspectBrowserVault()).toEqual({
-      status: "incompatible",
-      raw: { schemaVersion: 99 },
-      storageKey: "tabvault-v3",
-    });
-    await expect(readBrowserVault()).rejects.toThrow("schema v4");
-    await writeSyncStatus({ state: "synced", localSavedAt: 12 });
-    expect(await readSyncStatus()).toEqual({
-      state: "synced",
-      localSavedAt: 12,
-    });
-    expect(localStorage.getItem("tabvault-sync-status")).toBeNull();
-
-    await clearBrowserLibrary();
-    expect(storage.remove).toHaveBeenCalledWith(["tabvault-v3"]);
-    expect(values["tabvault-v3"]).toEqual(emptyBrowserVault());
-  });
-});
+  }
+);

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import PropertySchema, Tab
+from lib.time import utc_now
+from models import PropertyDefinition, Tab
 
 
 class CustomPropertyRepository:
@@ -23,26 +26,10 @@ class CustomPropertyRepository:
         """
         self.session = session
 
-    async def get_schema(self) -> PropertySchema | None:
-        """Load the singleton schema row without creating it.
-
-        Returns:
-            PropertySchema | None: Persisted schema or ``None`` before the first mutation.
-        """
-        return await self.session.get(PropertySchema, 1)
-
-    async def get_or_create_schema(self) -> PropertySchema:
-        """Load or stage the singleton schema row.
-
-        Returns:
-            PropertySchema: Existing or newly staged singleton row.
-        """
-        schema = await self.get_schema()
-        if schema is None:
-            schema = PropertySchema(id=1, properties={})
-            self.session.add(schema)
-            await self.session.flush()
-        return schema
+    async def definitions(self) -> dict[str, dict[str, Any]]:
+        """Return definitions keyed by their stable case-sensitive names."""
+        rows = (await self.session.scalars(select(PropertyDefinition))).all()
+        return {row.name: row.definition for row in rows}
 
     async def list_tabs(self) -> list[Tab]:
         """Load every Saved Tab for validation or repair.
@@ -51,3 +38,36 @@ class CustomPropertyRepository:
             list[Tab]: All persisted Saved Tabs in stable identity order.
         """
         return list((await self.session.scalars(select(Tab).order_by(Tab.id))).all())
+
+    async def get_definition(self, name: str) -> PropertyDefinition | None:
+        """Load a definition by name.
+
+        Args:
+            name (str): Case-sensitive property identity.
+
+        Returns:
+            PropertyDefinition | None: Existing row, when declared.
+        """
+        return await self.session.get(PropertyDefinition, name)
+
+    async def upsert_definition(self, name: str, definition: dict[str, Any]) -> None:
+        """Stage a definition and its modification timestamp.
+
+        Args:
+            name (str): Case-sensitive property identity.
+            definition (dict[str, Any]): Validated schema fields.
+        """
+        row = await self.get_definition(name)
+        if row is None:
+            self.session.add(PropertyDefinition(name=name, definition=definition))
+        else:
+            row.definition = definition
+            row.updated_at = utc_now()
+
+    async def delete_definition(self, row: PropertyDefinition) -> None:
+        """Stage deletion without touching raw overrides.
+
+        Args:
+            row (PropertyDefinition): Existing definition to remove.
+        """
+        await self.session.delete(row)

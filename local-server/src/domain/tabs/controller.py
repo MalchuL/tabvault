@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from api.routes.service_dependencies import get_tab_service
@@ -15,9 +15,7 @@ from lib.responses import SuccessResponseDTO, success
 from .dto import (
     SortDirection,
     TabBatchCreateDTO,
-    TabBatchCreateMetaDTO,
     TabCreateDTO,
-    TabCreateMetaDTO,
     TabDeleteResultDTO,
     TabDTO,
     TabListOptionsDTO,
@@ -115,7 +113,6 @@ async def reorder_tabs(
 @router.post("", status_code=201, response_model=SuccessResponseDTO[TabDTO])
 async def create_tab(
     body: TabCreateDTO,
-    request: Request,
     service: Annotated[TabService, Depends(get_tab_service)],
 ) -> SuccessResponseDTO[TabDTO]:
     """Create exactly one Saved Tab occurrence.
@@ -129,35 +126,28 @@ async def create_tab(
     Returns:
         SuccessResponseDTO[TabDTO]: Envelope containing the new saved-tab occurrence.
     """
-    tab, job = await service.create(body)
-    request.app.state.worker.wake()
-    return success(tab, meta=TabCreateMetaDTO(job=job))
+    return success(await service.create(body))
 
 
 @router.post("/batch", status_code=201, response_model=SuccessResponseDTO[list[TabDTO]])
 async def create_tabs_batch(
     body: TabBatchCreateDTO,
-    request: Request,
     service: Annotated[TabService, Depends(get_tab_service)],
 ) -> SuccessResponseDTO[list[TabDTO]]:
     """Create multiple Saved Tab occurrences atomically.
 
     This specialized browser-capture boundary validates a bounded camelCase batch, delegates one
-    transaction to the Saved Tab service, and wakes the preview worker only after the transaction
-    commits. The ordinary ``POST /tabs`` endpoint remains the single-occurrence command.
+    transaction to the Saved Tab service. The ordinary ``POST /tabs`` endpoint remains the single-occurrence command.
 
     Args:
         body (TabBatchCreateDTO): One Session's occurrences in desired display order.
-        request (Request): Incoming request whose application state owns the preview worker.
         service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped Saved Tab service
             that owns the atomic transaction.
 
     Returns:
-        SuccessResponseDTO[list[TabDTO]]: Created occurrences with preview-job metadata.
+        SuccessResponseDTO[list[TabDTO]]: Created occurrences in submitted order.
     """
-    tabs, jobs = await service.create_batch(body)
-    request.app.state.worker.wake()
-    return success(tabs, meta=TabBatchCreateMetaDTO(jobs=jobs))
+    return success(await service.create_batch(body))
 
 
 @router.get("/{tab_id}", response_model=SuccessResponseDTO[TabDTO])

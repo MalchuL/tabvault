@@ -14,9 +14,11 @@ function tab(id, overrides = {}) {
       title: overrides.title ?? "Example",
     },
     annotations: {
-      note: overrides.note ?? "note",
-      agentReview: overrides.agentReview ?? "review",
-      viewed: overrides.viewed ?? false,
+      customProperties: {
+        note: overrides.note ?? "note",
+        agentReview: overrides.agentReview ?? "review",
+        viewed: overrides.viewed ?? false,
+      },
       tags: overrides.tags ?? [],
     },
     timestamps: {
@@ -30,8 +32,8 @@ test("Quick Clean hashes exact fields and applies its fixed reducers", async () 
   const plan = await buildQuickCleanPlan([
     tab("b", { tags: ["Alpha"], createdAt: "2026-01-01T00:00:00Z" }),
     tab("a", {
-      tags: ["alpha", "Beta"],
-      viewed: true,
+      tags: ["alpha"],
+      viewed: false,
       createdAt: "2026-01-01T00:00:00Z",
     }),
     tab("different-fragment", {
@@ -43,8 +45,7 @@ test("Quick Clean hashes exact fields and applies its fixed reducers", async () 
   assert.equal(plan.clusters.length, 1);
   assert.equal(plan.clusters[0].survivorId, "a");
   assert.deepEqual(plan.clusters[0].duplicateIds, ["b"]);
-  assert.deepEqual(plan.clusters[0].survivorPatch.tags, ["alpha", "Beta"]);
-  assert.equal(plan.clusters[0].survivorPatch.viewed, true);
+  assert.deepEqual(plan.clusters[0].survivorPatch, {});
 });
 
 test("length-delimited Quick Clean fields do not admit boundary ambiguity", async () => {
@@ -79,21 +80,28 @@ test("advanced plan honors survivor and reducer tie rules", async () => {
     {
       survivor: "LATEST_UPDATED",
       title: "LONGEST",
-      note: "SHORTEST",
-      agentReview: "CONCAT",
-      viewed: "MAJORITY",
+      strings: "CONCAT",
+      booleans: "MAJORITY",
       tags: "INTERSECTION",
       separator: " | ",
+    },
+    {
+      note: { type: "string" },
+      agentReview: { type: "string" },
+      viewed: { type: "boolean" },
     }
   );
 
   const cluster = plan.clusters[0];
   assert.equal(cluster.survivorId, "survivor");
   assert.equal(cluster.survivorPatch.title, "same");
-  assert.equal(cluster.survivorPatch.note, "");
-  assert.equal(cluster.survivorPatch.agentReview, "old review | new review");
-  assert.equal(cluster.survivorPatch.viewed, false);
-  assert.deepEqual(cluster.survivorPatch.tags, ["Shared"]);
+  assert.equal(cluster.survivorPatch.customProperties.note, "medium");
+  assert.equal(
+    cluster.survivorPatch.customProperties.agentReview,
+    "old review | new review"
+  );
+  assert.equal(cluster.survivorPatch.customProperties.viewed, false);
+  assert.deepEqual(cluster.survivorPatch.tags, ["shared"]);
 });
 
 test("execution skips a cluster after survivor failure and continues after duplicate failure", async () => {
@@ -107,7 +115,7 @@ test("execution skips a cluster after survivor failure and continues after dupli
           hash: "one",
           survivorId: "failed-survivor",
           duplicateIds: ["must-not-run"],
-          survivorPatch: { viewed: true },
+          survivorPatch: { customProperties: { viewed: true } },
         },
         {
           hash: "two",

@@ -1,21 +1,20 @@
 import { createContext, useContext } from "react";
-import type { LibraryAction, LibraryState } from "./state";
-
+import type { LibraryAction } from "./state";
+import type { PersistedVault } from "./types";
+import type { SyncStatus } from "@/domain/server/browserStorage";
 export type LibraryContextValue = {
-  vault: LibraryState;
+  vault: PersistedVault;
   dispatch: React.Dispatch<LibraryAction>;
+  mutate: (
+    update: (vault: PersistedVault) => PersistedVault
+  ) => Promise<PersistedVault>;
   persistenceStatus: "saved" | "saving" | "error";
+  syncStatus: SyncStatus | undefined;
+  synchronize: () => Promise<void>;
 };
-
 export const LibraryContext = createContext<LibraryContextValue | null>(null);
-
-/**
- * Read and mutate the current schema-v4 library.
- *
- * @returns {LibraryContextValue} The provider-owned vault and reducer dispatch function.
- * @throws {Error} When used outside LibraryProvider.
- */
-export function useLibrary(): LibraryContextValue {
+/** Read the committed library and shared commands. @returns {LibraryContextValue} Context. @throws {Error} Provider is missing. */
+export function useLibrary() {
   const value = useContext(LibraryContext);
   if (!value) throw new Error("useLibrary must be used inside LibraryProvider");
   return value;

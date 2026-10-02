@@ -25,9 +25,6 @@ from db.session import (
     get_session_factory,
     initialize_database,
 )
-from domain.indexing.vector_index import LocalVectorIndex
-from domain.jobs.repository import JobRepository
-from domain.jobs.worker import JobWorker
 from domain.transfer.repository import TransferRepository
 from domain.transfer.service import TransferService
 from lib.responses import issue, json_data
@@ -90,21 +87,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if settings.storage.effective_database_url.startswith("sqlite"):
         async with engine.begin() as connection:
             await connection.exec_driver_sql("PRAGMA journal_mode=WAL")
-    app.state.vectors = LocalVectorIndex(settings)
-    app.state.worker = JobWorker(settings, app.state.vectors)
     async with get_session_factory()() as db:
         repository = TransferRepository(db)
         latest = await repository.latest_backup("scheduled")
         if latest is None or latest.created_at.replace(
             tzinfo=latest.created_at.tzinfo or utc_now().tzinfo
         ) < utc_now() - timedelta(days=1):
-            await TransferService(db, settings, repository, JobRepository(db)).create_backup(
-                "scheduled"
-            )
+            await TransferService(db, settings, repository).create_backup("scheduled")
             await db.commit()
-    await app.state.worker.start()
     yield
-    await app.state.worker.stop()
     await dispose_database()
 
 

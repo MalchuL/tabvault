@@ -98,6 +98,7 @@
       "properties": {
         "position": {
           "default": 0,
+          "minimum": 0,
           "title": "Position",
           "type": "number"
         }
@@ -143,30 +144,6 @@
       "additionalProperties": false,
       "description": "Annotations fields for TransferTabDTO.",
       "properties": {
-        "note": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Note"
-        },
-        "agentReview": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": "",
-          "title": "Agentreview"
-        },
         "customProperties": {
           "additionalProperties": true,
           "title": "Customproperties",
@@ -194,18 +171,6 @@
         "title": {
           "title": "Title",
           "type": "string"
-        },
-        "favicon": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Favicon"
         }
       },
       "required": ["url", "title"],
@@ -297,6 +262,7 @@
         },
         "position": {
           "default": 0,
+          "minimum": 0,
           "title": "Position",
           "type": "number"
         }
@@ -391,11 +357,11 @@
     }
   },
   "additionalProperties": false,
-  "description": "Complete schema-v3 portable library document. Fields are grouped by responsibility.",
+  "description": "Complete schema-v5 portable library document. Fields are grouped by responsibility.",
   "properties": {
     "schemaVersion": {
-      "const": 4,
-      "default": 4,
+      "const": 5,
+      "default": 5,
       "title": "Schemaversion",
       "type": "integer"
     },
@@ -422,6 +388,5 @@
     }
   },
   "title": "TransferDocumentDTO",
-  "type": "object",
-  "$id": "https://tabvault.local/schema/v4.tabvault.schema.json"
+  "type": "object"
 }

@@ -2,6 +2,7 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from domain.sync.metadata import clear_deletion, record_deletion
 from lib.pagination import ListOptions
 from lib.time import utc_now
 
@@ -61,6 +62,7 @@ class TagService:
             await self.repository.save(tag)
         else:
             await self.repository.save(tag, self.mapper.to_update_dict(dto))
+        await clear_deletion(self.db, "tag", name.lower())
         await self.db.commit()
         return self.mapper.to_dto(
             tag, await self.repository.count_visible_tabs(tag.name, utc_now())
@@ -87,6 +89,7 @@ class TagService:
         if count and not detach:
             raise TagInUseError(f"Tag {name!r} is attached to {count} tabs")
         await self.repository.delete_tag(tag)
+        await record_deletion(self.db, "tag", name.lower(), utc_now())
         await self.db.commit()
         return TagDeleteResultDTO(name=name, detached_from_tabs=count)
 

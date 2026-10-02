@@ -22,14 +22,10 @@ class TabServiceLookupTests(unittest.IsolatedAsyncioTestCase):
         repository = MagicMock(spec=TabRepository)
         repository.get = AsyncMock(return_value=None)
         service = TabService(
-            AsyncMock(spec=AsyncSession),
-            repository,
-            MagicMock(spec=CustomPropertyService),
+            AsyncMock(spec=AsyncSession), repository, MagicMock(spec=CustomPropertyService)
         )
-
         with self.assertRaisesRegex(TabNotFoundError, "missing"):
             await service.get("missing")
-
         repository.get.assert_awaited_once_with("missing")
 
 
@@ -39,9 +35,7 @@ class GroupServiceLookupTests(unittest.IsolatedAsyncioTestCase):
         repository = MagicMock(spec=GroupRepository)
         repository.get = AsyncMock(return_value=None)
         service = GroupService(AsyncMock(spec=AsyncSession), repository)
-
         with self.assertRaisesRegex(GroupNotFoundError, "missing"):
             await service.get("missing")
-
         repository.get.assert_awaited_once_with("missing")
         repository.tab_counts.assert_not_called()

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openSchemaV4Library } from "./schema-v4-fixture";
+import { openSchemaV5Library } from "./schema-v5-fixture";
 
 async function saved(page: Page) {
   return page.evaluate(() => JSON.parse(localStorage.getItem("tabvault-v3")!));
@@ -8,7 +8,7 @@ async function saved(page: Page) {
 test("saved views retain their query and collection and can be deleted", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   const query = page.getByLabel("Search your TabVault library");
   const filter = page.getByLabel("Filter search by collection");
   const views = page.getByRole("button", { name: /^Views/ });
@@ -62,11 +62,11 @@ test("saved views retain their query and collection and can be deleted", async (
   ).toHaveCount(0);
 });
 
-for (const view of ["Standard", "Compact", "Instant-preview"]) {
+for (const view of ["Standard", "Compact"]) {
   test(`tab actions move, edit, hide, restore, and archive in ${view} view`, async ({
     page,
   }) => {
-    await openSchemaV4Library(page);
+    await openSchemaV5Library(page);
     await page
       .getByRole("button", { name: `${view} tab view`, exact: true })
       .click();
@@ -128,93 +128,10 @@ for (const view of ["Standard", "Compact", "Instant-preview"]) {
   });
 }
 
-for (const backend of [false, true]) {
-  test(`Archive selection permanently deletes (${backend ? "server" : "local"})`, async ({
-    page,
-  }) => {
-    await openSchemaV4Library(page);
-    const deletes: string[] = [];
-    if (backend) {
-      await page.route("http://127.0.0.1:47821/api/v1/**", async route => {
-        const request = route.request();
-        if (request.method() === "DELETE") {
-          expect(request.headers()["x-api-key"]).toBe("admin");
-          deletes.push(request.url());
-        }
-        await route.fulfill({
-          json: request.url().endsWith("/health")
-            ? { status: "ok", schemaVersion: 4 }
-            : { success: true, data: {} },
-        });
-      });
-      await page.evaluate(() =>
-        localStorage.setItem("tabvault-storage-mode", "backend")
-      );
-    }
-    const online = backend
-      ? page.waitForRequest("**/api/v1/index/status")
-      : Promise.resolve();
-    await page.goto("/archive");
-    await online;
-    await expect(page.getByTestId("tab-row-t-archived")).toBeVisible();
-    await page
-      .getByRole("button", { name: "Select tabs", exact: true })
-      .click();
-    await page.getByRole("button", { name: "Select all", exact: true }).click();
-    const remove = page.getByRole("button", {
-      name: "Permanently delete selected tabs",
-    });
-    await expect(remove).toHaveText("");
-    await remove.click();
-    await expect(page.getByTestId("tab-row-t-archived")).toHaveCount(0);
-    await expect
-      .poll(async () =>
-        (await saved(page)).library.tabs.some(
-          (tab: { id: string }) => tab.id === "t-archived"
-        )
-      )
-      .toBe(false);
-    expect((await saved(page)).library.tombstones.tabs).toContain("t-archived");
-    if (backend)
-      await expect
-        .poll(() => deletes)
-        .toEqual(["http://127.0.0.1:47821/api/v1/tabs/t-archived?hard=true"]);
-    await page.reload();
-    await expect(
-      page.getByRole("heading", { name: "Archive", exact: true })
-    ).toBeVisible();
-    await expect(page.getByTestId("tab-row-t-archived")).toHaveCount(0);
-  });
-}
-
-test("preview disables dragging and view buttons describe each mode", async ({
-  page,
-}) => {
-  await openSchemaV4Library(page);
-  for (const name of [
-    "Standard tab view",
-    "Compact tab view",
-    "Instant-preview tab view",
-    "Collection-group board view",
-  ]) {
-    await page.getByRole("button", { name, exact: true }).hover();
-    await expect(page.getByRole("tooltip", { name, exact: true })).toHaveText(
-      name
-    );
-  }
-  await page.getByRole("button", { name: "Instant-preview tab view" }).click();
-  await expect(page.getByRole("button", { name: /^Reorder/ })).toHaveCount(0);
-  await expect(page.getByTestId("collection-drop-research")).toHaveCount(0);
-  await expect(page.getByTestId("tab-group-session")).toHaveAttribute(
-    "data-drop-gap-height",
-    "0"
-  );
-});
-
 test("collapsed groups stay still when dragging starts and cancels", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   await page
     .getByTestId("group-separator-session")
     .getByRole("button", { name: "Session Aug 23 13:00", exact: true })
@@ -239,7 +156,7 @@ test("collapsed groups stay still when dragging starts and cancels", async ({
 test("create collection immediately saves an empty manual session", async ({
   page,
 }) => {
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   await page
     .getByRole("button", { name: "Collection-group board view" })
     .click();
@@ -261,7 +178,7 @@ test("favicon drag inserts at the pointed position when the collection wraps", a
   page,
 }) => {
   await page.setViewportSize({ width: 1100, height: 850 });
-  await openSchemaV4Library(page);
+  await openSchemaV5Library(page);
   await page.evaluate(() => {
     const vault = JSON.parse(localStorage.getItem("tabvault-v3")!);
     const template = vault.library.tabs.find(
@@ -274,7 +191,10 @@ test("favicon drag inserts at the pointed position when the collection wraps", a
         id,
         content: { ...template.content, title: `Extra ${i}` },
       });
-      vault.library.tabOrders.session.push(id);
+      vault.library.tabs.at(-1).placement = {
+        groupId: "session",
+        position: i + 2,
+      };
     }
     vault.preferences.tabView = "groups";
     localStorage.setItem("tabvault-v3", JSON.stringify(vault));
@@ -294,7 +214,12 @@ test("favicon drag inserts at the pointed position when the collection wraps", a
   ).toHaveCount(1);
   await page.mouse.up();
   await expect
-    .poll(async () => (await saved(page)).library.tabOrders.session)
+    .poll(async () =>
+      (await saved(page)).library.tabs
+        .filter(t => t.placement.groupId === "session")
+        .sort((a, b) => a.placement.position - b.placement.position)
+        .map(t => t.id)
+    )
     .toEqual([
       "t-duplicate",
       "t-research",

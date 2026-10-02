@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import Field
 
 from mcp_tabvault.client import get_client
 from mcp_tabvault.client.dto import (
+    PropertyDefinitionDTO,
+    PropertySchemaResponseDTO,
     SearchDataDTO,
-    SearchMode,
     SearchQueryDTO,
     TabCreateDTO,
     TabListQueryDTO,
@@ -132,12 +133,6 @@ async def search_tabs(
     query: Annotated[
         str, Field(min_length=1, description="Nonempty search text for saved metadata.")
     ],
-    mode: Annotated[
-        SearchMode,
-        Field(
-            description="hybrid combines semantic and keyword matching; semantic uses meaning; keyword uses text."
-        ),
-    ] = "hybrid",
     limit: Annotated[
         int, Field(ge=1, le=50, description="Maximum search results, from 1 to 50.")
     ] = 10,
@@ -154,15 +149,13 @@ async def search_tabs(
         ),
     ] = False,
 ) -> SearchResponseViewDTO:
-    """Search active visible Saved Tabs by meaning, keywords, or both.
+    """Search active visible Saved Tabs by text.
 
     Group and unassignedOnly cannot be combined. Unassigned search filters the top 50 global
     results and may return fewer matches.
 
     Args:
         query (str): Nonempty search text for saved metadata.
-        mode (SearchMode): hybrid combines semantic and keyword matching; semantic uses meaning;
-            keyword uses text.
         limit (int): Maximum search results, from 1 to 50.
         group (str | None): Visible Group name, matched exactly ignoring case; oldest match
             wins. Null omits the filter.
@@ -181,7 +174,6 @@ async def search_tabs(
     response = await get_client().search_tabs(
         SearchQueryDTO(
             q=query,
-            mode=mode,
             limit=50 if unassignedOnly else limit,
             group_id=None if group_id == "all" else group_id,
         )
@@ -236,7 +228,7 @@ async def get_tab(
 
 @mcp.tool(
     title="Save Tab",
-    annotations=WRITE.model_copy(update={"open_world_hint": True}),
+    annotations=WRITE,
     structured_output=True,
 )
 async def save_tab(
@@ -254,19 +246,12 @@ async def save_tab(
             max_length=1024, description="Optional saved title; null lets the API choose the title."
         ),
     ] = None,
-    note: Annotated[
-        str, Field(max_length=20000, description="Saved note; empty string stores no note.")
-    ] = "",
-    agentReview: Annotated[
-        str,
+    customProperties: Annotated[
+        dict[str, Any] | None,
         Field(
-            max_length=20000,
-            description="Agent-written review stored separately from the user note.",
+            description="Explicit custom-property values. note and agentReview string definitions are created when needed; arbitrary names require a definition first."
         ),
-    ] = "",
-    viewed: Annotated[
-        bool, Field(description="Whether this occurrence has been viewed; defaults to false.")
-    ] = False,
+    ] = None,
     tags: Annotated[
         list[str] | None,
         Field(max_length=64, description="Up to 64 tag names; omitted or null means no tags."),
@@ -278,18 +263,16 @@ async def save_tab(
         ),
     ] = None,
 ) -> TabResponseViewDTO:
-    """Create a new Saved Tab occurrence and queue a preview capture.
+    """Create a new Saved Tab occurrence with explicit custom properties.
 
-    Never deduplicates URLs. The API may fetch the URL for its preview. No Group means
-    Unassigned.
+    Repeated URLs retain separate identities. No Group means Unassigned.
 
     Args:
         url (str): Absolute HTTP or HTTPS URL to save unchanged; repeated URLs create separate
             occurrences.
         title (str | None): Optional saved title; null lets the API choose the title.
-        note (str): Saved note; empty string stores no note.
-        agentReview (str): Agent-written review stored separately from the user note.
-        viewed (bool): Whether this occurrence has been viewed; defaults to false.
+        customProperties (dict[str, Any] | None): Explicit overrides; missing note, agentReview,
+            and viewed conventions are declared on demand without replacing existing definitions.
         tags (list[str] | None): Up to 64 tag names; omitted or null means no tags.
         group (str | None): Exact visible Group name, ignoring case; oldest match wins. Null
             saves to Unassigned.
@@ -308,9 +291,7 @@ async def save_tab(
             {
                 "content": {"url": url, "title": title},
                 "annotations": {
-                    "note": note,
-                    "agent_review": agentReview,
-                    "viewed": viewed,
+                    "custom_properties": customProperties or {},
                     "tags": tags or [],
                 },
                 "placement": {"group_id": group_id},
@@ -337,8 +318,8 @@ async def update_tab(
 ) -> TabResponseViewDTO:
     """Update the oldest active visible exact-URL match using grouped changes.
 
-    Empty note or review clears it; [] removes tags. Changing URL or hiding the
-    record can make a repeated call select another duplicate occurrence.
+    An empty tags list removes tags. Custom properties retain explicit overrides.
+    Changing URL or hiding the record can make a repeated call select another occurrence.
 
     Args:
         url (str): Original Saved Tab URL selecting the oldest accessible match.
@@ -434,3 +415,79 @@ async def move_tab(
         tab.id, TabUpdateDTO.model_validate({"placement": {"group_id": group_id}})
     )
     return TabResponseViewDTO(data=mapper.to_view(response.data, groups))
+
+
+@mcp.tool(title="Read Custom Property Schema", annotations=READ, structured_output=True)
+async def property_schema() -> PropertySchemaResponseDTO:
+    """Read available definitions without creating client conventions.
+
+    Returns:
+        PropertySchemaResponseDTO: Current schema.
+    """
+    return await get_client().property_schema()
+
+
+@mcp.tool(title="Define Custom Property", annotations=IDEMPOTENT_WRITE, structured_output=True)
+async def define_property(
+    definition: Annotated[
+        PropertyDefinitionDTO,
+        Field(description="Property name, type, default, and description to define."),
+    ],
+) -> PropertySchemaResponseDTO:
+    """Explicitly define a property without changing existing raw values.
+
+    Args:
+        definition (PropertyDefinitionDTO): Validated name, type, default, and description.
+
+    Returns:
+        PropertySchemaResponseDTO: Updated schema.
+    """
+    return await get_client().upsert_property(definition)
+
+
+@mcp.tool(
+    title="Delete Custom Property Definition", annotations=DESTRUCTIVE, structured_output=True
+)
+async def delete_property(
+    name: Annotated[
+        str,
+        Field(min_length=1, max_length=128, description="Case-sensitive property name to remove."),
+    ],
+) -> PropertySchemaResponseDTO:
+    """Remove one definition while retaining raw tab overrides.
+
+    Args:
+        name (str): Case-sensitive property identity.
+
+    Returns:
+        PropertySchemaResponseDTO: Updated schema.
+    """
+    return await get_client().delete_property(name)
+
+
+@mcp.tool(title="Unset Saved Tab Properties", annotations=IDEMPOTENT_WRITE, structured_output=True)
+async def unset_properties(
+    url: Annotated[
+        str, Field(min_length=1, description="Exact saved HTTP(S) URL of a visible occurrence.")
+    ],
+    properties: Annotated[
+        list[str],
+        Field(
+            min_length=1, description="Property names whose explicit overrides should be removed."
+        ),
+    ],
+) -> TabResponseViewDTO:
+    """Unset overrides on the oldest visible exact-URL occurrence.
+
+    Args:
+        url (str): Exact saved URL restricted to visible active records.
+        properties (list[str]): Names to remove from raw overrides.
+
+    Returns:
+        TabResponseViewDTO: Updated record without exposing internal IDs.
+    """
+    tab = await utils.first_visible_tab(url)
+    response = await get_client().unset_properties(tab.id, properties)
+    return TabResponseViewDTO(
+        data=mapper.to_view(response.data, await group_utils.visible_groups())
+    )

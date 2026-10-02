@@ -21,15 +21,11 @@ class TabViewContentDTO(DTO):
 
     url: str
     title: str
-    favicon: str | None
 
 
 class TabViewAnnotationsDTO(DTO):
     """Annotations fields for TabViewDTO."""
 
-    note: str
-    agent_review: str
-    viewed: bool = False
     custom_properties: dict[str, Any]
     tags: list[str]
 
@@ -78,8 +74,7 @@ class SearchItemViewDTO(DTO):
 
     tab: TabViewDTO
     score: float
-    match_type: Literal["both", "semantic", "keyword"]
-    matched_on: Literal["title", "url", "note", "agentReview", "tags", "semantic"]
+    matched_on: Literal["title", "url", "tags", "customProperties"]
 
 
 class SearchDataViewDTO(DTO):
@@ -130,24 +125,12 @@ class TabChangesDTO(DTO):
         max_length=1024,
         description="Replacement nonempty title; null leaves it unchanged.",
     )
-    note: str | None = Field(
-        default=None,
-        max_length=20000,
-        description="Replacement note; empty string clears it; null leaves it unchanged.",
-    )
-    agent_review: str | None = Field(
-        default=None,
-        max_length=20000,
-        description="Replacement agent review; empty string clears it; null leaves it unchanged.",
-    )
-    viewed: bool | None = Field(
-        default=None, description="Replacement viewed state; null leaves it unchanged."
-    )
     tags: list[str] | None = Field(
         default=None,
         max_length=64,
         description="Replace tags; [] clears them; null leaves them unchanged.",
     )
+    custom_properties: dict[str, Any] | None = None
     hidden_until: str | None = Field(
         default=None, description="ISO 8601 hide deadline; null leaves it unchanged."
     )

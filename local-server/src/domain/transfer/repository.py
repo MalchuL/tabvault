@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Any, Literal, cast
 
@@ -12,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from domain.tabs.visibility import exportable_tabs
 from lib.model_changes import apply_model_changes
 from lib.time import utc_now
-from models import Backup, Base, Group, PropertySchema, Tab, Tag, Tombstone
+from models import Backup, Base, Group, LibraryMetadata, PropertyDefinition, Tab, Tag, Tombstone
 
 
 class TransferRepository:
@@ -104,7 +105,10 @@ class TransferRepository:
             ).all()
         )
         query = (
-            select(Tab).options(selectinload(Tab.tags)).order_by(Tab.__table__.c._position, Tab.id)
+            select(Tab)
+            .execution_options(populate_existing=True)
+            .options(selectinload(Tab.tags))
+            .order_by(Tab.__table__.c._position, Tab.id)
         )
         if not include_hidden:
             if now is None:
@@ -112,31 +116,35 @@ class TransferRepository:
             query = query.where(exportable_tabs(now))
         return tags, groups, list((await self.session.scalars(query)).unique())
 
-    async def get_property_schema(self) -> PropertySchema | None:
-        """Load the portable property schema.
+    async def property_definitions(self) -> dict[str, Any]:
+        """Return the current name-to-definition map without creating rows."""
+        rows = (await self.session.scalars(select(PropertyDefinition))).all()
+        return {row.name: row.definition for row in rows}
 
-        Returns:
-            PropertySchema | None: Singleton schema row, or None before one is created.
-        """
-        return await self.session.get(PropertySchema, 1)
-
-    async def replace_property_schema(self, properties: dict[str, Any]) -> PropertySchema:
-        """Stage a complete property-schema replacement.
+    async def replace_property_schema(
+        self, properties: dict[str, Any], *, replace: bool = False
+    ) -> None:
+        """Stage validated definitions; only explicit replacement removes absent names.
 
         Args:
-            properties (dict[str, Any]): Custom-property schema values to persist.
-
-        Returns:
-            PropertySchema: Schema row with the replacement definitions staged.
+            properties (dict[str, Any]): Portable definitions keyed by name.
+            replace (bool): Whether this is an authoritative replacement.
         """
-        schema = await self.get_property_schema()
-        if schema is None:
-            schema = PropertySchema(id=1, properties=properties)
-            self.session.add(schema)
-        else:
-            schema.properties = properties
-            schema.updated_at = utc_now()
-        return schema
+        from domain.custom_properties.dto import PropertyDefinitionDTO
+
+        if replace:
+            await self.session.execute(delete(PropertyDefinition))
+        for name, definition in properties.items():
+            dto = PropertyDefinitionDTO.model_validate({"name": name, **definition})
+            row = await self.session.get(PropertyDefinition, name)
+            if row is None:
+                self.session.add(
+                    PropertyDefinition(name=name, definition=dto.model_dump(exclude={"name"}))
+                )
+            else:
+                row.definition = dto.model_dump(exclude={"name"})
+                row.updated_at = utc_now()
+        await self.session.flush()
 
     async def current_ids(self) -> tuple[set[str], set[str], set[str]]:
         """Load current tab, group, and casefolded tag IDs.
@@ -154,6 +162,11 @@ class TransferRepository:
         await self.session.execute(delete(Tab))
         await self.session.execute(delete(Group))
         await self.session.execute(delete(Tag))
+        await self.session.execute(delete(PropertyDefinition))
+        await self.session.execute(delete(Tombstone))
+        metadata = await self.session.get(LibraryMetadata, 1)
+        if metadata is not None:
+            metadata.generation = str(uuid.uuid4())
         await self.session.flush()
 
     async def replace_group(self, group_id: str) -> None:
@@ -162,6 +175,9 @@ class TransferRepository:
         Args:
             group_id (str): Collection ID or null for Unassigned.
         """
+        metadata = await self.session.get(LibraryMetadata, 1)
+        if metadata is not None:
+            metadata.generation = str(uuid.uuid4())
         await self.session.execute(delete(Tab).where(Tab.__table__.c._group_id == group_id))
         await self.session.execute(delete(Group).where(Group.id == group_id))
         await self.session.flush()
@@ -245,7 +261,9 @@ class TransferRepository:
         """
         apply_model_changes(model, changes)
 
-    async def tombstone_exists(self, entity_type: Literal["group", "tab"], entity_id: str) -> bool:
+    async def tombstone_exists(
+        self, entity_type: Literal["group", "tab", "tag", "property"], entity_id: str
+    ) -> bool:
         """Check whether an imported entity was permanently deleted.
 
         Args:

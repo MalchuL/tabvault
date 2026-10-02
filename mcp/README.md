@@ -112,7 +112,11 @@ content.
 ```json
 {
   "url": "https://example.com/article",
-  "changes": { "title": "Updated title", "viewed": false, "tags": [] }
+  "changes": {
+    "title": "Updated title",
+    "customProperties": { "viewed": false },
+    "tags": []
+  }
 }
 ```
 
@@ -157,7 +161,7 @@ the oldest visible exact match. Weekly review uses current timestamps rather tha
 history and must disclose incomplete coverage.
 
 Reading resources and calling read tools never registers property definitions. A tab write that
-supplies `viewed` registers the boolean definition if absent, preserves an existing boolean
+supplies `customProperties.viewed` registers the boolean definition if absent, preserves an existing boolean
 definition, and rejects an incompatible definition before writing the tab.
 
 Implementation references: the official [MCP server concepts](https://modelcontextprotocol.io/docs/learn/server-concepts),
@@ -174,3 +178,7 @@ make check
 ```
 
 The check runs Ruff formatting and linting, strict Pyright, and pytest with a 90% coverage floor.
+
+## Custom properties
+
+`property_schema` reads definitions without writes. `define_property` creates or replaces a definition, `delete_property` removes its definition while retaining raw values, and `unset_properties` removes explicit values from a visible occurrence. `save_tab` and `update_tab` accept `customProperties`; missing `note`, `agentReview`, and `viewed` conventions are registered only when written. Incompatible definitions produce an error and are not overwritten. Search is ordinary text search; no mode parameter is accepted.

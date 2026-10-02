@@ -1,68 +1,29 @@
-# TabVault local server
+# TabVault API
 
-TabVault v0.2 is an async FastAPI service backed only by SQLite. The default database is
-`~/.local/share/tabvault/tabvault.sqlite3`; cached previews, icons, images, backups, model weights,
-and the embedded Zvec collection live below the same data directory. Legacy `tabvault.json` files
-are neither read nor modified.
-
-## Run locally
+FastAPI and SQLite store Saved Tabs, Groups, Tags, custom-property definitions, deletion markers, generation metadata, and JSON backups. The default data directory is `~/.local/share/tabvault/`.
 
 ```bash
 uv sync --group dev
-TABVAULT_HTTP__API_KEY=change-me uv run tabvault-server
+uv run tabvault-server
 ```
 
-The server listens on `127.0.0.1:47821` and creates the current SQLite tables at startup. All public
-routes use `/api/v1`. If `TABVAULT_HTTP__API_KEY` is configured, send it as `X-API-Key`; binding to a
-non-loopback host is rejected unless a key is configured. Wildcard CORS remains the local default
-and emits a startup warning.
+See [`.env.example`](.env.example) for configuration. A network deployment needs a strong `TABVAULT_HTTP__API_KEY` and restrictive `TABVAULT_HTTP__CORS_ORIGINS`. Clients send `X-API-Key`. API metadata is available at `/docs`, `/api/v1/schema`, `/api/v1/errors`, and `/api/v1/health`.
 
-Each request is logged at `INFO` with method, path, status, duration, and a short JSON or text
-preview so you can see what came back. 4xx and 5xx lines are `WARNING`. Set `TABVAULT_LOGGING__LEVEL`
-to change verbosity.
+## Persistence
 
-Useful settings are shown in [`.env.example`](.env.example). Install the production embedding
-model dependencies with `uv sync --extra semantic`; the `deepvk/USER-bge-m3` model is loaded and
-downloaded only on first semantic use. Keyword search works without it.
+Only schema v5 is supported. Startup rejects an existing incompatible database before creating or changing tables. Preserve the old data directory and select a fresh `TABVAULT_STORAGE__DATA_DIR`; this release does not migrate or reset it.
 
-`GET /api/v1/capabilities` reports what this process can do. Each named capability is either
-available or includes a short `error` and `fix`:
+Resource endpoints support direct operations and MCP. `POST /api/v1/sync` applies all pending library resources in one transaction, acknowledges exact client tokens, and returns a complete snapshot plus deletion markers. Newer timestamps win; ties retain the server record. Tab/group IDs cannot be resurrected after permanent deletion. Names can be explicitly recreated with a newer timestamp.
 
-| Field            | Available when                                                            |
-| ---------------- | ------------------------------------------------------------------------- |
-| `keywordSearch`  | Always. Titles, notes, URLs, and tags can be searched without embeddings. |
-| `semanticSearch` | `sentence-transformers` and `zvec` import in this environment.            |
-| `vectorIndex`    | A rebuild has finished in this process and the in-memory index is ready.  |
+Clear, replace, and restore change the server generation. A request with an old generation receives 409 before any mutation. JSON backups are written before destructive replacement. Restore completes inside the request transaction; there is no worker or job queue.
 
-Dashboard and Settings render that error and fix when meaning-based search is blocked. The usual
-first-run failure is a missing semantic extra:
+Search uses saved metadata and resolved custom-property values. Custom-property types and defaults are generic; naming conventions belong to clients.
+
+## Checks and deployment
 
 ```bash
-cd local-server
-uv sync --extra semantic
+make check
+make docker-build
 ```
 
-Restart `tabvault-server`, then choose **Rebuild index** on Dashboard. The first rebuild downloads
-the embedding model into `TABVAULT_STORAGE__DATA_DIR/models` and can take several minutes. If the extra is
-installed but the index is empty, capabilities returns “The semantic index has not been built yet”
-and the same rebuild action.
-
-```bash
-curl -H 'X-API-Key: change-me' http://127.0.0.1:47821/api/v1/health
-curl -H 'X-API-Key: change-me' http://127.0.0.1:47821/api/v1/capabilities
-uv run pytest
-```
-
-`uv run pytest` enforces 90% branch coverage. `make check` also runs Ruff formatting/linting and
-mypy. Database and document migrations are removed; older schemas and payloads are unsupported.
-
-```bash
-docker build -t tabvault-local-server local-server
-docker run --rm -p 47821:47821 \
-  -e TABVAULT_HTTP__API_KEY=change-me \
-  -v tabvault-data:/data \
-  tabvault-local-server
-```
-
-The image installs the semantic extra and exposes `/data` as the database/assets/backups/vector
-volume; downloaded model weights are stored in `/data/models`.
+The image exposes port 47821 and uses `/data` for persistent database and backup files. The package checks formatting, Ruff, strict mypy, and pytest with a 90% coverage floor.

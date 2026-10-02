@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { Link } from "wouter";
+import { useLibrary } from "@/domain/library/library-context";
+import { changePropertyDefinition } from "@/domain/library/properties";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -6,13 +9,9 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  deletePropertyDefinition,
-  getPropertySchema,
   repairPropertyValues,
-  upsertPropertyDefinition,
   validatePropertyValues,
   type PropertyDefinition,
-  type PropertySchema,
 } from "@/domain/server/propertySchema";
 
 const TYPES = ["string", "int", "float", "boolean", "json"] as const;
@@ -49,22 +48,18 @@ function parseDefault(type: PropertyDefinition["type"], raw: string): unknown {
  * @returns {JSX.Element} Property schema administration page.
  */
 export default function CustomProperties() {
-  const [schema, setSchema] = useState<PropertySchema>({});
+  const { vault, mutate, persistenceStatus, syncStatus, synchronize } =
+    useLibrary();
+  const schema = vault.propertySchema;
+  const hasPendingChanges = Object.values(vault.sync.pending).some(
+    change => change.kind === "property"
+  );
+  const connected = syncStatus?.state === "synced" && !hasPendingChanges;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [type, setType] = useState<PropertyDefinition["type"]>("string");
   const [defaultText, setDefaultText] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    void getPropertySchema()
-      .then(setSchema)
-      .catch(error =>
-        toast.error("Could not load custom properties", {
-          description: String(error),
-        })
-      );
-  }, []);
 
   /**
    * Save a custom property definition.
@@ -75,17 +70,18 @@ export default function CustomProperties() {
   const save = async () => {
     try {
       setBusy(true);
-      setSchema(
-        await upsertPropertyDefinition(name, {
-          description,
-          type,
-          default: parseDefault(type, defaultText),
-        })
+      const definition = {
+        description,
+        type,
+        default: parseDefault(type, defaultText),
+      };
+      await mutate(current =>
+        changePropertyDefinition(current, name, definition)
       );
       setName("");
       setDescription("");
       setDefaultText("");
-      toast.success("Custom property saved");
+      toast.success("Custom property updated");
     } catch (error) {
       toast.error("Could not save custom property", {
         description: String(error),
@@ -101,8 +97,33 @@ export default function CustomProperties() {
         Custom Properties
       </h1>
       <p className="mt-2 max-w-2xl text-sm text-[#687067]">
-        Add fields and default values to saved tabs.
+        Add fields and default values to saved tabs. Definitions are saved in
+        this browser.
       </p>
+      <p role="status" className="mt-3 text-sm text-[#687067]">
+        {persistenceStatus === "error"
+          ? "Could not save changes in this browser."
+          : persistenceStatus === "saving"
+            ? "Saving in this browser…"
+            : syncStatus?.state === "local_only"
+              ? "Saved locally. Enable Backend preferred in Settings to sync definitions."
+              : connected
+                ? "Definitions synced with the backend."
+                : "Saved locally. Backend sync is pending and will retry automatically."}{" "}
+        <Link href="/settings" className="underline">
+          Settings
+        </Link>
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-3"
+        onClick={() =>
+          void synchronize().catch(error => toast.error(String(error)))
+        }
+      >
+        Sync now
+      </Button>
       <section className="mt-5 grid gap-3">
         {Object.entries(schema).map(([propertyName, definition]) => (
           <Card
@@ -122,16 +143,38 @@ export default function CustomProperties() {
                   {JSON.stringify(definition.default)}
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                type="button"
-                className="text-xs font-semibold text-[#a33b21]"
-                onClick={() =>
-                  void deletePropertyDefinition(propertyName).then(setSchema)
-                }
-              >
-                Delete
-              </Button>
+              {
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    onClick={() => {
+                      setName(propertyName);
+                      setDescription(definition.description);
+                      setType(definition.type);
+                      setDefaultText(
+                        definition.type === "string"
+                          ? String(definition.default)
+                          : JSON.stringify(definition.default)
+                      );
+                    }}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    className="text-xs font-semibold text-[#a33b21]"
+                    onClick={() => {
+                      void mutate(current =>
+                        changePropertyDefinition(current, propertyName, null)
+                      ).catch(error => toast.error(String(error)));
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              }
             </div>
           </Card>
         ))}
@@ -141,12 +184,15 @@ export default function CustomProperties() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <Input
             className="border border-[#ded9cd] p-3 text-sm"
+            aria-label="Property name"
+            maxLength={128}
             placeholder="propertyName"
             value={name}
             onChange={event => setName(event.target.value)}
           />
           <NativeSelect
             className="border border-[#ded9cd] p-3 text-sm"
+            aria-label="Property type"
             value={type}
             onChange={event =>
               setType(event.target.value as PropertyDefinition["type"])
@@ -158,12 +204,15 @@ export default function CustomProperties() {
           </NativeSelect>
           <Input
             className="border border-[#ded9cd] p-3 text-sm sm:col-span-2"
+            aria-label="Property description"
+            maxLength={1000}
             placeholder="Description (optional)"
             value={description}
             onChange={event => setDescription(event.target.value)}
           />
           <Textarea
             className="border border-[#ded9cd] p-3 font-mono text-sm sm:col-span-2"
+            aria-label="Default value"
             placeholder="Default value"
             value={defaultText}
             onChange={event => setDefaultText(event.target.value)}
@@ -183,17 +232,24 @@ export default function CustomProperties() {
           variant="outline"
           type="button"
           className="border border-[#bcb6a8] px-4 py-2 text-sm font-semibold"
+          disabled={!connected}
           onClick={() =>
-            void validatePropertyValues().then(result =>
-              toast.success(
-                result.valid
-                  ? "All values are valid"
-                  : "Validation found issues",
-                {
-                  description: `${result.summary.invalidValues} invalid, ${result.summary.undeclaredValues} undeclared`,
-                }
+            void validatePropertyValues()
+              .then(result =>
+                toast.success(
+                  result.valid
+                    ? "All values are valid"
+                    : "Validation found issues",
+                  {
+                    description: `${result.summary.invalidValues} invalid, ${result.summary.undeclaredValues} undeclared`,
+                  }
+                )
               )
-            )
+              .catch(error =>
+                toast.error("Could not validate property values", {
+                  description: String(error),
+                })
+              )
           }
         >
           Validate all tabs
@@ -202,17 +258,28 @@ export default function CustomProperties() {
           variant="outline"
           type="button"
           className="border border-[#bcb6a8] px-4 py-2 text-sm font-semibold"
+          disabled={!connected}
           onClick={() =>
-            void repairPropertyValues().then(result =>
-              toast.success("Repair complete", {
-                description: `${result.converted} converted, ${result.removed} removed`,
-              })
-            )
+            void repairPropertyValues()
+              .then(result =>
+                toast.success("Repair complete", {
+                  description: `${result.converted} converted, ${result.removed} removed`,
+                })
+              )
+              .catch(error =>
+                toast.error("Could not repair property values", {
+                  description: String(error),
+                })
+              )
           }
         >
           Repair all tabs
         </Button>
       </section>
+      <p className="mt-2 text-xs text-[#747970]">
+        Validation and repair inspect backend tabs and require a synced backend
+        connection.
+      </p>
     </main>
   );
 }

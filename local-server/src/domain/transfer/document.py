@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from typing import Any
@@ -16,15 +17,15 @@ from .dto import TransferDocumentDTO
 
 
 def empty_document() -> dict[str, Any]:
-    """Create the schema-v4 document populated by Markdown import.
+    """Create the schema-v5 document populated by Markdown import.
 
     Returns:
         dict[str, Any]: Serialized fields keyed for the caller.
     """
     return {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "exportedAt": iso(utc_now()),
-        "propertySchema": {"viewed": {"description": "", "type": "boolean", "default": False}},
+        "propertySchema": {},
         "library": {"tags": [], "groups": [], "tabs": []},
     }
 
@@ -54,12 +55,12 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
                 422,
             )
         ], warnings
-    if document.get("schemaVersion") != 4:
+    if document.get("schemaVersion") != 5:
         errors.append(
             issue(
                 "E_UNKNOWN_SCHEMA_VERSION",
                 "$.schemaVersion",
-                "4",
+                "5",
                 document.get("schemaVersion"),
                 "Unsupported schema version.",
                 422,
@@ -101,7 +102,7 @@ def validate_document(document: Any) -> tuple[list[IssueDTO], list[WarningDTO]]:
                 "E_MISSING_REQUIRED_FIELD" if detail["type"] == "missing" else "E_INVALID_DOCUMENT"
             )
             errors.append(
-                issue(code, path, "valid schema-v4 field", detail.get("input"), detail["msg"], 422)
+                issue(code, path, "valid schema-v5 field", detail.get("input"), detail["msg"], 422)
             )
         return errors, warnings
     group_ids: set[str] = set()
@@ -234,9 +235,7 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
                 "id": str(uuid.uuid4()),
                 "content": {"url": link.group(2), "title": link.group(1)},
                 "annotations": {
-                    "note": "",
-                    "agentReview": "",
-                    "customProperties": {"viewed": False},
+                    "customProperties": {},
                     "tags": [],
                 },
                 "placement": {
@@ -245,6 +244,25 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
                 },
             }
             document["library"]["tabs"].append(active_tab)
+        elif (
+            metadata
+            and metadata.group(1) == "propertySchema"
+            and active_tab is None
+            and active_group_record is None
+        ):
+            try:
+                document["propertySchema"] = json.loads(metadata.group(2))
+            except ValueError:
+                errors.append(
+                    issue(
+                        "E_MARKDOWN_PARSE_ERROR",
+                        f"line:{number}",
+                        "JSON object",
+                        line,
+                        "Invalid property schema",
+                        422,
+                    )
+                )
         elif metadata and active_tab is not None:
             key, value = metadata.groups()
             if key == "id" and value:
@@ -253,12 +271,20 @@ def markdown_import(content: str) -> tuple[dict[str, Any] | None, list[IssueDTO]
                 active_tab["annotations"]["tags"] = [
                     item.strip() for item in value.split(",") if item.strip()
                 ]
-            elif key == "note":
-                active_tab["annotations"]["note"] = value
-            elif key == "agentReview":
-                active_tab["annotations"]["agentReview"] = value
-            elif key == "viewed":
-                active_tab["annotations"]["customProperties"]["viewed"] = value.lower() == "true"
+            elif key == "customProperties":
+                try:
+                    active_tab["annotations"]["customProperties"] = json.loads(value)
+                except ValueError:
+                    errors.append(
+                        issue(
+                            "E_MARKDOWN_PARSE_ERROR",
+                            f"line:{number}",
+                            "JSON object",
+                            value,
+                            "Invalid custom properties",
+                            422,
+                        )
+                    )
         elif metadata and active_group_record is not None:
             key, value = metadata.groups()
             if key == "description":

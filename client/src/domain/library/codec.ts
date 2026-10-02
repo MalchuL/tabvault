@@ -1,18 +1,19 @@
-/** Schema-v4 browser persistence and server transfer conversion. */
+/** Versioned library validation and the single browser/HTTP record mapping. */
+import { isJsonValue, isPropertyDefinition } from "./properties";
 import type {
   PersistedVault,
   CustomPropertySchema,
-  VaultGroup,
   VaultTab,
+  VaultTag,
+  VaultGroup,
 } from "./types";
 export type {
-  LibraryViewMode,
   PersistedVault,
-  SavedSearch,
-  VaultGroup,
   VaultTab,
+  VaultGroup,
+  LibraryViewMode,
+  SavedSearch,
 } from "./types";
-
 export const LIBRARY_REFRESH_INTERVALS = [
   { seconds: 0, label: "Off" },
   { seconds: 60, label: "1m" },
@@ -20,407 +21,260 @@ export const LIBRARY_REFRESH_INTERVALS = [
   { seconds: 900, label: "15m" },
   { seconds: 3600, label: "1h" },
 ] as const;
-export const UNASSIGNED_ORDER_KEY = "unassigned";
-export const DEFAULT_PROPERTY_SCHEMA: CustomPropertySchema = {
-  viewed: { description: "", type: "boolean", default: false },
-};
-const HAS_TIMEZONE = /[zZ]|[+-]\d{2}:?\d{2}$/;
-
-/**
- * Map an optional group ID to its tab-order bucket.
- * @param {string | null} groupId - Owning group or null for Unassigned.
- * @returns {string} Group ID or the shared Unassigned key.
- */
-export function orderKey(groupId: string | null): string {
-  return groupId ?? UNASSIGNED_ORDER_KEY;
-}
-
-/**
- * Normalize timestamps to UTC; timezone-free input represents UTC.
- * @param {string} value - Stored timestamp.
- * @returns {string} ISO UTC timestamp, or source text when invalid.
- */
-export function utcTimestamp(value: string): string {
-  const instant = HAS_TIMEZONE.test(value) ? value : `${value}Z`;
-  const parsed = Date.parse(instant);
-  return Number.isNaN(parsed) ? instant : new Date(parsed).toISOString();
-}
-
-/**
- * Create an empty schema-v4 browser library.
- * @returns {PersistedVault} Empty library with initial preferences and ordering.
- */
+/** Build a fresh v5 library without registering client conventions. @returns {PersistedVault} Empty vault. */
 export function emptyBrowserVault(): PersistedVault {
   return {
-    schemaVersion: 4,
-    propertySchema: DEFAULT_PROPERTY_SCHEMA,
-    library: {
-      tabs: [],
-      vaultGroups: [],
-      tagCatalog: {},
-      tabOrders: { [UNASSIGNED_ORDER_KEY]: [] },
-      savedSearches: [],
-      tombstones: { tabs: [], groups: [] },
-    },
+    schemaVersion: 5,
+    propertySchema: {},
+    library: { tabs: [], vaultGroups: [], tags: [], savedSearches: [] },
     preferences: { tabView: "standard" },
+    sync: { generation: null, pending: {}, propertyTimes: {} },
   };
 }
-
-/**
- * Narrow JSON input to a record.
- * @param {unknown} value - Untrusted JSON value.
- * @returns {boolean} Whether string-keyed fields can be inspected.
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Validate a string array.
- * @param {unknown} value - Untrusted JSON value.
- * @returns {boolean} Whether all entries are strings.
- */
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(item => typeof item === "string");
-}
-
-/**
- * Validate a nested browser tab before hydration or persistence.
- * @param {unknown} value - Untrusted tab record.
- * @returns {boolean} Whether the record satisfies the current tab contract.
- */
-function isVaultTab(value: unknown): value is VaultTab {
-  if (
-    !isRecord(value) ||
-    typeof value.id !== "string" ||
-    !isRecord(value.content) ||
-    !isRecord(value.annotations) ||
-    !isRecord(value.placement) ||
-    !isRecord(value.lifecycle) ||
-    !isRecord(value.timestamps)
-  )
-    return false;
-  const { content, annotations, placement, lifecycle, timestamps } = value;
-  return (
-    [
-      content.title,
-      content.url,
-      content.domain,
-      content.color,
-      content.icon,
-      annotations.note,
-      annotations.agentReview,
-      timestamps.createdAt,
-      timestamps.updatedAt,
-    ].every(item => typeof item === "string") &&
-    /^https?:\/\//i.test(String(content.url)) &&
-    (placement.groupId === null || typeof placement.groupId === "string") &&
-    typeof annotations.viewed === "boolean" &&
-    isRecord(annotations.customProperties) &&
-    isStringArray(annotations.tags) &&
-    (lifecycle.archived === undefined ||
-      typeof lifecycle.archived === "boolean") &&
-    [lifecycle.archivedAt, lifecycle.hiddenUntil].every(
-      item => item === undefined || item === null || typeof item === "string"
-    )
-  );
-}
-
-/**
- * Validate a nested collection.
- * @param {unknown} value - Untrusted collection record.
- * @returns {boolean} Whether collection details and timestamps are valid.
- */
-function isVaultGroup(value: unknown): value is VaultGroup {
-  if (
-    !isRecord(value) ||
-    typeof value.id !== "string" ||
-    !isRecord(value.details) ||
-    !isRecord(value.timestamps)
-  )
-    return false;
-  return (
-    [
-      value.details.name,
-      value.details.description,
-      value.details.category,
-      value.details.accent,
-      value.timestamps.createdAt,
-      value.timestamps.updatedAt,
-    ].every(item => typeof item === "string") &&
-    String(value.details.category).length > 0
-  );
-}
-
-/**
- * Validate schema-v4 JSON without accepting or converting previous versions.
- * @param {unknown} value - Untrusted stored library.
- * @returns {boolean} Whether the complete browser shape is supported.
- */
-export function isPersistedVault(value: unknown): value is PersistedVault {
-  if (
-    !isRecord(value) ||
-    value.schemaVersion !== 4 ||
-    !isRecord(value.propertySchema) ||
-    !isRecord(value.library) ||
-    !isRecord(value.preferences)
-  )
-    return false;
-  const { library, preferences } = value;
-  if (
-    !Array.isArray(library.tabs) ||
-    !library.tabs.every(isVaultTab) ||
-    !Array.isArray(library.vaultGroups) ||
-    !library.vaultGroups.every(isVaultGroup) ||
-    !isRecord(library.tagCatalog) ||
-    !Object.values(library.tagCatalog).every(
-      item => typeof item === "string"
-    ) ||
-    !isRecord(library.tabOrders) ||
-    !Object.values(library.tabOrders).every(isStringArray)
-  )
-    return false;
-  if (
-    library.tombstones !== undefined &&
-    (!isRecord(library.tombstones) ||
-      !isStringArray(library.tombstones.tabs) ||
-      !isStringArray(library.tombstones.groups))
-  )
-    return false;
-  if (
-    library.savedSearches !== undefined &&
-    (!Array.isArray(library.savedSearches) ||
-      !library.savedSearches.every(
-        saved =>
-          isRecord(saved) &&
-          [saved.id, saved.name, saved.query, saved.groupId].every(
-            item => typeof item === "string"
-          )
-      ))
-  )
-    return false;
-  return (
-    preferences.tabView === undefined ||
-    ["groups", "standard", "compact", "preview"].includes(
-      String(preferences.tabView)
-    )
-  );
-}
-
-/**
- * Extract a domain label without changing the saved URL.
- * @param {string} value - Saved URL.
- * @returns {string} Hostname or a best-effort label for invalid input.
- */
-export function domainFromUrl(value: string): string {
+/** Read a hostname without changing the saved URL. @param {string} value - Saved URL. @returns {string} Display hostname. */
+export function domainFromUrl(value: string) {
   try {
     return new URL(value).hostname.replace(/^www\./, "");
   } catch {
-    return value.replace(/^https?:\/\//, "").split("/")[0] || value;
+    return value;
   }
 }
-
-/** Portable tab content shared with the HTTP API. */
-type PortableContent = { url: string; title: string; favicon?: string | null };
-/** Portable annotations; viewed state belongs to custom properties. */
-type PortableAnnotations = {
-  note: string;
-  agentReview: string;
-  customProperties: Record<string, unknown>;
-  tags: string[];
+/** Narrow untrusted JSON to an object. @param {unknown} value - Input. @returns {boolean} Whether fields may be read. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+/** Validate a UTC timestamp at storage boundaries. @param {unknown} value - Input. @returns {boolean} Whether timestamp is valid and offset-aware. */
+function timestamp(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /(?:Z|[+-]\d\d:\d\d)$/i.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+/** Validate grouped creation/modification times. @param {unknown} value - Input. @returns {boolean} Whether both timestamps are valid. */
+function times(value: unknown) {
+  return (
+    isRecord(value) && timestamp(value.createdAt) && timestamp(value.updatedAt)
+  );
+}
+/** Validate finite nonnegative positions. @param {unknown} value - Input. @returns {boolean} Whether position is valid. */
+function position(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+/** Validate arrays of strings. @param {unknown} value - Input. @returns {boolean} Whether every item is a string. */
+function strings(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === "string");
+}
+/** Validate an absolute saved HTTP(S) URL without rewriting it. @param {string} value - Original URL. @returns {boolean} Whether URL has a supported scheme and host. */
+function validSavedUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+/** Validate persisted v5 data without upgrading or discarding incompatible data. @param {unknown} value - Parsed browser JSON. @returns {boolean} Whether hydration is safe. */
+export function isPersistedVault(value: unknown): value is PersistedVault {
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== 5 ||
+    !isRecord(value.library) ||
+    !isRecord(value.propertySchema) ||
+    !isRecord(value.preferences) ||
+    !isRecord(value.sync)
+  )
+    return false;
+  const { library, sync } = value;
+  return (
+    Object.entries(value.propertySchema).every(([name, definition]) =>
+      isPropertyDefinition(name, definition)
+    ) &&
+    Array.isArray(library.tabs) &&
+    library.tabs.every(
+      t =>
+        isRecord(t) &&
+        typeof t.id === "string" &&
+        t.id.trim().length > 0 &&
+        t.id.length <= 256 &&
+        isRecord(t.content) &&
+        strings([
+          t.content.title,
+          t.content.url,
+          t.content.domain,
+          t.content.color,
+          t.content.icon,
+        ]) &&
+        validSavedUrl(String(t.content.url)) &&
+        String(t.content.title).trim().length > 0 &&
+        isRecord(t.annotations) &&
+        isRecord(t.annotations.customProperties) &&
+        isJsonValue(t.annotations.customProperties) &&
+        strings(t.annotations.tags) &&
+        !("note" in t.annotations) &&
+        !("agentReview" in t.annotations) &&
+        !("viewed" in t.annotations) &&
+        isRecord(t.placement) &&
+        (t.placement.groupId === null ||
+          typeof t.placement.groupId === "string") &&
+        position(t.placement.position) &&
+        times(t.timestamps) &&
+        isRecord(t.lifecycle) &&
+        typeof t.lifecycle.archived === "boolean" &&
+        (!t.lifecycle.archived || t.placement.groupId === null) &&
+        [t.lifecycle.archivedAt, t.lifecycle.hiddenUntil].every(
+          v => v === null || timestamp(v)
+        )
+    ) &&
+    Array.isArray(library.vaultGroups) &&
+    library.vaultGroups.every(
+      g =>
+        isRecord(g) &&
+        typeof g.id === "string" &&
+        g.id.trim().length > 0 &&
+        g.id.length <= 256 &&
+        isRecord(g.details) &&
+        strings([
+          g.details.name,
+          g.details.category,
+          g.details.description,
+          g.details.accent,
+        ]) &&
+        isRecord(g.placement) &&
+        position(g.placement.position) &&
+        times(g.timestamps)
+    ) &&
+    Array.isArray(library.tags) &&
+    library.tags.every(
+      t =>
+        isRecord(t) &&
+        strings([t.name, t.description]) &&
+        timestamp(t.createdAt) &&
+        timestamp(t.updatedAt)
+    ) &&
+    new Set(library.tabs.map(t => t.id)).size === library.tabs.length &&
+    new Set(library.vaultGroups.map(g => g.id)).size ===
+      library.vaultGroups.length &&
+    new Set(library.tags.map(t => t.name.toLowerCase())).size ===
+      library.tags.length &&
+    library.tabs.every(
+      t =>
+        t.placement.groupId === null ||
+        (library.vaultGroups as VaultGroup[]).some(
+          g => g.id === t.placement.groupId
+        )
+    ) &&
+    Array.isArray(library.savedSearches) &&
+    library.savedSearches.every(
+      s => isRecord(s) && strings([s.id, s.name, s.query, s.groupId])
+    ) &&
+    ["standard", "compact", "groups"].includes(
+      String(value.preferences.tabView)
+    ) &&
+    (sync.generation === null || typeof sync.generation === "string") &&
+    isRecord(sync.propertyTimes) &&
+    Object.values(sync.propertyTimes).every(timestamp) &&
+    isRecord(sync.pending) &&
+    Object.values(sync.pending).every(
+      c =>
+        isRecord(c) &&
+        ["tab", "group", "tag", "property"].includes(String(c.kind)) &&
+        strings([c.id, c.token]) &&
+        timestamp(c.updatedAt) &&
+        (c.data === null || isRecord(c.data))
+    )
+  );
+}
+export type PortableTab = Omit<VaultTab, "content"> & {
+  content: { title: string; url: string };
 };
-/** Portable lifecycle state. */
-type PortableLifecycle = {
-  archived: boolean;
-  archivedAt: string | null;
-  hiddenUntil: string | null;
-};
-/** A schema-v4 portable tab. */
-export type PortableTab = {
-  id: string;
-  content: PortableContent;
-  annotations: PortableAnnotations;
-  placement: { groupId: string | null; position: number };
-  lifecycle: PortableLifecycle;
-  timestamps: { createdAt: string; updatedAt: string };
-};
-/** A schema-v4 portable collection. */
-export type PortableGroup = {
-  id: string;
+export type PortableGroup = Omit<VaultGroup, "details"> & {
   details: {
     name: string;
-    category: string;
     description: string;
+    category: string;
     color: string | null;
   };
-  placement: { position: number };
-  timestamps: { createdAt: string; updatedAt: string };
 };
-/** Schema-v4 server transfer envelope. */
 export type PortableDocument = {
-  schemaVersion: 4;
+  schemaVersion: 5;
   propertySchema: CustomPropertySchema;
   exportedAt?: string;
-  library: {
-    tags: Array<{ name: string; description?: string | null }>;
-    groups: PortableGroup[];
-    tabs: PortableTab[];
-  };
+  library: { tabs: PortableTab[]; groups: PortableGroup[]; tags: VaultTag[] };
 };
-
-/**
- * Convert browser state to nested schema-v4 transfer records.
- * Archived tabs are unassigned; relative positions follow local ordering.
- * @param {PersistedVault} vault - Valid browser library.
- * @returns {PortableDocument} Document for the import API.
- */
+/** Convert the library into portable records without inventing timestamps. @param {PersistedVault} vault - Current library. @returns {PortableDocument} Transfer document. */
 export function toServerDocument(vault: PersistedVault): PortableDocument {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     propertySchema: vault.propertySchema,
     library: {
-      tags: Object.entries(vault.library.tagCatalog).map(
-        ([name, description]) => ({ name, description })
-      ),
-      groups: vault.library.vaultGroups.map((group, position) => ({
-        id: group.id,
+      tabs: vault.library.tabs.map(t => ({
+        ...t,
+        content: { title: t.content.title, url: t.content.url },
+      })),
+      groups: vault.library.vaultGroups.map(g => ({
+        ...g,
         details: {
-          name: group.details.name,
-          category: group.details.category,
-          description: group.details.description,
-          color: group.details.accent,
-        },
-        placement: { position },
-        timestamps: {
-          createdAt: utcTimestamp(group.timestamps.createdAt),
-          updatedAt: utcTimestamp(group.timestamps.updatedAt),
+          name: g.details.name,
+          description: g.details.description,
+          category: g.details.category,
+          color: g.details.accent,
         },
       })),
-      tabs: vault.library.tabs.map(tab => ({
-        id: tab.id,
-        content: { url: tab.content.url, title: tab.content.title },
-        annotations: {
-          note: tab.annotations.note,
-          agentReview: tab.annotations.agentReview,
-          customProperties: {
-            ...tab.annotations.customProperties,
-            viewed: tab.annotations.viewed,
-          },
-          tags: tab.annotations.tags,
-        },
-        placement: {
-          groupId: tab.lifecycle.archived ? null : tab.placement.groupId,
-          position:
-            vault.library.tabOrders[orderKey(tab.placement.groupId)]?.indexOf(
-              tab.id
-            ) ?? 0,
-        },
-        lifecycle: {
-          archived: Boolean(tab.lifecycle.archived),
-          archivedAt: tab.lifecycle.archivedAt
-            ? utcTimestamp(tab.lifecycle.archivedAt)
-            : null,
-          hiddenUntil: tab.lifecycle.hiddenUntil
-            ? utcTimestamp(tab.lifecycle.hiddenUntil)
-            : null,
-        },
-        timestamps: {
-          createdAt: utcTimestamp(tab.timestamps.createdAt),
-          updatedAt: utcTimestamp(tab.timestamps.updatedAt),
-        },
-      })),
+      tags: vault.library.tags,
     },
   };
 }
-
-/**
- * Convert nested server records while retaining local preferences and tombstones.
- * Reject malformed documents before callers can replace local data.
- * @param {Record<string, unknown>} document - Server sync payload.
- * @param {PersistedVault} preferences - Local preferences and pending deletions.
- * @returns {PersistedVault} Valid browser library with rebuilt order buckets.
- * @throws {Error} When the server document is unsupported or malformed.
- */
+/** Convert and validate server data before it can replace browser records. @param {Record<string, unknown>} document - Server snapshot. @param {PersistedVault} local - Local preferences and pending metadata. @returns {PersistedVault} Valid mapped vault. @throws {Error} Unsupported or malformed data. */
 export function fromServerDocument(
   document: Record<string, unknown>,
-  preferences: PersistedVault
+  local = emptyBrowserVault()
 ): PersistedVault {
   if (
-    document.schemaVersion !== 4 ||
+    document.schemaVersion !== 5 ||
     !isRecord(document.library) ||
     !Array.isArray(document.library.tabs) ||
     !Array.isArray(document.library.groups) ||
-    !Array.isArray(document.library.tags) ||
-    !isRecord(document.propertySchema)
+    !Array.isArray(document.library.tags)
   )
-    throw new Error("Server library is not schema v4");
-  const remote = document as unknown as PortableDocument;
-  const tombstones = preferences.library.tombstones ?? { tabs: [], groups: [] };
-  const deletedTabs = new Set(tombstones.tabs),
-    deletedGroups = new Set(tombstones.groups);
-  const vaultGroups: VaultGroup[] = remote.library.groups
-    .filter(group => !deletedGroups.has(group.id))
-    .map(group => ({
-      id: group.id,
-      details: {
-        name: group.details.name,
-        description: group.details.description,
-        category: group.details.category,
-        accent: group.details.color ?? "#829b65",
-      },
-      timestamps: {
-        createdAt: utcTimestamp(group.timestamps.createdAt),
-        updatedAt: utcTimestamp(group.timestamps.updatedAt),
-      },
-    }));
-  const tabs: VaultTab[] = remote.library.tabs
-    .filter(tab => !deletedTabs.has(tab.id))
-    .slice()
-    .sort((left, right) => left.placement.position - right.placement.position)
-    .map(tab => ({
-      id: tab.id,
-      placement: { groupId: tab.placement.groupId },
-      content: {
-        title: tab.content.title,
-        url: tab.content.url,
-        domain: domainFromUrl(tab.content.url),
-        color: "#6b8c7e",
-        icon: tab.content.title.slice(0, 1).toUpperCase() || "T",
-      },
-      annotations: {
-        ...tab.annotations,
-        viewed: Boolean(
-          tab.annotations.customProperties.viewed ??
-            remote.propertySchema.viewed?.default
-        ),
-      },
-      timestamps: {
-        createdAt: utcTimestamp(tab.timestamps.createdAt),
-        updatedAt: utcTimestamp(tab.timestamps.updatedAt),
-      },
-      lifecycle: { ...tab.lifecycle },
-    }));
-  const tabOrders = tabs.reduce<Record<string, string[]>>((orders, tab) => {
-    const key = orderKey(tab.placement.groupId);
-    (orders[key] ??= []).push(tab.id);
-    return orders;
-  }, {});
+    throw new Error("Server library is not schema v5");
+  const d = document as unknown as PortableDocument;
   const result: PersistedVault = {
-    schemaVersion: 4,
-    propertySchema: remote.propertySchema,
+    ...local,
+    propertySchema: d.propertySchema,
     library: {
-      tabs,
-      vaultGroups,
-      tabOrders,
-      tagCatalog: Object.fromEntries(
-        remote.library.tags.map(tag => [tag.name, tag.description ?? ""])
-      ),
-      savedSearches: preferences.library.savedSearches ?? [],
-      tombstones,
+      ...local.library,
+      tabs: d.library.tabs.map(t => ({
+        ...t,
+        content: {
+          ...t.content,
+          domain: domainFromUrl(t.content.url),
+          color: "#6b8c7e",
+          icon: t.content.title.slice(0, 1) || "T",
+        },
+      })),
+      vaultGroups: d.library.groups
+        .map(g => ({
+          ...g,
+          details: {
+            name: g.details.name,
+            description: g.details.description ?? "",
+            category: g.details.category,
+            accent: g.details.color ?? "#829b65",
+          },
+        }))
+        .sort(
+          (a, b) =>
+            a.placement.position - b.placement.position ||
+            a.id.localeCompare(b.id)
+        ),
+      tags: d.library.tags.map(t => ({
+        ...t,
+        description: t.description ?? "",
+      })),
     },
-    preferences: { ...preferences.preferences },
   };
   if (!isPersistedVault(result))
-    throw new Error("Server library contains invalid schema-v4 records");
+    throw new Error("Server library contains invalid schema-v5 records");
   return result;
 }

@@ -1,23 +1,6 @@
-import {
-  BellRing,
-  BrainCircuit,
-  Eraser,
-  Eye,
-  EyeOff,
-  RefreshCw,
-  Server,
-  ShieldCheck,
-  Trash2,
-} from "lucide-react";
+import { Eraser, Eye, EyeOff, RefreshCw, Server, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { CapabilityIssue } from "@/components/shared/CapabilityIssue";
-import {
-  blockingSearchCapability,
-  type SemanticIndexStatus,
-  type ServerCapabilities,
-} from "@/domain/server/search";
 import type { StorageMode } from "@/domain/server/browserStorage";
 import { LIBRARY_REFRESH_INTERVALS } from "@/domain/library/codec";
 
@@ -185,146 +168,6 @@ export function StorageConnectionPanel({
   );
 }
 
-type SemanticStatusPanelProps = {
-  indexStatus: SemanticIndexStatus | null;
-  capabilities: ServerCapabilities | null;
-  onReviewIndex: () => void;
-};
-
-/**
- * Show semantic search availability and capability issues.
- * Capability errors stay adjacent to the search status and its Dashboard link.
- * @param {SemanticStatusPanelProps} props - Display values and callbacks supplied by the owner.
- * @returns {React.ReactElement} Semantic status with the index review link.
- */
-export function SemanticStatusPanel({
-  indexStatus,
-  capabilities,
-  onReviewIndex,
-}: SemanticStatusPanelProps) {
-  return (
-    <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
-      <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
-        <BrainCircuit className="h-3.5 w-3.5" /> Semantic mode
-      </p>
-      <h2 className="mt-2 text-[16px] font-bold">
-        {indexStatus?.status === "ready"
-          ? "Meaning-based search is enabled"
-          : "Keyword search is active"}
-      </h2>
-      <p className="mt-4 text-[12px] leading-5 text-[#697068]">
-        Semantic search uses a local embedding model when the configured server
-        has a ready index. Otherwise, TabVault searches titles, notes, and tags.
-      </p>
-      <CapabilityIssue capability={blockingSearchCapability(capabilities)} />
-      <Button
-        variant="ghost"
-        onClick={onReviewIndex}
-        className="mt-5 inline-flex items-center gap-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-[#536057] hover:text-[#e95224]"
-      >
-        Review index status →
-      </Button>
-    </section>
-  );
-}
-
-type IndexHealthPanelProps = {
-  indexStatus: SemanticIndexStatus | null;
-  onSchedule: (seconds: number) => void;
-};
-
-/**
- * Show the index health schedule and interval choices.
- * The selected interval reflects the server snapshot rather than a separate local draft.
- * @param {IndexHealthPanelProps} props - Display values and callbacks supplied by the owner.
- * @returns {React.ReactElement} Index health schedule choices.
- */
-export function IndexHealthPanel({
-  indexStatus,
-  onSchedule,
-}: IndexHealthPanelProps) {
-  return (
-    <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
-      <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
-        <ShieldCheck className="h-3.5 w-3.5" /> Index health
-      </p>
-      <h2 className="mt-2 text-[16px] font-bold">
-        {indexStatus?.diagnostics.healthCheck?.enabled
-          ? `Every ${Math.round(indexStatus.diagnostics.healthCheck.intervalSeconds / 60)} minutes`
-          : "Manual checks"}
-      </h2>
-      <div className="mt-5 grid grid-cols-4 gap-2">
-        {[
-          [0, "Off"],
-          [900, "15m"],
-          [3600, "1h"],
-          [14400, "4h"],
-        ].map(([seconds, label]) => (
-          <Button
-            variant="ghost"
-            key={String(seconds)}
-            onClick={() => onSchedule(Number(seconds))}
-            className={`border px-2 py-2 font-mono text-[9px] uppercase ${indexStatus?.diagnostics.healthCheck?.intervalSeconds === seconds || (!seconds && !indexStatus?.diagnostics.healthCheck?.enabled) ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#ded9cd] text-[#767b73] hover:bg-[#f9f7f1]"}`}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
-      <p className="mt-5 text-[11px] leading-5 text-[#767b73]">
-        Run a manual check and view recovery steps in Dashboard.
-      </p>
-    </section>
-  );
-}
-
-type LocalAlertsPanelProps = {
-  indexStatus: SemanticIndexStatus | null;
-  online: boolean;
-  onAlertsChange: (enabled: boolean) => void;
-};
-
-/**
- * Show scheduled index alert controls and their availability.
- * Alerts can be changed only while online with scheduled health checks enabled.
- * @param {LocalAlertsPanelProps} props - Display values and callbacks supplied by the owner.
- * @returns {React.ReactElement} Alert toggle and its availability explanation.
- */
-export function LocalAlertsPanel({
-  indexStatus,
-  online,
-  onAlertsChange,
-}: LocalAlertsPanelProps) {
-  return (
-    <section className="border border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_8px_24px_rgba(24,38,31,0.035)]">
-      <p className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.13em] text-[#858980]">
-        <BellRing className="h-3.5 w-3.5" /> Local alerts
-      </p>
-      <h2 className="mt-2 text-[16px] font-bold">
-        {indexStatus?.diagnostics.healthCheck?.notifyOnNeedsAttention
-          ? "Notify on attention"
-          : "Quiet mode"}
-      </h2>
-      <label
-        className={`mt-5 flex items-center gap-3 border-t border-[#e8e3d8] pt-4 text-[12px] ${indexStatus?.diagnostics.healthCheck?.enabled ? "text-[#4d5c51]" : "text-[#989b94]"}`}
-      >
-        <Checkbox
-          checked={Boolean(
-            indexStatus?.diagnostics.healthCheck?.notifyOnNeedsAttention
-          )}
-          disabled={!online || !indexStatus?.diagnostics.healthCheck?.enabled}
-          onCheckedChange={checked => onAlertsChange(checked === true)}
-          className="h-4 w-4 accent-[#e95224]"
-        />
-        Alert when a scheduled check needs attention
-      </label>
-      <p className="mt-3 text-[11px] leading-5 text-[#767b73]">
-        Alerts stay local to the configured TabVault service and browser
-        context.
-      </p>
-    </section>
-  );
-}
-
 type LibraryRefreshPanelProps = {
   refreshInterval: number;
   online: boolean;
@@ -341,7 +184,6 @@ type LibraryRefreshPanelProps = {
  */
 export function LibraryRefreshPanel({
   refreshInterval,
-  online,
   isRefreshingLibrary,
   onIntervalChange,
   onRefresh,
@@ -375,7 +217,7 @@ export function LibraryRefreshPanel({
       <Button
         variant="ghost"
         onClick={onRefresh}
-        disabled={isRefreshingLibrary || !online}
+        disabled={isRefreshingLibrary}
         className="mt-5 rounded bg-[#e95224] px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-white hover:bg-[#d94a1e] disabled:bg-[#c8c1b6]"
       >
         {isRefreshingLibrary ? "Refreshing…" : "Refresh library now"}

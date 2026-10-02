@@ -16,18 +16,21 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { readLibraryFromServer } from "@/domain/server/libraryApi";
+import { loadServerLibrary } from "@/domain/server/sync";
+import { mergeLibrary } from "@/domain/library/operations";
 import { checkLocalServer } from "@/domain/server/search";
 import {
   DEFAULT_TABVAULT_API_KEY,
   DEFAULT_TABVAULT_SERVER_URL,
   readApiKey,
   readLocalServerUrl,
+  readStorageMode,
 } from "@/domain/server/browserStorage";
 import {
   emptyBrowserVault,
   fromServerDocument,
   isPersistedVault,
+  toServerDocument,
 } from "@/domain/library/codec";
 import { useLibrary } from "@/domain/library/library-context";
 import { createTabVaultApi } from "@/domain/server/client";
@@ -74,7 +77,7 @@ function timestamp() {
  * @returns {JSX.Element} Transfer workspace and its status messages.
  */
 export default function Transfer() {
-  const { vault, dispatch } = useLibrary();
+  const { vault, mutate, synchronize } = useLibrary();
   const fileInput = useRef<HTMLInputElement>(null);
   const [serverUrl, setServerUrl] = useState(DEFAULT_TABVAULT_SERVER_URL);
   const [apiKey, setApiKey] = useState(DEFAULT_TABVAULT_API_KEY);
@@ -104,7 +107,7 @@ export default function Transfer() {
   const exportBrowserJson = () => {
     downloadFile(
       `tabvault-browser-${timestamp()}.json`,
-      JSON.stringify(vault, null, 2),
+      JSON.stringify(toServerDocument(vault), null, 2),
       "application/json"
     );
     toast.success("Browser library downloaded");
@@ -164,7 +167,7 @@ export default function Transfer() {
         ? null
         : (JSON.parse(source) as Record<string, unknown>);
 
-      if (!serverOnline) {
+      if (!serverOnline || (await readStorageMode()) !== "backend") {
         if (markdown) throw new Error("Markdown import requires the API.");
         if (!parsedJson)
           throw new Error("The JSON document could not be read.");
@@ -172,20 +175,38 @@ export default function Transfer() {
           ? parsedJson
           : fromServerDocument(parsedJson, emptyBrowserVault());
         if (
-          !nextVault.library.tabs?.length &&
-          !nextVault.library.vaultGroups?.length
-        ) {
-          throw new Error(
-            "This file does not contain a recognizable TabVault library."
-          );
-        }
-        dispatch({ type: "replace", vault: nextVault });
+          importMode === "replace" &&
+          !window.confirm(
+            "Replace this browser library with the imported file? Download a browser export first if you need the current copy."
+          )
+        )
+          return;
+        await mutate(current =>
+          importMode === "replace"
+            ? {
+                ...current,
+                propertySchema: nextVault.propertySchema,
+                library: {
+                  ...nextVault.library,
+                  savedSearches: current.library.savedSearches,
+                },
+              }
+            : mergeLibrary(current, nextVault)
+        );
         toast.success("Browser library imported", {
           description: "Open My library to organize the imported tabs.",
         });
         return;
       }
 
+      if (
+        importMode === "replace" &&
+        !window.confirm(
+          "Replace the server library? A backup will be created first."
+        )
+      )
+        return;
+      await synchronize();
       const result = await api.transfer.import<{
         success?: boolean;
         errors?: ValidationError[];
@@ -193,8 +214,12 @@ export default function Transfer() {
         document?: Record<string, unknown>;
       }>({
         format: markdown ? "markdown" : "json",
-        content: markdown ? source : parsedJson,
-        mode: importMode,
+        content: markdown
+          ? source
+          : isPersistedVault(parsedJson)
+            ? toServerDocument(parsedJson)
+            : parsedJson,
+        mode: importMode === "merge" ? "upload" : "replace",
       });
       if (!result.success) {
         setIssues(result.errors ?? []);
@@ -203,9 +228,7 @@ export default function Transfer() {
         });
         return;
       }
-      const document = await readLibraryFromServer(serverUrl, apiKey);
-      const nextVault = fromServerDocument(document, vault);
-      dispatch({ type: "replace", vault: nextVault });
+      await loadServerLibrary(false);
       setIssues(result.warnings ?? []);
       toast.success(
         importMode === "replace" ? "Library replaced" : "Library merged",
@@ -298,8 +321,7 @@ export default function Transfer() {
               </div>
             </div>
             <p className="mt-4 text-[11px] leading-5 text-[#6f756d]">
-              Browser imports replace this device’s library. Server imports can
-              merge or replace.
+              Merge a transfer file or deliberately replace the current library.
             </p>
             <div className="mt-5 flex overflow-hidden border border-[#d7d1c4]">
               {(["merge", "replace"] as const).map(mode => (
@@ -307,7 +329,6 @@ export default function Transfer() {
                   variant="ghost"
                   key={mode}
                   onClick={() => setImportMode(mode)}
-                  disabled={!serverOnline}
                   className={`flex-1 px-3 py-2 font-mono text-[9px] uppercase tracking-[0.08em] transition ${importMode === mode ? "bg-[#fff0ea] text-[#c84b26]" : "bg-[#f9f7f1] text-[#747970] hover:bg-[#fffdf8]"} disabled:cursor-not-allowed disabled:opacity-45`}
                 >
                   {mode}

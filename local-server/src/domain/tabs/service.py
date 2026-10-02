@@ -19,7 +19,6 @@ from .dto import (
     TabCreateDTO,
     TabDeleteResultDTO,
     TabDTO,
-    TabJobDTO,
     TabListOptionsDTO,
     TabListResponseDTO,
     TabReorderDTO,
@@ -172,14 +171,14 @@ class TabService:
             raise
         return TabReorderResultDTO(group_id=dto.group_id, tab_ids=dto.tab_ids)
 
-    async def create(self, dto: TabCreateDTO) -> tuple[TabDTO, TabJobDTO]:
-        """Create one Saved Tab and preview job without merging matching URLs.
+    async def create(self, dto: TabCreateDTO) -> TabDTO:
+        """Create one Saved Tab without merging matching URLs.
 
         Args:
             dto (TabCreateDTO): Validated request data for the operation.
 
         Returns:
-            tuple[TabDTO, TabJobDTO]: Created tab and its queued preview job.
+            TabDTO: Created saved tab.
 
         Raises:
             InvalidGroupError: The destination group does not exist.
@@ -203,7 +202,6 @@ class TabService:
         )
         try:
             await self.repository.add_tab(tab)
-            job = await self.repository.add_preview_job(tab.id)
             await self.db.commit()
         except IntegrityError as error:
             await self.db.rollback()
@@ -211,23 +209,20 @@ class TabService:
         except Exception:
             await self.db.rollback()
             raise
-        return await self._to_dto(tab), TabJobDTO(tab_id=tab.id, job_id=job.id)
+        return await self._to_dto(tab)
 
-    async def create_batch(
-        self, dto: TabBatchCreateDTO
-    ) -> tuple[builtins.list[TabDTO], builtins.list[TabJobDTO]]:
+    async def create_batch(self, dto: TabBatchCreateDTO) -> builtins.list[TabDTO]:
         """Create distinct Saved Tab occurrences in one transaction.
 
         The service validates every referenced Group before staging rows, assigns monotonically
-        increasing default positions per membership scope, and creates one preview job per tab. A
+        increasing default positions per membership scope,. A
         duplicate ID or any persistence failure rolls back the complete batch.
 
         Args:
             dto (TabBatchCreateDTO): Validated occurrences supplied in desired display order.
 
         Returns:
-            tuple[builtins.list[TabDTO], builtins.list[TabJobDTO]]: Created tabs and their preview
-                jobs in request order.
+            builtins.list[TabDTO]: Created tabs in request order.
 
         Raises:
             DuplicateTabIdError: A supplied ID already exists or is repeated in the batch.
@@ -262,7 +257,6 @@ class TabService:
                 )
                 tabs.append(tab)
             await self.repository.add_tabs(tabs)
-            persisted_jobs = await self.repository.add_preview_jobs([tab.id for tab in tabs])
             await self.db.commit()
         except IntegrityError as error:
             await self.db.rollback()
@@ -270,11 +264,7 @@ class TabService:
         except Exception:
             await self.db.rollback()
             raise
-        jobs = [
-            TabJobDTO(tab_id=tab.id, job_id=job.id)
-            for tab, job in zip(tabs, persisted_jobs, strict=True)
-        ]
-        return [await self._to_dto(tab) for tab in tabs], jobs
+        return [await self._to_dto(tab) for tab in tabs]
 
     async def update(self, tab_id: str, dto: TabUpdateDTO) -> TabDTO:
         """Patch a Saved Tab; archiving clears its Group, and restoring clears archive time.

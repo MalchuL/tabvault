@@ -1,5 +1,7 @@
 # Search indexes resolved custom properties behind a provider boundary
 
+Synchronization/indexing details superseded by [ADR 0017](0017-generic-library-sync-and-custom-properties.md).
+
 Search includes resolved Custom Property Values, including schema defaults, in both free-text
 matching and typed property predicates while the relational database remains authoritative. A small
 injected search-provider boundary contains the current local implementation and permits a future

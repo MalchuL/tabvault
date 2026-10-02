@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 
 from api.main import create_app
 from config.settings import get_settings
-from domain.jobs.worker import JobWorker
 
 
 @pytest.fixture
@@ -16,11 +15,6 @@ def client(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setenv("TABVAULT_HTTP__API_KEY", "test-key")
     get_settings.cache_clear()
 
-    async def no_worker(_worker: JobWorker) -> None:
-        return None
-
-    monkeypatch.setattr(JobWorker, "start", no_worker)
-    monkeypatch.setattr(JobWorker, "stop", no_worker)
     with TestClient(create_app()) as value:
         response = value.post(
             "/api/v1/property-schema",

@@ -33,6 +33,10 @@ from mcp_tabvault.domain.tags import tools as tag_tools
 from mcp_tabvault.server import lifespan, mcp
 
 TOOLS = {
+    "property_schema",
+    "define_property",
+    "delete_property",
+    "unset_properties",
     "list_tabs",
     "search_tabs",
     "get_tab",
@@ -90,7 +94,7 @@ async def test_tools_have_id_free_typed_contracts_and_safety_annotations() -> No
         assert parameters["limit"]["maximum"] == (50 if name == "search_tabs" else 100)
         if name != "search_tabs":
             assert parameters["offset"]["minimum"] == 0
-    assert by_name["save_tab"].annotations.open_world_hint is True
+    assert by_name["save_tab"].annotations.open_world_hint is False
     for name in ("update_tab", "update_group", "delete_tab", "delete_group"):
         assert by_name[name].annotations.destructive_hint is True
         assert by_name[name].annotations.idempotent_hint is False
@@ -165,12 +169,8 @@ async def test_structured_output_keeps_rfc3339_timestamps(
 
     async def search(*_args: object, **_kwargs: object) -> SearchResponseDTO:
         return SearchResponseDTO(
-            data=SearchDataDTO(
-                results=[
-                    SearchItemDTO(tab=parsed, score=1, match_type="keyword", matched_on="title")
-                ]
-            ),
-            meta=SearchMetaDTO(query_embedding_ms=1, search_ms=2),
+            data=SearchDataDTO(results=[SearchItemDTO(tab=parsed, score=1, matched_on="title")]),
+            meta=SearchMetaDTO(search_ms=2),
         )
 
     async def visible():

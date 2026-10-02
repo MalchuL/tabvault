@@ -40,8 +40,6 @@ def test_single_tab_dto_preserves_url_and_uses_camel_case_aliases() -> None:
     )
     assert body.content.url == original
     assert body.placement.group_id == "group"
-    assert body.annotations.note == ""
-    assert body.annotations.agent_review == ""
     assert body.annotations.custom_properties == {}
     assert json_data(success(body))["data"]["placement"]["groupId"] == "group"
 
@@ -91,8 +89,8 @@ def test_grouped_model_and_core_mapper_conversions() -> None:
     assert serialized["timestamps"]["createdAt"].endswith("Z")
     assert serialized["timestamps"]["updatedAt"].endswith("Z")
     assert TabMapper.to_update_dict(
-        TabUpdateDTO.model_validate({"annotations": {"note": None}})
-    ) == {"note": ""}
+        TabUpdateDTO.model_validate({"annotations": {"customProperties": {"note": ""}}})
+    ) == {"custom_properties": {"note": ""}}
     assert set(
         TabMapper.to_projection(tab, "minimal", {"viewed": False}).model_dump(
             exclude_unset=True, by_alias=True
@@ -117,17 +115,13 @@ def test_transfer_mapper_uses_schema_v4_fields() -> None:
             "id": "tab",
             "content": {"url": "https://example.com/?a=1#b", "title": "Tab"},
             "placement": {"group_id": "group"},
-            "annotations": {"tags": []},
+            "annotations": {"tags": [], "customProperties": {}},
         }
     )
     tab = mapper.tab_from_dto(tab_dto, [])
     assert tab.content.url == tab_dto.content.url
     assert tab.placement.group_id == "group"
-    assert (
-        tab.annotations.note == ""
-        and tab.annotations.agent_review == ""
-        and (tab.annotations.custom_properties == {})
-    )
+    assert tab.annotations.custom_properties == {}
     naive_group = TransferGroupDTO.model_validate(
         {
             "id": "group",
@@ -148,7 +142,6 @@ def test_services_and_controllers_keep_database_operations_in_repositories() -> 
     for path in [
         *source_root.glob("domain/*/service.py"),
         *source_root.glob("domain/*/controller.py"),
-        source_root / "domain/previews/service.py",
         source_root / "domain/transfer/service.py",
     ]:
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -213,4 +206,4 @@ def test_grouped_settings_read_nested_environment_names(monkeypatch, tmp_path) -
     settings = Settings()
     assert settings.http.api_key == "local-test-key"
     assert settings.http.cors_origins == ["https://one.example", "https://two.example"]
-    assert settings.storage.asset_dir == tmp_path / "assets"
+    assert settings.storage.data_dir == tmp_path

@@ -3,11 +3,8 @@ import { IconButton } from "@/components/shared/IconButton";
 import { ContextHelp } from "@/components/shared/ContextHelp";
 import {
   Boxes,
-  Check,
-  ListChecks,
   SlidersHorizontal,
   ChevronRight,
-  Eye,
   LayoutList,
   Rows3,
   Search,
@@ -73,15 +70,12 @@ export function LibraryHeader({
 /** Search state and handlers for LibraryResultSummaryProps. */
 type LibraryResultSummarySearch = {
   query: string;
-  isRemoteSearching: boolean;
   visibleCount: number;
-  isSemanticSearch: boolean;
   searchStatusCopy: string;
 };
 /** Workspace page state for LibraryResultSummaryProps. */
 type LibraryResultSummaryPage = {
   isAllTabsPage: boolean;
-  isGroupBoard: boolean;
 };
 /** Duplicate cleanup state for LibraryResultSummaryProps. */
 type LibraryResultSummaryCleanup = {
@@ -89,46 +83,28 @@ type LibraryResultSummaryCleanup = {
   onQuickClean: () => void;
   onAdvancedDedupe: () => void;
 };
-/** Selection state and handlers for LibraryResultSummaryProps. */
-type LibraryResultSummarySelection = {
-  selectionMode: boolean;
-  onToggleSelectionMode: () => void;
-};
 type LibraryResultSummaryProps = {
   search: LibraryResultSummarySearch;
   page: LibraryResultSummaryPage;
   cleanup: LibraryResultSummaryCleanup;
-  selection: LibraryResultSummarySelection;
 };
 
 /**
- * Show result counts, cleanup actions, and the selection toggle.
- * Cleanup and selection controls retain their search and board visibility rules.
+ * Show result counts and duplicate-cleanup actions.
  * @param {LibraryResultSummaryProps} props - Display values and callbacks supplied by the owner.
  * @returns {React.ReactElement} Result count and available workspace actions.
  */
 export function LibraryResultSummary({
-  search: {
-    query,
-    isRemoteSearching,
-    visibleCount,
-    isSemanticSearch,
-    searchStatusCopy,
-  },
-  page: { isAllTabsPage, isGroupBoard },
+  search: { query, visibleCount, searchStatusCopy },
+  page: { isAllTabsPage },
   cleanup: { isQuickCleaning, onQuickClean, onAdvancedDedupe },
-  selection: { selectionMode, onToggleSelectionMode },
 }: LibraryResultSummaryProps) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <h2 className="font-['DM_Sans'] text-sm font-semibold tracking-[-0.02em]">
-            {query
-              ? isRemoteSearching
-                ? "Searching local knowledge…"
-                : `${visibleCount} ${isSemanticSearch ? "matched on meaning" : "matched locally"}`
-              : `${visibleCount} tabs`}
+            {query ? `${visibleCount} matches` : `${visibleCount} tabs`}
           </h2>
         </div>
       </div>
@@ -156,16 +132,6 @@ export function LibraryResultSummary({
             </IconButton>
           </>
         )}
-        {!query && !isGroupBoard && (
-          <IconButton
-            label={selectionMode ? "Done selecting" : "Select tabs"}
-            aria-pressed={selectionMode}
-            onClick={onToggleSelectionMode}
-            className={selectionMode ? "bg-[#fff0ea] text-[#c84b26]" : ""}
-          >
-            {selectionMode ? <Check /> : <ListChecks />}
-          </IconButton>
-        )}
       </div>
     </div>
   );
@@ -178,7 +144,6 @@ type LibraryViewControlsProps = {
 
 /**
  * Show library display modes and reordering guidance.
- * The workspace handles selection resets when switching to the collection board.
  * @param {LibraryViewControlsProps} props - Display values and callbacks supplied by the owner.
  * @returns {React.ReactElement} View-mode buttons and reordering help.
  */
@@ -195,9 +160,8 @@ export function LibraryViewControls({
           align="start"
         >
           Standard shows details, Compact shows only a favicon and title, and
-          Instant Preview renders a readable article card when page content is
-          available. Group board summarizes collections. Drag a row by its
-          handle to change its order within that collection.
+          Group board summarizes collections. Drag a row by its handle to change
+          its order within that collection.
         </ContextHelp>
       </p>
       <div
@@ -228,14 +192,6 @@ export function LibraryViewControls({
           aria-pressed={tabView === "compact"}
         >
           <Rows3 className="h-3.5 w-3.5" />
-        </IconButton>
-        <IconButton
-          onClick={() => onViewChange("preview")}
-          className={`border-l border-[#d9d3c6] p-2 ${tabView === "preview" ? "bg-[#edf2ea] text-[#36533a]" : "text-[#858980] hover:bg-[#f7f4ed]"}`}
-          label="Instant-preview tab view"
-          aria-pressed={tabView === "preview"}
-        >
-          <Eye className="h-3.5 w-3.5" />
         </IconButton>
       </div>
     </div>
@@ -274,7 +230,7 @@ export function LibraryEmptyState({
           ? "Archived links remain recoverable here until you permanently delete them."
           : isHiddenPage && !query
             ? "Tabs with future hide deadlines appear here."
-            : "Try a topic, note, or tag. Semantic search understands related language."}
+            : "Try a topic, note, or tag. Search includes custom-property values."}
       </p>
     </div>
   );

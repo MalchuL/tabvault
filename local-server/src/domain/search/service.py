@@ -6,21 +6,16 @@ import time
 from domain.custom_properties.dto import matches_type
 from domain.custom_properties.error import InvalidCustomPropertiesError
 from domain.custom_properties.service import CustomPropertyService
-from domain.indexing.vector_index import LocalVectorIndex
 from domain.tabs.mapper import TabMapper
-from lib.responses import WarningDTO
 from lib.time import utc_now
 
 from .dto import (
     PropertyFilterDTO,
     SearchItemDTO,
     SearchMatchedOn,
-    SearchMatchType,
     SearchMetaDTO,
-    SearchMode,
     SearchResultDTO,
 )
-from .error import SemanticUnavailableError
 from .repository import SearchRepository
 
 
@@ -28,7 +23,6 @@ class SearchService:
     """Search active tabs using keyword and optional vector scores.
 
     Attributes:
-        vectors (LocalVectorIndex): Shared local vector index used for semantic search and indexing.
         repository (SearchRepository): Persistence adapter retained for this service instance.
         custom_properties (CustomPropertyService): Service that validates the current library property schema.
         mapper (TabMapper): Stateless converter between ORM rows and API DTOs.
@@ -36,19 +30,16 @@ class SearchService:
 
     def __init__(
         self,
-        vectors: LocalVectorIndex,
         repository: SearchRepository,
         custom_properties: CustomPropertyService,
     ) -> None:
         """Initialize search dependencies.
 
         Args:
-            vectors (LocalVectorIndex): Vector index used for semantic search.
             repository (SearchRepository): Persistence adapter used by this service.
             custom_properties (CustomPropertyService): Service that validates library custom
                 properties.
         """
-        self.vectors = vectors
         self.repository = repository
         self.custom_properties = custom_properties
         self.mapper = TabMapper()
@@ -56,22 +47,18 @@ class SearchService:
     async def search(
         self,
         query: str,
-        mode: SearchMode,
         limit: int,
         group_id: str | None,
         tags: list[str],
-        min_score: float,
         property_filters: list[PropertyFilterDTO] | None = None,
     ) -> SearchResultDTO:
         """Filter and score matching active tabs.
 
         Args:
             query (str): Search text or structured search request.
-            mode (SearchMode): Selected search or import mode.
             limit (int): Maximum number of results to return.
             group_id (str | None): Collection ID or null for Unassigned.
             tags (list[str]): Tag filters or associations for the operation.
-            min_score (float): Lowest semantic similarity score accepted.
             property_filters (list[PropertyFilterDTO] | None): Custom-property predicates
                 applied to matching tabs.
 
@@ -80,7 +67,6 @@ class SearchService:
 
         Raises:
             InvalidCustomPropertiesError: A custom-property filter is invalid.
-            SemanticUnavailableError: Semantic search is requested but its index cannot run.
         """
         started = time.perf_counter()
         rows = await self.repository.candidates(group_id, tags, utc_now())
@@ -125,8 +111,6 @@ class SearchService:
             fields: dict[SearchMatchedOn, str] = {
                 "title": row.content.title.lower(),
                 "url": row.content.url.lower(),
-                "note": (row.annotations.note or "").lower(),
-                "agentReview": row.annotations.agent_review.lower(),
                 "customProperties": json.dumps(
                     self.custom_properties.resolve_values(
                         row.annotations.custom_properties, definitions
@@ -144,49 +128,8 @@ class SearchService:
                 name, count = "tags", tag_count
             if count:
                 keyword[row.id] = (count / max(len(terms), 1), name)
-        semantic: dict[str, float] = {}
-        warnings: list[WarningDTO] = []
-        embedding_ms = 0
-        if mode in {"semantic", "hybrid"}:
-            embedding_started = time.perf_counter()
-            try:
-                semantic = {
-                    tab_id: score
-                    for tab_id, score in await self.vectors.search(query, max(limit * 4, 50))
-                    if tab_id in by_id and score >= min_score
-                }
-            except Exception as error:
-                if mode == "semantic":
-                    raise SemanticUnavailableError(str(error)) from error
-                warnings.append(
-                    WarningDTO(
-                        code="W_SEMANTIC_UNAVAILABLE",
-                        path="query.mode",
-                        message=str(error),
-                    )
-                )
-            embedding_ms = round((time.perf_counter() - embedding_started) * 1000)
-        ids = set(keyword if mode != "semantic" else ()) | set(
-            semantic if mode != "keyword" else ()
-        )
         results: list[SearchItemDTO] = []
-        for tab_id in ids:
-            keyword_score = keyword.get(tab_id, (0.0, ""))[0]
-            semantic_score = semantic.get(tab_id, 0.0)
-            score = (
-                keyword_score
-                if mode == "keyword" or not semantic
-                else semantic_score
-                if mode == "semantic"
-                else 0.65 * semantic_score + 0.35 * keyword_score
-            )
-            match_type: SearchMatchType = (
-                "both"
-                if tab_id in keyword and tab_id in semantic
-                else "semantic"
-                if tab_id in semantic
-                else "keyword"
-            )
+        for tab_id, (score, matched_on) in keyword.items():
             results.append(
                 SearchItemDTO(
                     tab=self.mapper.to_dto(
@@ -196,16 +139,14 @@ class SearchService:
                         ),
                     ),
                     score=round(score, 4),
-                    match_type=match_type,
-                    matched_on=keyword.get(tab_id, (0, "semantic"))[1],
+                    matched_on=matched_on,
                 )
             )
-        results.sort(key=lambda item: item.score, reverse=True)
+        results.sort(key=lambda item: (-item.score, item.tab.id))
         return SearchResultDTO(
             results=results[:limit],
             meta=SearchMetaDTO(
-                query_embedding_ms=embedding_ms,
                 search_ms=round((time.perf_counter() - started) * 1000),
             ),
-            warnings=warnings,
+            warnings=[],
         )

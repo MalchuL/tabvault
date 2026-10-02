@@ -40,7 +40,7 @@ async def test_batch_create_preserves_occurrences_and_rolls_back_as_one_unit(
         repository = TabRepository(db)
         service = TabService(db, repository)
         exact_url = "https://example.com/exact?x=1#part"
-        tabs, jobs = await service.create_batch(
+        tabs = await service.create_batch(
             TabBatchCreateDTO(
                 tabs=[
                     TabCreateDTO.model_validate(
@@ -63,7 +63,6 @@ async def test_batch_create_preserves_occurrences_and_rolls_back_as_one_unit(
         assert [tab.id for tab in tabs] == ["batch-one", "batch-two"]
         assert [tab.content.url for tab in tabs] == [exact_url, exact_url]
         assert [tab.placement.position for tab in tabs] == [0.0, 1.0]
-        assert [job.tab_id for job in jobs] == ["batch-one", "batch-two"]
         with pytest.raises(DuplicateTabIdError):
             await service.create_batch(
                 TabBatchCreateDTO(

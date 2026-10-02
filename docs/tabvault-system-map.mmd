@@ -1,11 +1,8 @@
 flowchart LR
-  Browser["TabVault Web App\n(localStorage fallback)"]
-  Extension["Chrome MV3 Extension\n(chrome.storage.local)"]
-  API["Authenticated FastAPI\n(JSON library + import/export)"]
-  Index["On-device semantic index\n(Ollama-compatible embeddings)"]
-  MCP["TypeScript MCP Bridge\n(agent tools)"]
-
-  Browser -->|"Bearer-authenticated sync"| API
-  Extension -->|"Capture, sync, health alarms"| API
-  API <--> Index
-  MCP -->|"Bearer-authenticated API calls"| API
+  UI[React/Vite library] --> Store[Serialized local commit and pending changes]
+  Extension[Chrome capture] --> Store
+  Store --> Sync[Transactional sync API]
+  MCP[MCP tools] --> API[Resource API]
+  Sync --> DB[(SQLite library and tombstones)]
+  API --> DB
+  DB --> Backup[JSON backups]

@@ -1,336 +1,299 @@
-import { Plus, Save, X } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
+import { NativeSelect } from "@/components/ui/native-select";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { DialogHeading, Field } from "../shared/DialogParts";
+import {
+  matchesPropertyType,
+  resolveProperty,
+} from "@/domain/library/properties";
 import type {
   CustomPropertySchema,
   VaultGroup,
   VaultTab,
 } from "@/domain/library/types";
-import {
-  DialogHeading,
-  Field,
-} from "@/domain/library/components/shared/DialogParts";
-
-/** Tags for EditTabDialogProps. */
-type EditTabDialogTags = {
-  tagDraft: string;
-  tagSuggestions: string[];
-  tagCatalog: Record<string, string>;
-  onTagDraftChange: (tag: string) => void;
-  onAddTag: () => void;
-};
-/** Interaction handlers for EditTabDialogProps. */
-type EditTabDialogActions = {
-  onChange: (tab: VaultTab) => void;
-  onClose: () => void;
-  onSave: () => void;
-};
-type EditTabDialogProps = {
+type Props = {
   tab: VaultTab;
   groups: VaultGroup[];
   propertySchema: CustomPropertySchema;
-  tags: EditTabDialogTags;
-  actions: EditTabDialogActions;
+  actions: {
+    onChange: (tab: VaultTab) => void;
+    onClose: () => void;
+    onSave: (tab: VaultTab) => Promise<void>;
+  };
 };
-
-/**
- * Edit saved-tab details and custom property values.
- * Session groups are excluded as move destinations while the current assignment remains visible.
- * @param {EditTabDialogProps} props - Tab, available groups, tag and property data, and edit callbacks.
- * @returns {React.ReactElement} Saved-tab editor dialog.
- */
+/** Edit schema-defined values with validated drafts and explicit default resets. @param {Props} props - Current draft, definitions, and save callbacks. @returns {React.ReactElement} Edit dialog. */
 export function EditTabDialog({
   tab,
   groups,
   propertySchema,
-  tags: { tagDraft, tagSuggestions, tagCatalog, onTagDraftChange, onAddTag },
   actions: { onChange, onClose, onSave },
-}: EditTabDialogProps) {
-  const destinationGroups = groups.filter(
-    group => group.details.category !== "session"
-  );
-  const currentGroupIsSession = groups.some(
-    group =>
-      group.id === tab.placement.groupId && group.details.category === "session"
-  );
+}: Props) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [tagsText, setTagsText] = useState(tab.annotations.tags.join(", "));
+  const change = (name: string, value: unknown) =>
+    onChange({
+      ...tab,
+      annotations: {
+        ...tab.annotations,
+        customProperties: {
+          ...tab.annotations.customProperties,
+          [name]: value,
+        },
+      },
+    });
+  const save = async () => {
+    const failures: Record<string, string> = {};
+    const values = { ...tab.annotations.customProperties };
+    for (const [name, raw] of Object.entries(drafts)) {
+      const definition = propertySchema[name];
+      if (!definition) continue;
+      try {
+        const value =
+          definition.type === "string"
+            ? raw
+            : definition.type === "json"
+              ? JSON.parse(raw)
+              : raw.trim()
+                ? Number(raw)
+                : NaN;
+        if (!matchesPropertyType(value, definition.type))
+          throw new Error(`Enter a valid ${definition.type}`);
+        values[name] = value;
+      } catch {
+        failures[name] = `Enter a valid ${definition.type}`;
+      }
+    }
+    if (!tab.content.title.trim()) failures.title = "Enter a title";
+    try {
+      const url = new URL(tab.content.url);
+      if (!["http:", "https:"].includes(url.protocol)) throw new Error();
+    } catch {
+      failures.url = "Enter an HTTP(S) URL";
+    }
+    setErrors(failures);
+    if (Object.keys(failures).length) return;
+    setSaving(true);
+    try {
+      await onSave({
+        ...tab,
+        annotations: {
+          ...tab.annotations,
+          tags: [
+            ...new Set(
+              tagsText
+                .split(",")
+                .map(t => t.trim())
+                .filter(Boolean)
+            ),
+          ],
+          customProperties: values,
+        },
+      });
+    } catch (error) {
+      setErrors({
+        save: error instanceof Error ? error.message : "Could not save tab",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <Dialog open onOpenChange={open => !open && onClose()}>
       <DialogContent
         aria-labelledby={undefined}
         aria-label="Edit tab"
-        className="thin-scrollbar max-h-[calc(100vh-24px)] w-[calc(100%-24px)] max-w-[760px] gap-0 overflow-y-auto rounded-none border-[#ded9cd] bg-[#fffdf8] p-0 shadow-[0_24px_70px_rgba(24,38,31,0.25)]"
+        className="max-h-[90vh] max-w-2xl overflow-y-auto bg-[#fffdf8]"
       >
-        <div className="sticky top-0 z-10 border-b border-[#ded9cd] bg-[#fffdf8]/95 px-5 py-4 backdrop-blur sm:px-6">
-          <DialogHeading eyebrow="Tab record" title="Edit saved tab" />
-          <DialogDescription className="sr-only">
-            Update this saved tab’s details and collection.
-          </DialogDescription>
-        </div>
-        <div className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6">
-          <Field label="Title" className="sm:col-span-2">
-            <Input
-              value={tab.content.title}
-              onChange={event =>
-                onChange({
-                  ...tab,
-                  content: { ...tab.content, title: event.target.value },
-                })
-              }
-              className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[13px] font-semibold outline-none focus:border-[#e95224]"
-            />
-          </Field>
-          <Field label="URL" className="sm:col-span-2">
-            <Input
-              value={tab.content.url}
-              onChange={event =>
-                onChange({
-                  ...tab,
-                  content: { ...tab.content, url: event.target.value },
-                })
-              }
-              className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 font-mono text-[11px] outline-none focus:border-[#e95224]"
-            />
-          </Field>
-          <Field label="Note" className="sm:col-span-2">
-            <Textarea
-              value={tab.annotations.note}
-              onChange={event =>
-                onChange({
-                  ...tab,
-                  annotations: { ...tab.annotations, note: event.target.value },
-                })
-              }
-              rows={4}
-              className="mt-2 w-full resize-none border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 text-[12px] leading-5 outline-none focus:border-[#e95224]"
-            />
-          </Field>
-          <Field label="Agent review" className="sm:col-span-2">
-            <Textarea
-              value={tab.annotations.agentReview}
-              onChange={event =>
-                onChange({
-                  ...tab,
-                  annotations: {
-                    ...tab.annotations,
-                    agentReview: event.target.value,
-                  },
-                })
-              }
-              rows={4}
-              placeholder="Summary or additional context written by an AI agent"
-              className="mt-2 w-full resize-none border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 text-[12px] leading-5 outline-none focus:border-[#e95224]"
-            />
-          </Field>
-          <div>
-            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-              Viewed
-            </span>
-            <label className="mt-2 flex items-center gap-2 py-3 text-[12px] font-semibold text-[#3f4e44]">
-              <Checkbox
-                checked={tab.annotations.viewed}
-                onCheckedChange={checked =>
-                  onChange({
-                    ...tab,
-                    annotations: {
-                      ...tab.annotations,
-                      viewed: checked === true,
-                    },
-                  })
-                }
-                className="h-4 w-4 accent-[#e95224]"
-              />
-              Mark as viewed
-            </label>
-          </div>
-          {Object.entries(propertySchema)
-            .filter(([name]) => name !== "viewed")
-            .map(([name, definition]) => {
-              const value =
-                tab.annotations.customProperties[name] ?? definition.default;
-              /**
-               * Update an edited tab's custom property.
-               *
-               * Replace the property selected by this row while retaining the other draft values.
-               * @param {unknown} next - Replacement value for the current custom property.
-               */
-              const update = (next: unknown) =>
-                onChange({
-                  ...tab,
-                  annotations: {
-                    ...tab.annotations,
-                    customProperties: {
-                      ...tab.annotations.customProperties,
-                      [name]: next,
-                    },
-                  },
-                });
-              return (
-                <Field key={name} label={name}>
-                  {definition.type === "boolean" ? (
-                    <Checkbox
-                      checked={Boolean(value)}
-                      onCheckedChange={checked => update(checked === true)}
-                      className="mt-4 h-4 w-4 accent-[#e95224]"
-                    />
-                  ) : definition.type === "json" ? (
-                    <Textarea
-                      defaultValue={JSON.stringify(value, null, 2)}
-                      onBlur={event => {
-                        try {
-                          update(JSON.parse(event.target.value));
-                        } catch {
-                          event.target.setCustomValidity("Enter valid JSON");
-                          event.target.reportValidity();
-                        }
-                      }}
-                      className="mt-2 w-full border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 font-mono text-[11px]"
-                    />
-                  ) : (
-                    <Input
-                      type={
-                        definition.type === "int" || definition.type === "float"
-                          ? "number"
-                          : "text"
-                      }
-                      step={definition.type === "int" ? "1" : "any"}
-                      value={String(value)}
-                      onChange={event =>
-                        update(
-                          definition.type === "string"
-                            ? event.target.value
-                            : Number(event.target.value)
-                        )
-                      }
-                      className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[12px]"
-                    />
-                  )}
-                  {definition.description ? (
-                    <span className="mt-1 block text-[10px] text-[#858980]">
-                      {definition.description}
-                    </span>
-                  ) : null}
-                </Field>
-              );
-            })}
-          <Field label="Collection">
-            <NativeSelect
-              value={
-                currentGroupIsSession
-                  ? "current-session"
-                  : (tab.placement.groupId ?? "")
-              }
-              onChange={event =>
-                onChange({
-                  ...tab,
-                  placement: {
-                    ...tab.placement,
-                    groupId: event.target.value || null,
-                  },
-                })
-              }
-              className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[12px] font-semibold outline-none focus:border-[#e95224]"
-            >
-              {currentGroupIsSession ? (
-                <option value="current-session" disabled>
-                  Move from current session…
-                </option>
-              ) : null}
-              <option value="">[Unassigned]</option>
-              {destinationGroups.map(group => (
-                <option key={group.id} value={group.id}>
-                  {group.details.name}
+        <DialogHeading eyebrow="Tab record" title="Edit saved tab" />
+        <DialogDescription>
+          Update details and custom properties for this saved occurrence.
+        </DialogDescription>
+        <Field label="Title">
+          <Input
+            aria-label="Title"
+            value={tab.content.title}
+            onChange={e =>
+              onChange({
+                ...tab,
+                content: { ...tab.content, title: e.target.value },
+              })
+            }
+          />
+        </Field>
+        {errors.title && <p role="alert">{errors.title}</p>}
+        <Field label="URL">
+          <Input
+            aria-label="URL"
+            value={tab.content.url}
+            onChange={e =>
+              onChange({
+                ...tab,
+                content: { ...tab.content, url: e.target.value },
+              })
+            }
+          />
+        </Field>
+        {errors.url && <p role="alert">{errors.url}</p>}
+        <Field label="Collection">
+          <NativeSelect
+            aria-label="Collection"
+            value={tab.placement.groupId ?? ""}
+            disabled={tab.lifecycle.archived}
+            onChange={e =>
+              onChange({
+                ...tab,
+                placement: {
+                  ...tab.placement,
+                  groupId: e.target.value || null,
+                },
+              })
+            }
+          >
+            <option value="">[Unassigned]</option>
+            {groups
+              .filter(
+                g =>
+                  g.details.category === "manual" ||
+                  g.id === tab.placement.groupId
+              )
+              .map(g => (
+                <option key={g.id} value={g.id}>
+                  {g.details.name}
                 </option>
               ))}
-            </NativeSelect>
-          </Field>
-          <div>
-            <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[#858980]">
-              Tags
-            </span>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {tab.annotations.tags.map(tag => (
-                <span
-                  key={tag}
-                  className="inline-flex items-center gap-1 rounded border border-[#ded9cd] bg-[#f9f7f1] px-2 py-1 font-mono text-[9px] text-[#667067]"
+          </NativeSelect>
+        </Field>
+        <Field label="Tags">
+          <Input
+            aria-label="Tags"
+            value={tagsText}
+            onChange={e => setTagsText(e.target.value)}
+          />
+        </Field>
+        <section
+          aria-label="Custom properties"
+          className="space-y-4 border-t pt-4"
+        >
+          <h3 className="font-semibold">Custom properties</h3>
+          {!Object.keys(propertySchema).length && (
+            <p className="text-sm text-[#687067]">
+              No properties defined. Add definitions on the Custom Properties
+              page or through MCP.
+            </p>
+          )}
+          {Object.entries(propertySchema).map(([name, definition]) => {
+            const value = resolveProperty(
+              tab.annotations.customProperties,
+              propertySchema,
+              name
+            );
+            const overridden =
+              Object.hasOwn(tab.annotations.customProperties, name) ||
+              Object.hasOwn(drafts, name);
+            const raw =
+              drafts[name] ??
+              (definition.type === "json"
+                ? JSON.stringify(value, null, 2)
+                : String(value));
+            return (
+              <div key={name}>
+                <label
+                  htmlFor={`property-${name}`}
+                  className="block font-medium"
                 >
-                  {tag}
+                  {name}
+                </label>
+                <p className="text-xs text-[#687067]">
+                  {definition.description} ·{" "}
+                  {overridden ? "Explicit value" : "Using default"}
+                </p>
+                {definition.type === "boolean" ? (
+                  <input
+                    id={`property-${name}`}
+                    type="checkbox"
+                    checked={value === true}
+                    onChange={e => change(name, e.target.checked)}
+                  />
+                ) : definition.type === "int" || definition.type === "float" ? (
+                  <Input
+                    id={`property-${name}`}
+                    type="number"
+                    step={definition.type === "int" ? "1" : "any"}
+                    value={raw}
+                    onChange={e =>
+                      setDrafts(d => ({ ...d, [name]: e.target.value }))
+                    }
+                  />
+                ) : (
+                  <Textarea
+                    id={`property-${name}`}
+                    rows={definition.type === "json" ? 5 : 3}
+                    value={raw}
+                    className={definition.type === "json" ? "font-mono" : ""}
+                    onChange={e =>
+                      setDrafts(d => ({ ...d, [name]: e.target.value }))
+                    }
+                  />
+                )}
+                {errors[name] && (
+                  <p role="alert" className="text-sm text-red-700">
+                    {errors[name]}
+                  </p>
+                )}
+                {overridden && (
                   <Button
                     variant="ghost"
-                    size="icon-sm"
-                    onClick={() =>
+                    size="sm"
+                    onClick={() => {
+                      const values = { ...tab.annotations.customProperties };
+                      delete values[name];
+                      const draft = { ...drafts };
+                      delete draft[name];
+                      setDrafts(draft);
                       onChange({
                         ...tab,
                         annotations: {
                           ...tab.annotations,
-                          tags: tab.annotations.tags.filter(
-                            item => item !== tag
-                          ),
+                          customProperties: values,
                         },
-                      })
-                    }
-                    className="text-[#989990] hover:text-[#e95224]"
-                    aria-label={`Remove ${tag}`}
+                      });
+                    }}
                   >
-                    <X className="h-3 w-3" />
+                    Use default for {name}
                   </Button>
-                </span>
-              ))}
-            </div>
-            <div className="mt-2 flex">
-              <Input
-                value={tagDraft}
-                onChange={event => onTagDraftChange(event.target.value)}
-                onKeyDown={event => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    onAddTag();
-                  }
-                }}
-                list="tag-catalog-suggestions"
-                placeholder="Search or create tag"
-                aria-label="Search or create tag"
-                className="min-w-0 flex-1 border-b border-[#bcb6a8] bg-transparent px-1 py-2 text-[11px] outline-none focus:border-[#e95224]"
-              />
-              <datalist id="tag-catalog-suggestions">
-                {tagSuggestions.map(tag => (
-                  <option key={tag} value={tag}>
-                    {tagCatalog[tag]}
-                  </option>
-                ))}
-              </datalist>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={onAddTag}
-                className="px-2 text-[#e95224] hover:bg-[#fff0ea]"
-                aria-label="Add tag"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-col-reverse gap-3 border-t border-[#ded9cd] bg-[#f9f7f1] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <Button
-            variant="ghost"
-            onClick={onClose}
-            className="text-left text-[11px] font-bold text-[#697068] hover:text-[#18261f]"
-          >
+                )}
+              </div>
+            );
+          })}
+          {Object.entries(tab.annotations.customProperties)
+            .filter(([name]) => !propertySchema[name])
+            .map(([name, value]) => (
+              <div key={name}>
+                <p>
+                  {name} <span className="text-xs">Undeclared · retained</span>
+                </p>
+                <pre className="overflow-auto text-xs">
+                  {JSON.stringify(value, null, 2)}
+                </pre>
+              </div>
+            ))}
+        </section>
+        {errors.save && <p role="alert">{errors.save}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            onClick={onSave}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-[#e95224] px-3 py-2 text-[11px] font-bold text-white hover:bg-[#d94a1e]"
-          >
-            <Save className="h-3.5 w-3.5" /> Save tab
+          <Button disabled={saving} onClick={() => void save()}>
+            Save tab
           </Button>
         </div>
       </DialogContent>

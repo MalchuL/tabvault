@@ -1,1 +1,1 @@
-"""Search, transfer, jobs, previews, backups, and health."""
+"""Library health and public metadata."""

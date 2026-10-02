@@ -188,6 +188,7 @@ export function GroupSeparator({
               size="icon-sm"
               type="button"
               onClick={() => onEdit?.(groupId)}
+              disabled={groupId === "unassigned"}
               className="size-6 rounded p-1 text-[#7b8078] hover:bg-white hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
               aria-label={`Edit ${groupName}`}
               title="Edit collection"

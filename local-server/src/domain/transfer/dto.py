@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import Any, Literal, TypeAlias
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from domain.custom_properties.dto import PropertyDefinitionDTO, is_json_value
 from lib.dto_config import DTO, model_config
 from lib.responses import IssueDTO, WarningDTO
 
@@ -67,7 +68,7 @@ class TransferGroupDetailsDTO(DTO):
 class TransferGroupPlacementDTO(DTO):
     """Placement fields for TransferGroupDTO."""
 
-    position: float = 0
+    position: float = Field(default=0, ge=0, allow_inf_nan=False)
 
 
 class TransferGroupTimestampsDTO(DTO):
@@ -91,23 +92,38 @@ class TransferTabContentDTO(DTO):
 
     url: str
     title: str
-    favicon: str | None = None
 
 
 class TransferTabAnnotationsDTO(DTO):
     """Annotations fields for TransferTabDTO."""
 
-    note: str | None = None
-    agent_review: str | None = ""
     custom_properties: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
+
+    @field_validator("custom_properties")
+    @classmethod
+    def finite_json(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Preserve raw values while rejecting non-JSON data.
+
+        Args:
+            value (dict[str, Any]): Explicit overrides, including undeclared names.
+
+        Returns:
+            dict[str, Any]: Finite JSON values unchanged.
+
+        Raises:
+            ValueError: An override cannot be represented in JSON.
+        """
+        if not is_json_value(value):
+            raise ValueError("customProperties must contain finite JSON values")
+        return value
 
 
 class TransferTabPlacementDTO(DTO):
     """Placement fields for TransferTabDTO."""
 
     group_id: str | None = None
-    position: float = 0
+    position: float = Field(default=0, ge=0, allow_inf_nan=False)
 
 
 class TransferTabLifecycleDTO(DTO):
@@ -145,12 +161,32 @@ class TransferDocumentLibraryDTO(DTO):
 
 
 class TransferDocumentDTO(DTO):
-    """Complete schema-v4 portable library document. Fields are grouped by responsibility."""
+    """Complete schema-v5 portable library document. Fields are grouped by responsibility."""
 
-    schema_version: Literal[4] = 4
+    schema_version: Literal[5] = 5
     exported_at: datetime | None = None
     property_schema: dict[str, Any] = Field(default_factory=dict)
     library: TransferDocumentLibraryDTO = Field(default_factory=TransferDocumentLibraryDTO)
+
+    @field_validator("property_schema")
+    @classmethod
+    def validated_definitions(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Validate each keyed definition before an import can stage writes.
+
+        Args:
+            value (dict[str, Any]): Names mapped to complete definitions.
+
+        Returns:
+            dict[str, Any]: Validated definitions with normalized optional descriptions.
+        """
+        definitions = {}
+        for name, definition in value.items():
+            if not isinstance(definition, dict):
+                raise ValueError("Property definitions must be objects")
+            definitions[name] = PropertyDefinitionDTO.model_validate(
+                {**definition, "name": name}
+            ).model_dump(exclude={"name"})
+        return definitions
 
 
 class MinimalTransferTabContentDTO(BaseModel):
@@ -158,7 +194,6 @@ class MinimalTransferTabContentDTO(BaseModel):
 
     url: str
     title: str
-    favicon: str | None = None
     model_config = model_config()
 
 
@@ -199,7 +234,7 @@ class MinimalTransferDocumentLibraryDTO(DTO):
 class MinimalTransferDocumentDTO(DTO):
     """Portable document with minimal tab fields. Fields are grouped by responsibility."""
 
-    schema_version: Literal[4] = 4
+    schema_version: Literal[5] = 5
     exported_at: datetime | None = None
     property_schema: dict[str, Any] = Field(default_factory=dict)
     library: MinimalTransferDocumentLibraryDTO

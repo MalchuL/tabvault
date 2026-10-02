@@ -4,11 +4,9 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
-from domain.indexing.vector_index import LocalVectorIndex
 from lib.time import utc_now
 
-from .capabilities import build_capabilities, probe_module
-from .dto import CapabilitiesDTO, HealthDTO, StorageCountsDTO
+from .dto import CapabilitiesDTO, CapabilityDTO, HealthDTO, StorageCountsDTO
 from .repository import SystemRepository
 
 
@@ -16,22 +14,19 @@ class SystemService:
     """Report process health and bundled API metadata.
 
     Attributes:
-        vectors (LocalVectorIndex): Shared local vector index used for semantic search and indexing.
         repository (SystemRepository): Persistence adapter retained for this service instance.
     """
 
-    def __init__(self, vectors: LocalVectorIndex, repository: SystemRepository) -> None:
+    def __init__(self, repository: SystemRepository) -> None:
         """Initialize system health dependencies.
 
         Args:
-            vectors (LocalVectorIndex): Vector index used for semantic search.
             repository (SystemRepository): Persistence adapter used by this service.
         """
-        self.vectors = vectors
         self.repository = repository
 
     async def health(self) -> HealthDTO:
-        """Return process, storage, and vector-index health.
+        """Return process and storage health.
 
         Returns:
             HealthDTO: Current service and library health status.
@@ -40,27 +35,17 @@ class SystemService:
         return HealthDTO(
             status="ok",
             version="0.2.0",
-            schema_version=4,
+            schema_version=5,
             storage=StorageCountsDTO(tabs=tabs, groups=groups, tags=tags),
-            vector_index=self.vectors.status(),
         )
 
     async def capabilities(self) -> CapabilitiesDTO:
-        """Return available keyword, semantic, and vector features.
+        """Return available text search capabilities.
 
         Returns:
-            CapabilitiesDTO: Search and indexing capabilities of this process.
+            CapabilitiesDTO: Text search capabilities of this process.
         """
-        vector = self.vectors.status()
-        semantic_error = (
-            probe_module("sentence_transformers")
-            or probe_module("zvec")
-            or vector.diagnostics.last_error
-        )
-        return build_capabilities(
-            semantic_error=semantic_error,
-            index_ready=vector.status == "ready",
-        )
+        return CapabilitiesDTO(keyword_search=CapabilityDTO(available=True))
 
     @staticmethod
     def schema() -> dict[str, Any]:
@@ -69,7 +54,7 @@ class SystemService:
         Returns:
             dict[str, Any]: Serialized fields keyed for the caller.
         """
-        path = Path(__file__).parents[3] / "schema" / "v4.tabvault.schema.json"
+        path = Path(__file__).parents[3] / "schema" / "v5.tabvault.schema.json"
         return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
 
     @staticmethod

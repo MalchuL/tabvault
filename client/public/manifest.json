@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TabVault — Local Link Library",
-  "description": "A local-first AI-native tab manager with a searchable collection side panel.",
+  "description": "A local-first tab manager with a searchable collection side panel.",
   "version": "0.1.0",
   "action": {
     "default_title": "TabVault fast save",
@@ -14,7 +14,7 @@
   "side_panel": {
     "default_path": "index.html"
   },
-  "permissions": ["sidePanel", "tabs", "storage", "alarms", "notifications"],
+  "permissions": ["sidePanel", "tabs", "storage", "alarms"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "commands": {
     "save-current-tab": {

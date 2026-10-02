@@ -1,285 +1,105 @@
-import { useRef, type SetStateAction } from "react";
-import type {
-  DragEndEvent,
-  DragOverEvent,
-  DragStartEvent,
-} from "@dnd-kit/react";
+import { useRef, useState } from "react";
+import type { DragEndEvent, DragOverEvent } from "@dnd-kit/react";
 import { isSortable } from "@dnd-kit/react/sortable";
-import { toast } from "sonner";
-import { orderKey } from "@/domain/library/codec";
-import {
-  reorderTabsOnLocalServer,
-  updateTabOnLocalServer,
-} from "@/domain/server/libraryApi";
-import type { StorageMode } from "@/domain/server/browserStorage";
-import type {
-  GroupId,
-  LibraryViewMode,
-  VaultGroup,
-  VaultTab,
-} from "@/domain/library/types";
-
-/** Library records and mutation handlers for LibraryDragOptions. */
-type LibraryDragLibrary = {
-  tabs: VaultTab[];
-  renderedTabs: VaultTab[];
-  tabOrders: Record<string, string[]>;
-  setTabs: (value: SetStateAction<VaultTab[]>) => void;
-  setTabOrders: (value: SetStateAction<Record<string, string[]>>) => void;
-  vaultGroups: VaultGroup[];
-};
-/** Storage and server connection state for LibraryDragOptions. */
-type LibraryDragConnection = {
-  storageMode: StorageMode;
-  serverOnline: boolean;
-  setServerOnline: (online: boolean) => void;
-  localServerUrl: string;
-  serverApiKey: string;
-};
-type LibraryDragOptions = {
-  tabView: LibraryViewMode;
-  library: LibraryDragLibrary;
-  connection: LibraryDragConnection;
-};
-
-type LibraryDragBindings = {
-  handleLibraryDragStart: (event: DragStartEvent) => void;
-  handleLibraryDragOver: (event: DragOverEvent) => void;
-  handleLibraryDragEnd: (event: DragEndEvent) => Promise<void>;
-};
-
-/**
- * Keep collection transfers, sortable order, and remote ordering in one controller.
- * The workspace owns tab state; canceled drags restore the pre-drag snapshot.
- * @param {LibraryDragOptions} options - Current library state, state setters, and server connection.
- * @returns {LibraryDragBindings} DnD handlers for collection transfers and order persistence.
+import { moveTab } from "@/domain/library/operations";
+import type { PersistedVault } from "@/domain/library/types";
+type Placement = { id: string; groupId: string | null; beforeId?: string };
+/** Preview cross-group moves in memory and commit only the completed drop.
+ * @param {{vault:PersistedVault;mutate:(update:(vault:PersistedVault)=>PersistedVault)=>Promise<PersistedVault>}} options - Current library and durable command boundary.
+ * @returns {object} Temporary library projection and drag callbacks.
  */
 export function useLibraryDrag({
-  tabView,
-  library: {
-    tabs,
-    renderedTabs,
-    tabOrders,
-    setTabs,
-    setTabOrders,
-    vaultGroups,
-  },
-  connection: {
-    storageMode,
-    serverOnline,
-    setServerOnline,
-    localServerUrl,
-    serverApiKey,
-  },
-}: LibraryDragOptions): LibraryDragBindings {
-  const dragSnapshotRef = useRef<
-    | {
-        tabs: VaultTab[];
-        tabOrders: Record<string, string[]>;
-      }
-    | undefined
-  >(undefined);
-  /**
-   * Capture the state before a library drag.
-   *
-   * The snapshot lets cancellation restore both membership and order after optimistic drag updates.
-   */
+  vault,
+  mutate,
+}: {
+  vault: PersistedVault;
+  mutate: (
+    update: (vault: PersistedVault) => PersistedVault
+  ) => Promise<PersistedVault>;
+}) {
+  const [placement, setPlacement] = useState<Placement | null>(null);
+  const destination = useRef<Placement | null>(null);
+  const preview = placement
+    ? moveTab(vault, placement.id, placement.groupId, placement.beforeId)
+    : vault;
   const handleLibraryDragStart = () => {
-    dragSnapshotRef.current = { tabs, tabOrders };
+    destination.current = null;
+    setPlacement(null);
   };
-
-  /**
-   * Transfer tabs between collections while native sorting handles each list.
-   *
-   * React owns cross-collection moves; insertion uses the pointer so wrapped favicons
-   * land on the requested side. Collection backgrounds and quick-move chips append.
-   * @param {DragOverEvent} event - Source, destination, and current drag position.
-   */
   const handleLibraryDragOver = (event: DragOverEvent) => {
     const { source, target } = event.operation;
-    if (!isSortable(source) || !target) return;
-    const tab = tabs.find(tab => tab.id === source.id);
-    const targetTab = tabs.find(tab => tab.id === target.id);
-    const dropGroupId = targetTab
-      ? targetTab.placement.groupId
-      : target.data.groupId;
-    const groupId = dropGroupId === "unassigned" ? null : dropGroupId;
-    if (!tab || (groupId !== null && typeof groupId !== "string")) return;
-    if (targetTab && tab.placement.groupId === groupId) return;
-
-    // Prevent DOM reparenting: React renders the tab under its new collection.
+    if (!isSortable(source) || !target || source.id === target.id) return;
+    const moving = preview.library.tabs.find(t => t.id === source.id);
+    const targetTab = preview.library.tabs.find(t => t.id === target.id);
+    const raw = targetTab ? targetTab.placement.groupId : target.data.groupId;
+    const groupId = raw === "unassigned" ? null : raw;
+    if (
+      !moving ||
+      moving.lifecycle.archived ||
+      (groupId !== null && typeof groupId !== "string")
+    )
+      return;
+    if (targetTab && moving.placement.groupId === groupId) return; // Native sorting owns positions within the rendered group.
     event.preventDefault();
-    const destinationKey = orderKey(groupId);
-    const pointer = event.operation.position.current;
-    const rect = target.shape?.boundingRectangle;
-    const placeAfter = Boolean(
+    const point = event.operation.position.current,
+      rect = target.shape?.boundingRectangle;
+    const after = Boolean(
       targetTab &&
         rect &&
-        (tabView === "groups"
-          ? pointer.y > rect.bottom ||
-            (pointer.y >= rect.top && pointer.x > rect.left + rect.width / 2)
-          : pointer.y > rect.top + rect.height / 2)
+        (vault.preferences.tabView === "groups"
+          ? point.y > rect.bottom ||
+            (point.y >= rect.top && point.x > rect.left + rect.width / 2)
+          : point.y > rect.top + rect.height / 2)
     );
-    if (tab.placement.groupId !== groupId) {
-      setTabs(current =>
-        current.map(item =>
-          item.id === tab.id
-            ? { ...item, placement: { ...item.placement, groupId } }
-            : item
-        )
-      );
-    }
-    setTabOrders(current => {
-      const next = Object.fromEntries(
-        Object.entries(current).map(([key, ids]) => [
-          key,
-          ids.filter(id => id !== tab.id),
-        ])
-      );
-      const destination = [...(next[destinationKey] ?? [])];
-      const targetIndex = targetTab ? destination.indexOf(targetTab.id) : -1;
-      destination.splice(
-        targetIndex < 0
-          ? destination.length
-          : targetIndex + (placeAfter ? 1 : 0),
-        0,
-        tab.id
-      );
-      return { ...next, [destinationKey]: destination };
-    });
+    const ordered = preview.library.tabs
+      .filter(
+        t =>
+          !t.lifecycle.archived &&
+          t.placement.groupId === groupId &&
+          t.id !== moving.id
+      )
+      .sort((a, b) => a.placement.position - b.placement.position);
+    const beforeId = targetTab
+      ? after
+        ? ordered[ordered.findIndex(t => t.id === targetTab.id) + 1]?.id
+        : targetTab.id
+      : undefined;
+    const next = { id: moving.id, groupId, beforeId };
+    destination.current = next;
+    setPlacement(next);
   };
-
-  /**
-   * Restore the library state after a canceled drag.
-   *
-   * Reapply the pre-drag tabs and ordering, then clear drag tracking references.
-   */
-  const cancelLibraryDrag = () => {
-    if (dragSnapshotRef.current) {
-      setTabs(dragSnapshotRef.current.tabs);
-      setTabOrders(dragSnapshotRef.current.tabOrders);
-    }
-    dragSnapshotRef.current = undefined;
-  };
-
-  /**
-   * Commit the final tab drag position.
-   *
-   * Restore a canceled drop; otherwise persist the destination and affected collection orders to the server in sequence.
-   * @param {DragEndEvent} event - Drag-end event identifying the moved tab and final target.
-   * @returns {Promise<void>} Resolves after remote ordering is saved or reported as failed.
-   */
   const handleLibraryDragEnd = async (event: DragEndEvent) => {
-    const { source: draggable, target } = event.operation;
-    if (event.canceled || !target || !isSortable(draggable)) {
-      cancelLibraryDrag();
-      return;
-    }
-    const snapshot = dragSnapshotRef.current;
-    dragSnapshotRef.current = undefined;
-    const source = tabs.find(tab => tab.id === draggable.id);
-    if (!source) return;
-    const original = snapshot?.tabs.find(tab => tab.id === draggable.id);
-    const movedToAnotherGroup =
-      original?.placement.groupId !== source.placement.groupId;
-    const sourceKey = orderKey(source.placement.groupId);
-    const currentOrder = tabOrders[sourceKey] ?? [];
-    const visibleOrder = renderedTabs.filter(
-      tab => tab.placement.groupId === source.placement.groupId
+    const { source, target } = event.operation;
+    const projected = preview;
+    const crossed = destination.current;
+    destination.current = null;
+    setPlacement(null);
+    if (event.canceled || !target || !isSortable(source)) return;
+    const tab = projected.library.tabs.find(t => t.id === source.id);
+    if (!tab || tab.lifecycle.archived) return;
+    // Anchor to rendered neighbors, leaving hidden records in their canonical order.
+    const renderedIds = [
+      ...document.querySelectorAll<HTMLElement>("[data-tab-id]"),
+    ].map(el => el.dataset.tabId);
+    const ordered = projected.library.tabs
+      .filter(
+        t =>
+          t.placement.groupId === tab.placement.groupId &&
+          renderedIds.includes(t.id)
+      )
+      .sort((a, b) => a.placement.position - b.placement.position);
+    const originalIndex = ordered.findIndex(t => t.id === tab.id);
+    if (source.index === originalIndex && !crossed) return;
+    const beforeId =
+      source.index === originalIndex
+        ? crossed?.beforeId
+        : ordered.filter(t => t.id !== tab.id)[source.index]?.id;
+    await mutate(current =>
+      moveTab(current, tab.id, tab.placement.groupId, beforeId)
     );
-    let nextTabOrders = tabOrders;
-    if (
-      visibleOrder.findIndex(tab => tab.id === source.id) !== draggable.index
-    ) {
-      const nextVisibleTab = visibleOrder.filter(tab => tab.id !== source.id)[
-        draggable.index
-      ];
-      const order = currentOrder.filter(id => id !== source.id);
-      // Anchor to visible neighbors rather than treating hidden tabs as sortable slots.
-      const insertionIndex = nextVisibleTab
-        ? order.indexOf(nextVisibleTab.id)
-        : -1;
-      order.splice(
-        insertionIndex < 0 ? order.length : insertionIndex,
-        0,
-        source.id
-      );
-      nextTabOrders = { ...tabOrders, [sourceKey]: order };
-      setTabOrders(nextTabOrders);
-    }
-
-    if (storageMode === "backend" && serverOnline) {
-      /**
-       * Build the complete active order for one collection.
-       *
-       * Keep stored IDs that still belong to the collection and append active tabs absent from that order.
-       * @param {string | null} groupId - Collection identifier, or null for Unassigned.
-       * @returns {string[]} Ordered IDs of all nonarchived tabs in the collection.
-       */
-      const activeOrder = (groupId: GroupId | null) => {
-        const remaining = new Set(
-          tabs
-            .filter(
-              tab =>
-                !tab.lifecycle.archived && tab.placement.groupId === groupId
-            )
-            .map(tab => tab.id)
-        );
-        const ordered = (nextTabOrders[orderKey(groupId)] ?? []).filter(id =>
-          remaining.delete(id)
-        );
-        return [...ordered, ...Array.from(remaining)];
-      };
-      try {
-        if (movedToAnotherGroup && original) {
-          await updateTabOnLocalServer(
-            localServerUrl,
-            source.id,
-            { placement: { groupId: source.placement.groupId } },
-            serverApiKey
-          );
-          await reorderTabsOnLocalServer(
-            localServerUrl,
-            original.placement.groupId,
-            activeOrder(original.placement.groupId),
-            serverApiKey
-          );
-          await reorderTabsOnLocalServer(
-            localServerUrl,
-            source.placement.groupId,
-            activeOrder(source.placement.groupId),
-            serverApiKey
-          );
-        } else {
-          await reorderTabsOnLocalServer(
-            localServerUrl,
-            source.placement.groupId,
-            activeOrder(source.placement.groupId),
-            serverApiKey
-          );
-        }
-      } catch {
-        setServerOnline(false);
-        toast.error("Could not save the new tab order");
-        return;
-      }
-    }
-
-    if (movedToAnotherGroup) {
-      const destination =
-        vaultGroups.find(group => group.id === source.placement.groupId)
-          ?.details.name ?? "collection";
-      toast.success(`Moved to ${destination}`, {
-        description: "Placed at the requested position in this collection.",
-      });
-    } else if (draggable.initialIndex !== draggable.index) {
-      toast.success("Order updated", {
-        description: "The tab has been repositioned in this collection.",
-      });
-    }
   };
-
   return {
+    preview,
     handleLibraryDragStart,
     handleLibraryDragOver,
     handleLibraryDragEnd,

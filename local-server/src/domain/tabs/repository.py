@@ -13,7 +13,7 @@ from lib.base_repository import BaseRepository
 from lib.model_changes import apply_model_changes
 from lib.pagination import ListOptions, Page
 from lib.time import utc_now
-from models import Group, Job, JobTarget, Tab, Tag, Tombstone
+from models import Group, Tab, Tag, Tombstone
 
 from .dto import TabListOptionsFiltersDTO, TabListOptionsOrderingDTO
 from .visibility import tabs_for_visibility
@@ -98,8 +98,6 @@ class TabRepository(BaseRepository[Tab]):
                 or_(
                     func.lower(Tab.__table__.c._title).like(pattern),
                     func.lower(Tab.__table__.c._url).like(pattern),
-                    func.lower(Tab.__table__.c._note).like(pattern),
-                    func.lower(Tab.__table__.c._agent_review).like(pattern),
                 )
             )
         for name in filters.tags_all:
@@ -250,36 +248,6 @@ class TabRepository(BaseRepository[Tab]):
         """
         self.session.add_all(tabs)
         await self.session.flush()
-
-    async def add_preview_job(self, tab_id: str) -> Job:
-        """Create a preview-capture job for a Saved Tab.
-
-        Args:
-            tab_id (str): Stable identifier of the tab targeted by the operation.
-
-        Returns:
-            Job: Newly staged preview-capture job for the tab.
-        """
-        job = Job(target=JobTarget(kind="preview_capture", target_id=tab_id))
-        self.session.add(job)
-        await self.session.flush()
-        return job
-
-    async def add_preview_jobs(self, tab_ids: list[str]) -> list[Job]:
-        """Stage and flush one preview-capture job per Saved Tab together.
-
-        Args:
-            tab_ids (list[str]): Persisted Saved Tab identifiers in request order.
-
-        Returns:
-            list[Job]: Preview jobs in the same order as ``tab_ids``.
-        """
-        jobs = [
-            Job(target=JobTarget(kind="preview_capture", target_id=tab_id)) for tab_id in tab_ids
-        ]
-        self.session.add_all(jobs)
-        await self.session.flush()
-        return jobs
 
     async def apply_changes(self, tab: Tab, changes: dict[str, object]) -> None:
         """Apply mapped field values to a Saved Tab.

@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from domain.sync.metadata import clear_deletion, record_deletion
 from lib.time import utc_now
 from models import Tab
 
@@ -109,8 +110,7 @@ class CustomPropertyService:
         Returns:
             dict[str, dict[str, Any]]: Definitions keyed by stable case-sensitive name.
         """
-        schema = await self.repository.get_schema()
-        return dict(schema.properties or {}) if schema is not None else {}
+        return await self.repository.definitions()
 
     async def get(self) -> PropertySchemaDTO:
         """Return the singleton schema or an empty read-only representation.
@@ -130,16 +130,13 @@ class CustomPropertyService:
             PropertySchemaDTO: Complete schema after the committed mutation.
         """
         try:
-            schema = await self.repository.get_or_create_schema()
-            properties = dict(schema.properties or {})
-            properties[dto.name] = dto.model_dump(exclude={"name"})
-            schema.properties = properties
-            schema.updated_at = utc_now()
+            await self.repository.upsert_definition(dto.name, dto.model_dump(exclude={"name"}))
+            await clear_deletion(self.db, "property", dto.name)
             await self.db.commit()
         except Exception:
             await self.db.rollback()
             raise
-        return PropertySchemaDTO.model_validate({"properties": properties})
+        return await self.get()
 
     async def delete(self, name: str) -> PropertySchemaDTO:
         """Remove one definition while retaining now-undeclared raw tab values.
@@ -153,20 +150,17 @@ class CustomPropertyService:
         Raises:
             PropertyDefinitionNotFoundError: The schema does not declare the requested name.
         """
-        schema = await self.repository.get_schema()
-        properties = dict(schema.properties or {}) if schema is not None else {}
-        if name not in properties:
+        row = await self.repository.get_definition(name)
+        if row is None:
             raise PropertyDefinitionNotFoundError(f"Property {name!r} is not declared")
-        del properties[name]
         try:
-            assert schema is not None
-            schema.properties = properties
-            schema.updated_at = utc_now()
+            await self.repository.delete_definition(row)
+            await record_deletion(self.db, "property", name, utc_now())
             await self.db.commit()
         except Exception:
             await self.db.rollback()
             raise
-        return PropertySchemaDTO.model_validate({"properties": properties})
+        return await self.get()
 
     @staticmethod
     def resolve_values(

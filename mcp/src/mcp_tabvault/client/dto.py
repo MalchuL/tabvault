@@ -12,14 +12,12 @@ from pydantic import (
     SerializerFunctionWrapHandler,
     field_serializer,
     field_validator,
-    model_validator,
 )
 from pydantic.alias_generators import to_camel
 
 DataT = TypeVar("DataT")
 MetaT = TypeVar("MetaT")
 ItemT = TypeVar("ItemT")
-SearchMode: TypeAlias = Literal["semantic", "keyword", "hybrid"]
 TabVisibility: TypeAlias = Literal["visible", "hidden", "archived"]
 TabSortBy: TypeAlias = Literal["position", "createdAt", "updatedAt", "title"]
 SortDirection: TypeAlias = Literal["asc", "desc"]
@@ -174,10 +172,9 @@ class TabListQueryDTO(DTO):
 
 
 class SearchQueryDTO(DTO):
-    """Describe one semantic, keyword, or hybrid Saved Tab search."""
+    """Describe one text Saved Tab search."""
 
     q: str = Field(min_length=1)
-    mode: SearchMode = "hybrid"
     limit: int = Field(default=10, ge=1, le=50)
     group_id: str | None = None
 
@@ -217,9 +214,6 @@ class TabCreateContentDTO(DTO):
 class TabCreateAnnotationsDTO(DTO):
     """Annotations fields for TabCreateDTO."""
 
-    note: str = Field(default="", max_length=20_000)
-    agent_review: str = Field(default="", max_length=20_000)
-    viewed: bool = Field(default=False, exclude=True)
     custom_properties: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list, max_length=64)
 
@@ -232,16 +226,6 @@ class TabCreatePlacementDTO(DTO):
 
 class TabCreateDTO(DTO):
     """Describe one Saved Tab occurrence to create. Fields are grouped by responsibility."""
-
-    @model_validator(mode="after")
-    def map_viewed_to_custom_properties(self) -> TabCreateDTO:
-        """Serialize the stable MCP viewed argument through the generic property bag."""
-        if "viewed" in self.annotations.model_fields_set:
-            self.annotations.custom_properties = {
-                **self.annotations.custom_properties,
-                "viewed": self.annotations.viewed,
-            }
-        return self
 
     content: TabCreateContentDTO
     annotations: TabCreateAnnotationsDTO = Field(default_factory=TabCreateAnnotationsDTO)
@@ -258,9 +242,6 @@ class TabUpdateContentDTO(DTO):
 class TabUpdateAnnotationsDTO(DTO):
     """Annotations fields for TabUpdateDTO."""
 
-    note: str | None = Field(default=None, max_length=20_000)
-    agent_review: str | None = Field(default=None, max_length=20_000)
-    viewed: bool | None = Field(default=None, exclude=True)
     custom_properties: dict[str, Any] | None = None
     tags: list[str] | None = Field(default=None, max_length=64)
 
@@ -280,16 +261,6 @@ class TabUpdateLifecycleDTO(DTO):
 
 class TabUpdateDTO(DTO):
     """Describe explicitly supplied Saved Tab fields to patch. Fields are grouped by responsibility."""
-
-    @model_validator(mode="after")
-    def map_viewed_to_custom_properties(self) -> TabUpdateDTO:
-        """Serialize a supplied MCP viewed update through the generic property bag."""
-        if self.annotations.viewed is not None:
-            self.annotations.custom_properties = {
-                **(self.annotations.custom_properties or {}),
-                "viewed": self.annotations.viewed,
-            }
-        return self
 
     content: TabUpdateContentDTO = Field(default_factory=TabUpdateContentDTO)
     annotations: TabUpdateAnnotationsDTO = Field(default_factory=TabUpdateAnnotationsDTO)
@@ -360,15 +331,11 @@ class TabContentDTO(DTO):
 
     url: str
     title: str
-    favicon: str | None
 
 
 class TabAnnotationsDTO(DTO):
     """Annotations fields for TabDTO."""
 
-    note: str
-    agent_review: str
-    viewed: bool = False
     custom_properties: dict[str, Any] = Field(default_factory=dict)
     tags: list[str]
 
@@ -411,15 +378,11 @@ class TabProjectionContentDTO(DTO):
 
     url: str | None = Field(default=None, exclude_if=lambda value: value is None)
     title: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    favicon: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class TabProjectionAnnotationsDTO(DTO):
     """Annotations fields for TabProjectionDTO."""
 
-    note: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    agent_review: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    viewed: bool | None = Field(default=None, exclude_if=lambda value: value is None)
     custom_properties: dict[str, Any] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -457,19 +420,6 @@ class TabProjectionDTO(DTO):
     placement: TabProjectionPlacementDTO = Field(default_factory=TabProjectionPlacementDTO)
     lifecycle: TabProjectionLifecycleDTO = Field(default_factory=TabProjectionLifecycleDTO)
     timestamps: TabProjectionTimestampsDTO = Field(default_factory=TabProjectionTimestampsDTO)
-
-
-class TabJobDTO(DTO):
-    """Identify one preview job created with a Saved Tab."""
-
-    tab_id: str
-    job_id: str
-
-
-class TabCreateMetaDTO(DTO):
-    """Expose preview-job metadata returned by Saved Tab creation."""
-
-    job: TabJobDTO
 
 
 class TabDeleteResultDTO(DTO):
@@ -548,8 +498,7 @@ class SearchItemDTO(DTO):
 
     tab: TabDTO
     score: float
-    match_type: Literal["both", "semantic", "keyword"]
-    matched_on: Literal["title", "url", "note", "agentReview", "tags", "semantic"]
+    matched_on: Literal["title", "url", "tags", "customProperties"]
 
 
 class SearchDataDTO(DTO):
@@ -561,7 +510,6 @@ class SearchDataDTO(DTO):
 class SearchMetaDTO(DTO):
     """Report search timing metadata in milliseconds."""
 
-    query_embedding_ms: int
     search_ms: int
 
 
@@ -569,9 +517,38 @@ TabListResponseDTO = PaginatedResponseDTO[TabDTO | TabProjectionDTO]
 GroupListResponseDTO = PaginatedResponseDTO[GroupDTO]
 TagListResponseDTO = PaginatedResponseDTO[TagDTO]
 TabResponseDTO = SuccessResponseDTO[TabDTO, None]
-TabCreateResponseDTO = SuccessResponseDTO[TabDTO, TabCreateMetaDTO]
+TabCreateResponseDTO = SuccessResponseDTO[TabDTO, dict[str, Any]]
 TabDeleteResponseDTO = SuccessResponseDTO[TabDeleteResultDTO, None]
 TabReorderResponseDTO = SuccessResponseDTO[TabReorderResultDTO, None]
 GroupResponseDTO = SuccessResponseDTO[GroupDTO, None]
 GroupDeleteResponseDTO = SuccessResponseDTO[GroupDeleteResultDTO, None]
 SearchResponseDTO = SuccessResponseDTO[SearchDataDTO, SearchMetaDTO]
+
+
+class PropertyDefinitionDataDTO(DTO):
+    """Describe one schema-defined custom property."""
+
+    description: str = Field(default="", max_length=1000)
+    type: Literal["int", "float", "string", "boolean", "json"]
+    default: Any
+
+
+class PropertyDefinitionDTO(PropertyDefinitionDataDTO):
+    """Name the definition being explicitly created or replaced."""
+
+    name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,127}$")
+
+
+class PropertySchemaDTO(DTO):
+    """Return the complete name-to-definition map."""
+
+    properties: dict[str, PropertyDefinitionDataDTO]
+
+
+class PropertyUnsetDTO(DTO):
+    """Remove explicit tab overrides to resume using schema defaults."""
+
+    properties: list[str] = Field(min_length=1, max_length=256)
+
+
+PropertySchemaResponseDTO = SuccessResponseDTO[PropertySchemaDTO, dict[str, Any]]

@@ -1,21 +1,5 @@
-/** Display content for DedupeTab. */
-type DedupeTabContent = { url: string; title: string };
-/** Notes, review, and tag state for DedupeTab. */
-type DedupeTabAnnotations = {
-  note: string;
-  agentReview: string;
-  viewed: boolean;
-  tags: string[];
-};
-/** Creation and modification times for DedupeTab. */
-type DedupeTabTimestamps = { createdAt: string; updatedAt: string };
-export type DedupeTab = {
-  id: string;
-  content: DedupeTabContent;
-  annotations: DedupeTabAnnotations;
-  timestamps: DedupeTabTimestamps;
-};
-
+import type { CustomPropertySchema, VaultTab } from "@/domain/library/types";
+export type DedupeTab = VaultTab;
 export type SurvivorRule =
   | "NEWEST_CREATED"
   | "OLDEST_CREATED"
@@ -25,313 +9,179 @@ export type StringReducer =
   | "LONGEST"
   | "SHORTEST"
   | "SURVIVOR_VALUE";
-export type ViewedReducer = "ANY" | "ALL" | "MAJORITY" | "SURVIVOR_VALUE";
+export type BooleanReducer = "ANY" | "ALL" | "MAJORITY" | "SURVIVOR_VALUE";
 export type TagsReducer = "UNION" | "INTERSECTION" | "SURVIVOR_VALUE";
-
 export type AdvancedDedupeOptions = {
   survivor: SurvivorRule;
   title: StringReducer;
-  note: StringReducer;
-  agentReview: StringReducer;
-  viewed: ViewedReducer;
+  strings: StringReducer;
+  booleans: BooleanReducer;
   tags: TagsReducer;
   separator: string;
 };
-
 export type DedupeClusterPlan = {
   hash: string;
   survivorId: string;
   duplicateIds: string[];
   survivorPatch: {
     title?: string;
-    note?: string;
-    agentReview?: string;
-    viewed?: boolean;
+    customProperties?: Record<string, unknown>;
     tags?: string[];
   };
 };
-
 export type DedupePlan = {
   kind: "quick" | "advanced";
   clusters: DedupeClusterPlan[];
 };
-
-/**
- * Encode fields with length prefixes before hashing a duplicate signature.
- * Prefixes keep adjacent values distinct from a single concatenated value.
- * @param {string[]} fields - Ordered values included in the signature.
- * @returns {Uint8Array} UTF-8 bytes with a four-byte length before each value.
- */
-function bytesForFields(fields: string[]) {
-  const encoder = new TextEncoder();
-  const encoded = fields.map(field => encoder.encode(field));
-  const total = encoded.reduce((size, value) => size + 4 + value.length, 0);
-  const output = new Uint8Array(total);
-  const view = new DataView(output.buffer);
-  let offset = 0;
-  for (const value of encoded) {
-    view.setUint32(offset, value.length, false);
-    offset += 4;
-    output.set(value, offset);
-    offset += value.length;
+/** Serialize JSON with stable object-key ordering, preserving array order. @param {unknown} value - JSON value. @returns {string} Canonical comparison text. */
+export function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`)
+      .join(",")}}`;
+  return JSON.stringify(value) ?? "null";
+}
+/** Group occurrences using exact signatures, never changing saved URLs. @param {VaultTab[]} tabs - Eligible records. @param {(tab:VaultTab)=>string} signature - Equality key. @returns {VaultTab[][]} Duplicate groups. */
+function clusters(tabs: VaultTab[], signature: (tab: VaultTab) => string) {
+  const groups = new Map<string, VaultTab[]>();
+  for (const tab of tabs) {
+    const key = signature(tab);
+    groups.set(key, [...(groups.get(key) ?? []), tab]);
   }
-  return output;
-}
-
-/**
- * Hash an ordered set of tab fields into a stable duplicate key.
- * @param {string[]} fields - Values to encode in their current order.
- * @returns {Promise<string>} Lowercase hexadecimal SHA-256 digest.
- */
-async function sha256(fields: string[]) {
-  const digest = await crypto.subtle.digest("SHA-256", bytesForFields(fields));
-  return Array.from(new Uint8Array(digest), byte =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
-}
-
-/**
- * Parse a timestamp for deterministic sorting, treating invalid values as epoch zero.
- * @param {string} value - Stored timestamp string.
- * @returns {number} Milliseconds since the epoch, or zero when parsing fails.
- */
-function instant(value: string) {
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-/**
- * Order tabs by creation time, breaking ties by stable ID.
- * @param {DedupeTab} left - First tab to compare.
- * @param {DedupeTab} right - Second tab to compare.
- * @returns {number} Comparator result for ascending sort order.
- */
-function oldestFirst(left: DedupeTab, right: DedupeTab) {
-  return (
-    instant(left.timestamps.createdAt) - instant(right.timestamps.createdAt) ||
-    left.id.localeCompare(right.id)
-  );
-}
-
-/**
- * Combine tags case-insensitively while keeping the oldest tab's spelling.
- * @param {DedupeTab[]} tabs - Cluster members whose tags are merged.
- * @returns {string[]} Distinct tags ordered by their first occurrence.
- */
-function caseInsensitiveUnion(tabs: DedupeTab[]) {
-  const result = new Map<string, string>();
-  for (const tab of [...tabs].sort(oldestFirst))
-    for (const tag of tab.annotations.tags) {
-      const key = tag.toLocaleLowerCase();
-      if (!result.has(key)) result.set(key, tag);
-    }
-  return Array.from(result.values());
-}
-
-/**
- * Keep tags present on every tab, using the first tab's spelling and order.
- * @param {DedupeTab[]} tabs - Cluster members to compare.
- * @returns {string[]} Tags common to every member.
- */
-function caseInsensitiveIntersection(tabs: DedupeTab[]) {
-  const first = caseInsensitiveUnion(tabs.slice(0, 1));
-  return first.filter(tag =>
-    tabs
-      .slice(1)
-      .every(tab =>
-        tab.annotations.tags.some(
-          candidate => candidate.toLocaleLowerCase() === tag.toLocaleLowerCase()
-        )
+  return [...groups.values()]
+    .filter(group => group.length > 1)
+    .map(group =>
+      group.sort(
+        (a, b) =>
+          a.timestamps.createdAt.localeCompare(b.timestamps.createdAt) ||
+          a.id.localeCompare(b.id)
       )
-  );
+    );
 }
-
-/**
- * Group tabs by a selected field signature and omit unique signatures.
- * Hashing runs concurrently; each retained cluster has at least two members.
- * @param {DedupeTab[]} tabs - Candidate tabs for duplicate detection.
- * @param {(tab: DedupeTab) => string[]} fields - Ordered signature fields per tab.
- * @returns {Promise<Array<[string, DedupeTab[]]>>} Duplicate hashes and their members.
- */
-async function clustersBy(
-  tabs: DedupeTab[],
-  fields: (tab: DedupeTab) => string[]
-) {
-  const groups = new Map<string, DedupeTab[]>();
-  await Promise.all(
-    tabs.map(async tab => {
-      const hash = await sha256(fields(tab));
-      groups.set(hash, [...(groups.get(hash) ?? []), tab]);
-    })
-  );
-  return Array.from(groups.entries()).filter(
-    ([, members]) => members.length > 1
-  );
-}
-
-/**
- * Plan exact-content duplicate removal without mutating tabs.
- * The oldest tab survives; tags are unioned and viewed state is true if any
- * member was viewed. The plan can be reviewed before execution.
- * @param {DedupeTab[]} tabs - Tabs eligible for quick cleanup.
- * @returns {Promise<DedupePlan>} Clusters, survivor IDs, and patches to apply.
- */
+/** Plan exact-content cleanup, including all raw property values. @param {VaultTab[]} tabs - Visible active records. @returns {Promise<DedupePlan>} Recoverable archive plan. */
 export async function buildQuickCleanPlan(
-  tabs: DedupeTab[]
+  tabs: VaultTab[]
 ): Promise<DedupePlan> {
-  const groups = await clustersBy(tabs, tab => [
-    tab.content.url,
-    tab.content.title,
-    tab.annotations.note,
-    tab.annotations.agentReview,
-  ]);
   return {
     kind: "quick",
-    clusters: groups.map(([hash, members]) => {
-      const sorted = [...members].sort(oldestFirst);
-      const survivor = sorted[0];
-      return {
-        hash,
-        survivorId: survivor.id,
-        duplicateIds: sorted.slice(1).map(tab => tab.id),
-        survivorPatch: {
-          tags: caseInsensitiveUnion(sorted),
-          viewed: sorted.some(tab => tab.annotations.viewed),
-        },
-      };
-    }),
+    clusters: clusters(tabs, t =>
+      stableJson([
+        t.content.url,
+        t.content.title,
+        t.annotations.customProperties,
+        [...t.annotations.tags].map(s => s.toLowerCase()).sort(),
+      ])
+    ).map(group => ({
+      hash: group[0].id,
+      survivorId: group[0].id,
+      duplicateIds: group.slice(1).map(t => t.id),
+      survivorPatch: {},
+    })),
   };
 }
-
-/**
- * Select one cluster survivor by the requested timestamp rule.
- * Equal timestamps resolve by ID so repeated planning chooses the same tab.
- * @param {DedupeTab[]} tabs - Nonempty duplicate cluster.
- * @param {SurvivorRule} rule - Creation or update ordering to apply.
- * @returns {DedupeTab} Tab retained by the plan.
- */
-function selectSurvivor(tabs: DedupeTab[], rule: SurvivorRule) {
-  return [...tabs].sort((left, right) => {
-    const comparison =
-      rule === "LATEST_UPDATED"
-        ? instant(right.timestamps.updatedAt) -
-          instant(left.timestamps.updatedAt)
-        : rule === "NEWEST_CREATED"
-          ? instant(right.timestamps.createdAt) -
-            instant(left.timestamps.createdAt)
-          : instant(left.timestamps.createdAt) -
-            instant(right.timestamps.createdAt);
-    return comparison || left.id.localeCompare(right.id);
-  })[0];
-}
-
-/**
- * Merge one text field according to the configured reducer.
- * Concatenation follows oldest-first order; equal-length choices favor the
- * survivor, then the oldest matching tab.
- * @param {DedupeTab[]} tabs - Nonempty duplicate cluster.
- * @param {DedupeTab} survivor - Tab retained by the plan.
- * @param {"title" | "note" | "agentReview"} field - Text field being merged.
- * @param {StringReducer} reducer - Merge rule for that field.
- * @param {string} separator - Text inserted between concatenated values.
- * @returns {string} Text to store on the survivor.
- */
-function reduceString(
-  tabs: DedupeTab[],
-  survivor: DedupeTab,
-  field: "title" | "note" | "agentReview",
-  reducer: StringReducer,
+/** Reduce explicit strings with a selected policy. @param {string[]} values - Explicit values. @param {string} survivor - Survivor value. @param {StringReducer} rule - Merge policy. @param {string} separator - Concatenation delimiter. @returns {string} Merged string. */
+function reduceStrings(
+  values: string[],
+  survivor: string,
+  rule: StringReducer,
   separator: string
-): string {
-  const value = (tab: DedupeTab) =>
-    field === "title" ? tab.content.title : tab.annotations[field];
-  if (reducer === "SURVIVOR_VALUE") return value(survivor);
-  const ordered = [...tabs].sort(oldestFirst);
-  if (reducer === "CONCAT")
-    return ordered.map(value).filter(Boolean).join(separator);
-  const wanted = reducer === "LONGEST" ? Math.max : Math.min;
-  const targetLength = ordered.reduce(
-    (length, tab) => wanted(length, value(tab).length),
-    value(ordered[0]).length
-  );
-  if (value(survivor).length === targetLength) return value(survivor);
-  const selected = ordered.find(tab => value(tab).length === targetLength);
-  return selected ? value(selected) : value(survivor);
-}
-
-/**
- * Resolve a cluster's viewed state, using the survivor to break majority ties.
- * @param {DedupeTab[]} tabs - Nonempty duplicate cluster.
- * @param {DedupeTab} survivor - Tab retained by the plan.
- * @param {ViewedReducer} reducer - Boolean merge rule.
- * @returns {boolean} Viewed state to store on the survivor.
- */
-function reduceViewed(
-  tabs: DedupeTab[],
-  survivor: DedupeTab,
-  reducer: ViewedReducer
 ) {
-  if (reducer === "SURVIVOR_VALUE") return survivor.annotations.viewed;
-  const viewed = tabs.filter(tab => tab.annotations.viewed).length;
-  if (reducer === "ANY") return viewed > 0;
-  if (reducer === "ALL") return viewed === tabs.length;
-  const unviewed = tabs.length - viewed;
-  return viewed === unviewed ? survivor.annotations.viewed : viewed > unviewed;
+  if (rule === "SURVIVOR_VALUE") return survivor;
+  const unique = [...new Set(values.filter(Boolean))];
+  if (rule === "CONCAT") return unique.join(separator);
+  return (
+    unique.sort((a, b) =>
+      rule === "LONGEST" ? b.length - a.length : a.length - b.length
+    )[0] ?? ""
+  );
 }
-
-/**
- * Plan URL-based duplicate removal with independent merge rules per field.
- * The plan preserves every cluster's chosen survivor and lists the other IDs
- * for deletion; it does not change storage until executed separately.
- * @param {DedupeTab[]} tabs - Tabs eligible for advanced cleanup.
- * @param {AdvancedDedupeOptions} options - Survivor and field merge rules.
- * @returns {Promise<DedupePlan>} Reviewable clusters and survivor patches.
- */
+/** Merge URL duplicates using property types rather than property names. @param {VaultTab[]} tabs - Visible active records. @param {AdvancedDedupeOptions} options - Reviewed reducer choices. @param {CustomPropertySchema} schema - Current definitions. @returns {Promise<DedupePlan>} Survivor patches followed by duplicate archives. */
 export async function buildAdvancedDedupePlan(
-  tabs: DedupeTab[],
-  options: AdvancedDedupeOptions
+  tabs: VaultTab[],
+  options: AdvancedDedupeOptions,
+  schema: CustomPropertySchema = {}
 ): Promise<DedupePlan> {
-  const groups = await clustersBy(tabs, tab => [tab.content.url]);
   return {
     kind: "advanced",
-    clusters: groups.map(([hash, members]) => {
-      const survivor = selectSurvivor(members, options.survivor);
+    clusters: clusters(tabs, t => t.content.url).map(group => {
+      const survivor =
+        options.survivor === "OLDEST_CREATED"
+          ? group[0]
+          : options.survivor === "NEWEST_CREATED"
+            ? group[group.length - 1]
+            : [...group].sort(
+                (a, b) =>
+                  b.timestamps.updatedAt.localeCompare(
+                    a.timestamps.updatedAt
+                  ) || a.id.localeCompare(b.id)
+              )[0];
+      const properties = { ...survivor.annotations.customProperties };
+      for (const name of new Set(
+        group.flatMap(t => Object.keys(t.annotations.customProperties))
+      )) {
+        const explicit = group
+          .filter(t => Object.hasOwn(t.annotations.customProperties, name))
+          .map(t => t.annotations.customProperties[name]);
+        if (!Object.hasOwn(properties, name)) properties[name] = explicit[0];
+        if (
+          schema[name]?.type === "string" &&
+          explicit.every(v => typeof v === "string")
+        )
+          properties[name] = reduceStrings(
+            explicit as string[],
+            String(properties[name]),
+            options.strings,
+            options.separator
+          );
+        if (
+          schema[name]?.type === "boolean" &&
+          explicit.every(v => typeof v === "boolean")
+        ) {
+          const yes = explicit.filter(Boolean).length;
+          properties[name] =
+            options.booleans === "ANY"
+              ? yes > 0
+              : options.booleans === "ALL"
+                ? yes === explicit.length
+                : options.booleans === "MAJORITY"
+                  ? yes * 2 === explicit.length
+                    ? properties[name]
+                    : yes * 2 > explicit.length
+                  : properties[name];
+        }
+      }
+      const names = new Map(
+        group
+          .flatMap(t => t.annotations.tags)
+          .map(name => [name.toLowerCase(), name])
+      );
+      const tags =
+        options.tags === "SURVIVOR_VALUE"
+          ? survivor.annotations.tags
+          : [...names]
+              .filter(
+                ([key]) =>
+                  options.tags !== "INTERSECTION" ||
+                  group.every(t =>
+                    t.annotations.tags.some(name => name.toLowerCase() === key)
+                  )
+              )
+              .map(([, name]) => name);
       return {
-        hash,
+        hash: survivor.id,
         survivorId: survivor.id,
-        duplicateIds: members
-          .filter(tab => tab.id !== survivor.id)
-          .sort(oldestFirst)
-          .map(tab => tab.id),
+        duplicateIds: group.filter(t => t !== survivor).map(t => t.id),
         survivorPatch: {
-          title: reduceString(
-            members,
-            survivor,
-            "title",
+          title: reduceStrings(
+            group.map(t => t.content.title),
+            survivor.content.title,
             options.title,
             options.separator
           ),
-          note: reduceString(
-            members,
-            survivor,
-            "note",
-            options.note,
-            options.separator
-          ),
-          agentReview: reduceString(
-            members,
-            survivor,
-            "agentReview",
-            options.agentReview,
-            options.separator
-          ),
-          viewed: reduceViewed(members, survivor, options.viewed),
-          tags:
-            options.tags === "SURVIVOR_VALUE"
-              ? survivor.annotations.tags
-              : options.tags === "INTERSECTION"
-                ? caseInsensitiveIntersection(members)
-                : caseInsensitiveUnion(members),
+          customProperties: properties,
+          tags,
         },
       };
     }),
