@@ -7,7 +7,7 @@ import shutil
 from typing import Any
 
 from config.settings import Settings
-from domain.system.dto import VectorStatusDTO
+from domain.system.dto import VectorConfigurationDTO, VectorDiagnosticsDTO, VectorStatusDTO
 
 
 class LocalVectorIndex:
@@ -37,7 +37,7 @@ class LocalVectorIndex:
             settings (Settings): Validated process settings that control this component.
         """
         self.settings = settings
-        self.path = settings.data_dir / "zvec"
+        self.path = settings.storage.data_dir / "zvec"
         self._model: Any = None
         self._collection: Any = None
         self.last_error: str | None = None
@@ -56,9 +56,9 @@ class LocalVectorIndex:
         if self._model is None:
             from sentence_transformers import SentenceTransformer
 
-            self.settings.model_dir.mkdir(parents=True, exist_ok=True)
+            self.settings.storage.model_dir.mkdir(parents=True, exist_ok=True)
             self._model = SentenceTransformer(
-                self.settings.embedding_model, cache_folder=str(self.settings.model_dir)
+                self.settings.embedding.model, cache_folder=str(self.settings.storage.model_dir)
             )
         return self._model
 
@@ -122,7 +122,7 @@ class LocalVectorIndex:
             return 0
         vectors = model.encode(
             [text for _, text in documents],
-            batch_size=self.settings.embedding_batch_size,
+            batch_size=self.settings.embedding.batch_size,
             normalize_embeddings=True,
         ).tolist()
         collection = self._open_or_create(len(vectors[0]), recreate=True)
@@ -225,7 +225,8 @@ class LocalVectorIndex:
         return VectorStatusDTO(
             status="ready" if self.indexed_count and not self.last_error else "not_ready",
             indexed_count=self.indexed_count,
-            provider="sentence-transformers",
-            model=self.settings.embedding_model,
-            last_error=self.last_error,
+            configuration=VectorConfigurationDTO(
+                provider="sentence-transformers", model=self.settings.embedding.model
+            ),
+            diagnostics=VectorDiagnosticsDTO(last_error=self.last_error),
         )

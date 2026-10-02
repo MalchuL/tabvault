@@ -10,12 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from lib.base_repository import BaseRepository
+from lib.model_changes import apply_model_changes
 from lib.pagination import ListOptions, Page
 from lib.time import utc_now
-from models import Group, Job, Tab, Tag, Tombstone
+from models import Group, Job, JobTarget, Tab, Tag, Tombstone
 
-from .dto import SortDirection, TabSortBy
-from .visibility import TabVisibility, tabs_for_visibility
+from .dto import TabListOptionsFiltersDTO, TabListOptionsOrderingDTO
+from .visibility import tabs_for_visibility
 
 
 class TabRepository(BaseRepository[Tab]):
@@ -56,72 +57,63 @@ class TabRepository(BaseRepository[Tab]):
     async def list_tabs(
         self,
         *,
-        group_id: str | None | object,
-        category: str | None,
-        tags_any: list[str],
-        tags_all: list[str],
-        search: str | None,
-        sort_by: TabSortBy,
-        sort_dir: SortDirection,
+        filters: TabListOptionsFiltersDTO,
+        ordering: TabListOptionsOrderingDTO,
         list_options: ListOptions,
-        visibility: TabVisibility,
         now: datetime,
     ) -> Page[Tab]:
-        """List and count filtered Saved Tabs using database pagination.
+        """List and count tabs using grouped filters and database pagination.
 
         Args:
-            group_id (str | None | object): Stable identifier of the group targeted by the
-                operation.
-            category (str | None): Optional free-form Group category used to restrict results.
-            tags_any (list[str]): Tag names of which matching tabs need at least one.
-            tags_all (list[str]): Tag names all matching tabs must contain.
-            search (str | None): Optional case-insensitive text query.
-            sort_by (TabSortBy): Saved-tab field used for ordering.
-            sort_dir (SortDirection): Directory used to store sort data.
-            list_options (ListOptions): Validated page size and row offset.
-            visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
-            now (datetime): Current absolute UTC instant used for consistent visibility decisions.
+            filters (TabListOptionsFiltersDTO): Collection, tags, text, and visibility constraints.
+            ordering (TabListOptionsOrderingDTO): Sort field and direction.
+            list_options (ListOptions): Validated page size and offset.
+            now (datetime): One UTC boundary for visibility decisions.
 
         Returns:
             Page[Tab]: Matching rows and pagination metadata.
         """
         sort_column = {
-            "position": Tab.position,
-            "createdAt": Tab.created_at,
-            "updatedAt": Tab.updated_at,
-            "title": func.lower(Tab.title),
-        }[sort_by]
-        filters: list[Any] = [tabs_for_visibility(visibility, now)]
-        if group_id != "all":
-            filters.append(
-                Tab.group_id.is_(None)
-                if group_id in {None, "unassigned"}
-                else Tab.group_id == group_id
+            "position": Tab.__table__.c._position,
+            "createdAt": Tab.__table__.c._created_at,
+            "updatedAt": Tab.__table__.c._updated_at,
+            "title": func.lower(Tab.__table__.c._title),
+        }[ordering.sort_by]
+        predicates: list[Any] = [tabs_for_visibility(filters.visibility, now)]
+        if filters.group_id != "all":
+            predicates.append(
+                Tab.__table__.c._group_id.is_(None)
+                if filters.group_id in {None, "unassigned"}
+                else Tab.__table__.c._group_id == filters.group_id
             )
-        if category is not None:
-            filters.append(Tab.group_id.in_(select(Group.id).where(Group.category == category)))
-        if search:
-            pattern = f"%{search.lower()}%"
-            filters.append(
-                or_(
-                    func.lower(Tab.title).like(pattern),
-                    func.lower(Tab.url).like(pattern),
-                    func.lower(Tab.note).like(pattern),
-                    func.lower(Tab.agent_review).like(pattern),
+        if filters.category is not None:
+            predicates.append(
+                Tab.__table__.c._group_id.in_(
+                    select(Group.id).where(Group.__table__.c._category == filters.category)
                 )
             )
-        for name in tags_all:
-            filters.append(Tab.tags.any(func.lower(Tag.name) == name.lower()))
-        if tags_any:
-            filters.append(
-                Tab.tags.any(func.lower(Tag.name).in_([name.lower() for name in tags_any]))
+        if filters.search:
+            pattern = f"%{filters.search.lower()}%"
+            predicates.append(
+                or_(
+                    func.lower(Tab.__table__.c._title).like(pattern),
+                    func.lower(Tab.__table__.c._url).like(pattern),
+                    func.lower(Tab.__table__.c._note).like(pattern),
+                    func.lower(Tab.__table__.c._agent_review).like(pattern),
+                )
             )
-        ordering = asc if sort_dir == "asc" else desc
+        for name in filters.tags_all:
+            predicates.append(Tab.tags.any(func.lower(Tag.name) == name.lower()))
+        if filters.tags_any:
+            predicates.append(
+                Tab.tags.any(func.lower(Tag.name).in_([name.lower() for name in filters.tags_any]))
+            )
+        direction = asc if ordering.sort_dir == "asc" else desc
         return await self.list_page(
-            *filters,
+            *predicates,
             list_options=list_options,
             load=selectinload(Tab.tags),
-            order_by=[ordering(sort_column), ordering(Tab.id)],
+            order_by=[direction(sort_column), direction(Tab.id)],
         )
 
     async def active_group_exists(self, group_id: str | None) -> bool:
@@ -178,10 +170,14 @@ class TabRepository(BaseRepository[Tab]):
         Returns:
             float: Position immediately after the last active tab in the group.
         """
-        condition = Tab.group_id.is_(None) if group_id is None else Tab.group_id == group_id
+        condition = (
+            Tab.__table__.c._group_id.is_(None)
+            if group_id is None
+            else Tab.__table__.c._group_id == group_id
+        )
         maximum = await self.session.scalar(
-            select(func.coalesce(func.max(Tab.position), -1)).where(
-                condition, Tab.archived.is_(False)
+            select(func.coalesce(func.max(Tab.__table__.c._position), -1)).where(
+                condition, Tab.__table__.c._archived.is_(False)
             )
         )
         return float(maximum if maximum is not None else -1) + 1
@@ -205,13 +201,17 @@ class TabRepository(BaseRepository[Tab]):
             bool: ``True`` after positions are staged, or ``False`` when any supplied ID is missing,
                 archived, or assigned to another Group and no row was changed.
         """
-        condition = Tab.group_id.is_(None) if group_id is None else Tab.group_id == group_id
+        condition = (
+            Tab.__table__.c._group_id.is_(None)
+            if group_id is None
+            else Tab.__table__.c._group_id == group_id
+        )
         rows = list(
             (
                 await self.session.scalars(
                     select(Tab)
-                    .where(condition, Tab.archived.is_(False))
-                    .order_by(Tab.position, Tab.id)
+                    .where(condition, Tab.__table__.c._archived.is_(False))
+                    .order_by(Tab.__table__.c._position, Tab.id)
                 )
             ).all()
         )
@@ -222,8 +222,8 @@ class TabRepository(BaseRepository[Tab]):
         ordered = [by_id[tab_id] for tab_id in tab_ids]
         ordered.extend(tab for tab in rows if tab.id not in requested)
         for position, tab in enumerate(ordered):
-            tab.position = float(position)
-            tab.updated_at = updated_at
+            tab.placement.position = float(position)
+            tab.timestamps.updated_at = updated_at
         return True
 
     async def add_tab(self, tab: Tab) -> Tab:
@@ -260,7 +260,7 @@ class TabRepository(BaseRepository[Tab]):
         Returns:
             Job: Newly staged preview-capture job for the tab.
         """
-        job = Job(kind="preview_capture", target_id=tab_id)
+        job = Job(target=JobTarget(kind="preview_capture", target_id=tab_id))
         self.session.add(job)
         await self.session.flush()
         return job
@@ -274,7 +274,9 @@ class TabRepository(BaseRepository[Tab]):
         Returns:
             list[Job]: Preview jobs in the same order as ``tab_ids``.
         """
-        jobs = [Job(kind="preview_capture", target_id=tab_id) for tab_id in tab_ids]
+        jobs = [
+            Job(target=JobTarget(kind="preview_capture", target_id=tab_id)) for tab_id in tab_ids
+        ]
         self.session.add_all(jobs)
         await self.session.flush()
         return jobs
@@ -286,8 +288,7 @@ class TabRepository(BaseRepository[Tab]):
             tab (Tab): Saved-tab row being converted or persisted.
             changes (dict[str, object]): Validated field values to apply to the existing row.
         """
-        for key, value in changes.items():
-            setattr(tab, key, value)
+        apply_model_changes(tab, changes)
 
     async def attach_tag(self, tab: Tab, tag: Tag) -> None:
         """Attach a loaded tag to a Saved Tab.
@@ -323,7 +324,7 @@ class TabRepository(BaseRepository[Tab]):
             tab (Tab): Saved-tab row being converted or persisted.
         """
         now = utc_now()
-        tab.group_id = None
-        tab.archived = True
-        tab.archived_at = now
-        tab.updated_at = now
+        tab.placement.group_id = None
+        tab.lifecycle.archived = True
+        tab.lifecycle.archived_at = now
+        tab.timestamps.updated_at = now

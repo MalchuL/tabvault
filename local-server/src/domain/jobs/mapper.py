@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from models import Job
+from models import Job, JobExecution, JobKind, JobTarget
 
 from .dto import JobDTO
 
@@ -22,17 +22,17 @@ class JobMapper:
         """
         return JobDTO(
             id=job.id,
-            status=job.status,
-            progress=job.progress,
-            result=job.result,
-            error=job.error,
-            created_at=job.created_at,
-            updated_at=job.updated_at,
+            status=job.execution.status,
+            progress=job.execution.progress,
+            result=job.execution.result,
+            error=job.execution.error,
+            created_at=job.timestamps.created_at,
+            updated_at=job.timestamps.updated_at,
         )
 
     @staticmethod
     def create(
-        kind: str,
+        kind: JobKind,
         target_id: str | None = None,
         result: dict[str, Any] | None = None,
     ) -> Job:
@@ -46,4 +46,6 @@ class JobMapper:
         Returns:
             Job: Job row read or staged by this operation.
         """
-        return Job(kind=kind, target_id=target_id, result=result)
+        return Job(
+            target=JobTarget(kind=kind, target_id=target_id), execution=JobExecution(result=result)
+        )

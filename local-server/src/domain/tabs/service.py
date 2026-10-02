@@ -79,7 +79,9 @@ class TabService:
             TabDTO: Complete Saved Tab with declared resolved properties.
         """
         definitions = await self.custom_properties.definitions()
-        resolved = self.custom_properties.resolve_values(tab.custom_properties, definitions)
+        resolved = self.custom_properties.resolve_values(
+            tab.annotations.custom_properties, definitions
+        )
         return self.mapper.to_dto(tab, resolved)
 
     async def _required_tab(self, tab_id: str) -> Tab:
@@ -113,16 +115,7 @@ class TabService:
         """
         now = utc_now()
         page = await self.repository.list_tabs(
-            group_id=options.group_id,
-            category=options.category,
-            tags_any=options.tags_any,
-            tags_all=options.tags_all,
-            search=options.search,
-            sort_by=options.sort_by,
-            sort_dir=options.sort_dir,
-            list_options=list_options,
-            visibility=options.visibility,
-            now=now,
+            filters=options.filters, ordering=options.ordering, list_options=list_options, now=now
         )
         definitions = await self.custom_properties.definitions()
         return TabListResponseDTO.from_page(
@@ -130,7 +123,9 @@ class TabService:
                 lambda row: self.mapper.to_projection(
                     row,
                     options.fields,
-                    self.custom_properties.resolve_values(row.custom_properties, definitions),
+                    self.custom_properties.resolve_values(
+                        row.annotations.custom_properties, definitions
+                    ),
                 )
             )
         )
@@ -190,21 +185,21 @@ class TabService:
             InvalidGroupError: The destination group does not exist.
             DuplicateTabIdError: The supplied tab ID already exists.
         """
-        if not await self.repository.active_group_exists(dto.group_id):
-            raise InvalidGroupError(f"Group {dto.group_id!r} does not exist")
+        if not await self.repository.active_group_exists(dto.placement.group_id):
+            raise InvalidGroupError(f"Group {dto.placement.group_id!r} does not exist")
         position = (
-            dto.position
-            if dto.position is not None
-            else await self.repository.next_position(dto.group_id)
+            dto.placement.position
+            if dto.placement.position is not None
+            else await self.repository.next_position(dto.placement.group_id)
         )
         tab = self.mapper.from_create_dto(
             dto,
-            group_id=dto.group_id,
+            group_id=dto.placement.group_id,
             position=position,
-            tags=await self.repository.resolve_tags(dto.tags),
+            tags=await self.repository.resolve_tags(dto.annotations.tags),
         )
         self.custom_properties.validate_patch(
-            tab.custom_properties, await self.custom_properties.definitions()
+            tab.annotations.custom_properties, await self.custom_properties.definitions()
         )
         try:
             await self.repository.add_tab(tab)
@@ -238,7 +233,7 @@ class TabService:
             DuplicateTabIdError: A supplied ID already exists or is repeated in the batch.
             InvalidGroupError: At least one requested non-null Group does not exist.
         """
-        group_ids = {tab.group_id for tab in dto.tabs}
+        group_ids = {tab.placement.group_id for tab in dto.tabs}
         for group_id in group_ids:
             if not await self.repository.active_group_exists(group_id):
                 raise InvalidGroupError(f"Group {group_id!r} does not exist")
@@ -247,23 +242,23 @@ class TabService:
         tabs: builtins.list[Tab] = []
         try:
             for item in dto.tabs:
-                if item.position is None:
-                    if item.group_id not in next_positions:
-                        next_positions[item.group_id] = await self.repository.next_position(
-                            item.group_id
-                        )
-                    position = next_positions[item.group_id]
-                    next_positions[item.group_id] = position + 1
+                if item.placement.position is None:
+                    if item.placement.group_id not in next_positions:
+                        next_positions[
+                            item.placement.group_id
+                        ] = await self.repository.next_position(item.placement.group_id)
+                    position = next_positions[item.placement.group_id]
+                    next_positions[item.placement.group_id] = position + 1
                 else:
-                    position = item.position
+                    position = item.placement.position
                 tab = self.mapper.from_create_dto(
                     item,
-                    group_id=item.group_id,
+                    group_id=item.placement.group_id,
                     position=position,
-                    tags=await self.repository.resolve_tags(item.tags),
+                    tags=await self.repository.resolve_tags(item.annotations.tags),
                 )
                 self.custom_properties.validate_patch(
-                    tab.custom_properties, await self.custom_properties.definitions()
+                    tab.annotations.custom_properties, await self.custom_properties.definitions()
                 )
                 tabs.append(tab)
             await self.repository.add_tabs(tabs)
@@ -314,7 +309,7 @@ class TabService:
             changes["archived_at"] = utc_now()
         elif restoring:
             changes["archived_at"] = None
-        elif tab.archived and changes.get("group_id") is not None:
+        elif tab.lifecycle.archived and changes.get("group_id") is not None:
             raise InvalidGroupError("Restore the tab before assigning it to a Group")
         changes["updated_at"] = utc_now()
         try:
@@ -339,7 +334,7 @@ class TabService:
             ActiveTabDeleteError: Permanent deletion is requested before archiving the tab.
         """
         tab = await self._required_tab(tab_id)
-        if hard and not tab.archived:
+        if hard and not tab.lifecycle.archived:
             raise ActiveTabDeleteError("Archive the tab before permanently deleting it")
         try:
             if hard:

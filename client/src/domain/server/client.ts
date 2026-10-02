@@ -28,16 +28,24 @@ export function apiHeaders(apiKey: string) {
 
 type ApiConfig = { baseUrl: string; apiKey: string };
 
-type PreviewWire = {
+/** Capture for PreviewWire. */
+type PreviewWireCapture = {
   status: string;
+  sourceUrl?: string | null;
+  error?: string | null;
+};
+/** Article for PreviewWire. */
+type PreviewWireArticle = {
   title?: string | null;
   byline?: string | null;
   siteName?: string | null;
   excerpt?: string | null;
   contentHtml?: string | null;
   length?: number;
-  sourceUrl?: string | null;
-  error?: string | null;
+};
+type PreviewWire = {
+  capture: PreviewWireCapture;
+  article: PreviewWireArticle;
 };
 
 /**
@@ -122,10 +130,10 @@ export function createTabVaultApi(config: ApiConfig) {
       query: <T>(query: URLSearchParams) => request<T>(`/search?${query}`),
       structured: <T>(body: unknown) =>
         request<T>("/search", { method: "POST", body: JSON.stringify(body) }),
-    },
-    index: {
-      status: <T>() => request<T>("/index/status"),
-      rebuild: <T>() => request<T>("/search/reindex", { method: "POST" }),
+      index: {
+        status: <T>() => request<T>("/index/status"),
+        rebuild: <T>() => request<T>("/search/reindex", { method: "POST" }),
+      },
     },
     transfer: {
       export: (format: "json" | "markdown") => raw(`/export?format=${format}`),
@@ -155,12 +163,13 @@ export function createTabVaultApi(config: ApiConfig) {
         const { data: preview } = await request<{ data: PreviewWire }>(
           `/tabs/${encodeURIComponent(tab.id)}/preview`
         );
-        if (preview.status !== "ready" || !preview.contentHtml)
+        if (preview.capture.status !== "ready" || !preview.article.contentHtml)
           throw new Error(
-            preview.error || "The cached server preview is not ready yet."
+            preview.capture.error ||
+              "The cached server preview is not ready yet."
           );
 
-        let content = preview.contentHtml;
+        let content = preview.article.contentHtml;
         const assetIds = Array.from(
           new Set(
             Array.from(
@@ -184,13 +193,13 @@ export function createTabVaultApi(config: ApiConfig) {
         );
         return {
           article: {
-            title: preview.title || tab.title,
-            byline: preview.byline,
-            siteName: preview.siteName,
-            excerpt: preview.excerpt,
+            title: preview.article.title || tab.title,
+            byline: preview.article.byline,
+            siteName: preview.article.siteName,
+            excerpt: preview.article.excerpt,
             content,
-            length: preview.length || 0,
-            url: preview.sourceUrl || tab.url,
+            length: preview.article.length || 0,
+            url: preview.capture.sourceUrl || tab.url,
           },
           objectUrls,
         };

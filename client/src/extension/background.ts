@@ -9,7 +9,6 @@ import {
   isPersistedVault,
   orderKey,
   serverDocumentToVault,
-  upgradeVault,
   vaultToServerDocument,
 } from "./library-sync";
 import type { VaultGroup, VaultTab } from "@/domain/library/types";
@@ -17,7 +16,7 @@ import { createSessionGroup } from "@/domain/library/session";
 import { domainFromUrl } from "@/domain/library/codec";
 import { ensureViewedProperty } from "@/domain/server/propertySchema";
 
-type CapturableTab = chrome.tabs.Tab & { id: number; url: string };
+type CapturableTab = { id: number; url: string; title?: string };
 chrome.runtime.onInstalled.addListener(() => {
   restoreHealthAlarm().catch(() => undefined);
   restoreLibraryRefreshAlarm().catch(() => undefined);
@@ -26,7 +25,6 @@ chrome.runtime.onInstalled.addListener(() => {
 const LIBRARY_REFRESH_KEY = "tabvault-library-refresh";
 const LIBRARY_REFRESH_ALARM_NAME = "tabvault-library-refresh";
 const VAULT_STORAGE_KEY = "tabvault-v3";
-const PREVIOUS_VAULT_STORAGE_KEY = "tabvault-v2";
 const SERVER_URL_KEY = "tabvault-local-server-url";
 const API_KEY_STORAGE_KEY = "tabvault-api-key";
 const STORAGE_MODE_KEY = "tabvault-storage-mode";
@@ -45,22 +43,23 @@ function buildSavedTab(tab: CapturableTab): VaultTab {
   const domain = domainFromUrl(url);
   return {
     id: crypto.randomUUID(),
-    groupId: null,
-    title: tab.title?.trim() || domain || "Saved tab",
-    url,
-    domain,
-    note: "",
-    agentReview: "",
-    viewed: false,
-    customProperties: { viewed: false },
-    tags: [],
-    color: "#F05A28",
-    icon: "●",
-    createdAt: now,
-    updatedAt: now,
-    archived: false,
-    archivedAt: null,
-    hiddenUntil: null,
+    placement: { groupId: null },
+    content: {
+      title: tab.title?.trim() || domain || "Saved tab",
+      url,
+      domain,
+      color: "#F05A28",
+      icon: "●",
+    },
+    annotations: {
+      note: "",
+      agentReview: "",
+      viewed: false,
+      customProperties: { viewed: false },
+      tags: [],
+    },
+    timestamps: { createdAt: now, updatedAt: now },
+    lifecycle: { archived: false, archivedAt: null, hiddenUntil: null },
   };
 }
 
@@ -97,12 +96,13 @@ async function syncQuickCapture(group: VaultGroup, tabs: VaultTab[]) {
       headers,
       body: JSON.stringify({
         id: group.id,
-        name: group.name,
-        category: group.category,
-        description: group.description,
-        color: group.accent,
-        createdAt: group.createdAt,
-        updatedAt: group.updatedAt,
+        details: {
+          name: group.details.name,
+          category: group.details.category,
+          description: group.details.description,
+          color: group.details.accent,
+        },
+        timestamps: group.timestamps,
       }),
     }
   );
@@ -119,13 +119,17 @@ async function syncQuickCapture(group: VaultGroup, tabs: VaultTab[]) {
       body: JSON.stringify({
         tabs: tabs.map(tab => ({
           id: tab.id,
-          url: tab.url,
-          title: tab.title,
-          note: tab.note,
-          agentReview: tab.agentReview,
-          customProperties: { ...tab.customProperties, viewed: tab.viewed },
-          tags: tab.tags,
-          groupId: group.id,
+          content: { url: tab.content.url, title: tab.content.title },
+          annotations: {
+            note: tab.annotations.note,
+            agentReview: tab.annotations.agentReview,
+            customProperties: {
+              ...tab.annotations.customProperties,
+              viewed: tab.annotations.viewed,
+            },
+            tags: tab.annotations.tags,
+          },
+          placement: { groupId: group.id },
         })),
       }),
     }
@@ -147,7 +151,7 @@ async function syncQuickCapture(group: VaultGroup, tabs: VaultTab[]) {
  * copy if the optional server sync fails.
  * @param {chrome.tabs.Tab[]} sourceTabs - Popup-selected browser tabs.
  * @returns {Promise<{ savedCount: number; closedCount: number; skippedCount: number; failedCount: number; serverSynced: boolean }>} Capture and close counts.
- * @throws {Error} When stored browser data is incompatible with schema v3.
+ * @throws {Error} When stored browser data is incompatible with schema v4.
  */
 async function saveAndCloseTabs(sourceTabs: chrome.tabs.Tab[]) {
   const validTabs = sourceTabs.filter(
@@ -155,31 +159,28 @@ async function saveAndCloseTabs(sourceTabs: chrome.tabs.Tab[]) {
       tab.id && typeof tab.url === "string" && /^https?:\/\//i.test(tab.url)
   ) as CapturableTab[];
   const skippedCount = sourceTabs.length - validTabs.length;
-  const stored = await chrome.storage.local.get([
-    VAULT_STORAGE_KEY,
-    PREVIOUS_VAULT_STORAGE_KEY,
-  ]);
-  const vault =
-    upgradeVault(
-      stored[VAULT_STORAGE_KEY] ?? stored[PREVIOUS_VAULT_STORAGE_KEY]
-    ) ?? defaultVault();
+  const stored = await chrome.storage.local.get([VAULT_STORAGE_KEY]);
+  const vault = stored[VAULT_STORAGE_KEY] ?? defaultVault();
   if (!isPersistedVault(vault))
     throw new Error(
-      "Browser data is not schema v3; open TabVault to recover it."
+      "Browser data is not schema v4; open TabVault to recover it."
     );
 
   const group = createSessionGroup();
   const savedTabs = validTabs.map(sourceTab => ({
     ...buildSavedTab(sourceTab),
-    groupId: group.id,
+    placement: { groupId: group.id },
   }));
   const persistedVault = {
     ...vault,
-    vaultGroups: [group, ...vault.vaultGroups],
-    tabs: [...savedTabs, ...vault.tabs],
-    tabOrders: {
-      ...vault.tabOrders,
-      [orderKey(group.id)]: savedTabs.map(tab => tab.id),
+    library: {
+      ...vault.library,
+      vaultGroups: [group, ...vault.library.vaultGroups],
+      tabs: [...savedTabs, ...vault.library.tabs],
+      tabOrders: {
+        ...vault.library.tabOrders,
+        [orderKey(group.id)]: savedTabs.map(tab => tab.id),
+      },
     },
   };
   // Persist before closing source tabs so a failed close or server sync cannot lose them.
@@ -313,18 +314,17 @@ async function restoreLibraryRefreshAlarm() {
 async function refreshStoredLibrary() {
   const stored = await chrome.storage.local.get([
     VAULT_STORAGE_KEY,
-    PREVIOUS_VAULT_STORAGE_KEY,
     SERVER_URL_KEY,
     API_KEY_STORAGE_KEY,
     STORAGE_MODE_KEY,
   ]);
   if (stored[STORAGE_MODE_KEY] !== "backend") return false;
-  let vault =
-    upgradeVault(
-      stored[VAULT_STORAGE_KEY] ?? stored[PREVIOUS_VAULT_STORAGE_KEY]
-    ) ?? defaultVault();
+  const storedVault: unknown = stored[VAULT_STORAGE_KEY] ?? defaultVault();
+  if (!isPersistedVault(storedVault))
+    throw new Error("Browser library is not schema v4");
+  let vault = storedVault;
   if (!isPersistedVault(vault))
-    throw new Error("Browser library is not schema v3");
+    throw new Error("Browser library is not schema v4");
   const baseUrl = String(stored[SERVER_URL_KEY] || DEFAULT_SERVER_URL).replace(
     /\/+$/,
     ""
@@ -335,7 +335,7 @@ async function refreshStoredLibrary() {
     "X-API-Key": apiKey,
   };
   const remainingGroups = [];
-  for (const id of vault.tombstones?.groups ?? []) {
+  for (const id of vault.library.tombstones?.groups ?? []) {
     const response = await fetch(
       `${baseUrl}/api/v1/groups/${encodeURIComponent(id)}`,
       { method: "DELETE", headers }
@@ -343,7 +343,7 @@ async function refreshStoredLibrary() {
     if (!response.ok && response.status !== 404) remainingGroups.push(id);
   }
   const remainingTabs = [];
-  for (const id of vault.tombstones?.tabs ?? []) {
+  for (const id of vault.library.tombstones?.tabs ?? []) {
     const response = await fetch(
       `${baseUrl}/api/v1/tabs/${encodeURIComponent(id)}?hard=true`,
       { method: "DELETE", headers }
@@ -352,7 +352,10 @@ async function refreshStoredLibrary() {
   }
   vault = {
     ...vault,
-    tombstones: { tabs: remainingTabs, groups: remainingGroups },
+    library: {
+      ...vault.library,
+      tombstones: { tabs: remainingTabs, groups: remainingGroups },
+    },
   };
   await chrome.storage.local.set({ [VAULT_STORAGE_KEY]: vault });
   const response = await fetch(`${baseUrl}/api/v1/import`, {

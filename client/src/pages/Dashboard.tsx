@@ -232,17 +232,17 @@ export default function Dashboard() {
   const indexReady = indexStatus?.status === "ready";
   const blockedCapability = blockingSearchCapability(capabilities);
   const healthNeedsAttention =
-    indexStatus?.healthCheck?.lastResult === "needs_attention";
+    indexStatus?.diagnostics.healthCheck?.lastResult === "needs_attention";
   const libraryMetrics = [
-    { Icon: Database, value: vault.tabs.length, label: "Saved tabs" },
+    { Icon: Database, value: vault.library.tabs.length, label: "Saved tabs" },
     {
       Icon: FolderTree,
-      value: vault.vaultGroups.length,
+      value: vault.library.vaultGroups.length,
       label: "Collections",
     },
     {
       Icon: Tags,
-      value: Object.keys(vault.tagCatalog).length,
+      value: Object.keys(vault.library.tagCatalog).length,
       label: "Tags",
     },
   ];
@@ -309,7 +309,7 @@ export default function Dashboard() {
               <span className="font-mono text-[9px] uppercase tracking-[0.08em] text-[#7c8179]">
                 {sync?.localSavedAt
                   ? formatTime(sync.localSavedAt)
-                  : vault.tabs.length > 0
+                  : vault.library.tabs.length > 0
                     ? "Library available locally"
                     : "No saved tabs yet"}
               </span>
@@ -359,14 +359,15 @@ export default function Dashboard() {
             </div>
             <p className="mt-3 text-[12px] leading-5 text-[#697068]">
               {indexReady
-                ? `${indexStatus?.model ?? "Local embedding model"} is ready. Keyword and tag search remain available too.`
+                ? `${indexStatus?.configuration.model ?? "Local embedding model"} is ready. Keyword and tag search remain available too.`
                 : "Set up or rebuild the index only if you want search to match related concepts, not just words."}
             </p>
-            {indexStatus?.lastError && !blockedCapability?.error && (
-              <p className="mt-3 text-[12px] leading-5 text-[#8a4a38]">
-                {indexStatus.lastError}
-              </p>
-            )}
+            {indexStatus?.diagnostics.lastError &&
+              !blockedCapability?.error && (
+                <p className="mt-3 text-[12px] leading-5 text-[#8a4a38]">
+                  {indexStatus.diagnostics.lastError}
+                </p>
+              )}
             <CapabilityIssue capability={blockedCapability} />
             <Button
               variant="outline"
@@ -390,18 +391,19 @@ export default function Dashboard() {
                 <h2 className="mt-2 text-[18px] font-bold tracking-[-0.025em]">
                   {healthNeedsAttention
                     ? "Action needed"
-                    : indexStatus?.healthCheck?.lastResult === "ready"
+                    : indexStatus?.diagnostics.healthCheck?.lastResult ===
+                        "ready"
                       ? "Last check passed"
                       : "No health check yet"}
                 </h2>
               </div>
               <span
-                className={`mt-1 h-2.5 w-2.5 rounded-full ${healthNeedsAttention ? "bg-[#c95f46]" : indexStatus?.healthCheck?.lastResult === "ready" ? "bg-[#6e9870]" : "bg-[#b5b5ad]"}`}
+                className={`mt-1 h-2.5 w-2.5 rounded-full ${healthNeedsAttention ? "bg-[#c95f46]" : indexStatus?.diagnostics.healthCheck?.lastResult === "ready" ? "bg-[#6e9870]" : "bg-[#b5b5ad]"}`}
               />
             </div>
             <p className="mt-3 text-[12px] leading-5 text-[#697068]">
-              {indexStatus?.healthCheck?.enabled
-                ? `Automatic checks run every ${Math.round(indexStatus.healthCheck.intervalSeconds / 60)} minutes.`
+              {indexStatus?.diagnostics.healthCheck?.enabled
+                ? `Automatic checks run every ${Math.round(indexStatus.diagnostics.healthCheck.intervalSeconds / 60)} minutes.`
                 : "Health checks are manual. Turn on a schedule in Settings if you want local alerts."}
             </p>
             <Button

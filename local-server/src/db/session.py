@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from config.settings import Settings, get_settings
+from models import Base
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -32,10 +33,10 @@ def configure_database(
     """
     global _engine, _session_factory
     settings = settings or get_settings()
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    _engine = create_async_engine(settings.effective_database_url, pool_pre_ping=True)
+    settings.storage.data_dir.mkdir(parents=True, exist_ok=True)
+    _engine = create_async_engine(settings.storage.effective_database_url, pool_pre_ping=True)
 
-    if settings.effective_database_url.startswith("sqlite"):
+    if settings.storage.effective_database_url.startswith("sqlite"):
 
         @event.listens_for(_engine.sync_engine, "connect")
         def configure_sqlite(dbapi_connection: object, _record: object) -> None:
@@ -97,3 +98,13 @@ async def dispose_database() -> None:
         await _engine.dispose()
     _engine = None
     _session_factory = None
+
+
+async def initialize_database(engine: AsyncEngine) -> None:
+    """Create the current tables without upgrading existing schemas or converting data.
+
+    Args:
+        engine (AsyncEngine): Configured engine for the process-owned database.
+    """
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)

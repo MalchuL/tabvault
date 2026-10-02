@@ -26,18 +26,26 @@ import type {
   VaultTab,
 } from "@/domain/library/types";
 
-type LibraryDragOptions = {
+/** Library records and mutation handlers for LibraryDragOptions. */
+type LibraryDragLibrary = {
   tabs: VaultTab[];
   tabOrders: Record<string, string[]>;
   setTabs: (value: SetStateAction<VaultTab[]>) => void;
   setTabOrders: (value: SetStateAction<Record<string, string[]>>) => void;
   vaultGroups: VaultGroup[];
-  tabView: LibraryViewMode;
+};
+/** Storage and server connection state for LibraryDragOptions. */
+type LibraryDragConnection = {
   storageMode: StorageMode;
   serverOnline: boolean;
   setServerOnline: (online: boolean) => void;
   localServerUrl: string;
   serverApiKey: string;
+};
+type LibraryDragOptions = {
+  tabView: LibraryViewMode;
+  library: LibraryDragLibrary;
+  connection: LibraryDragConnection;
 };
 
 type LibraryDragBindings = {
@@ -57,17 +65,15 @@ type LibraryDragBindings = {
  * @returns {LibraryDragBindings} DnD handlers, sensors, collision strategy, and active overlay ID.
  */
 export function useLibraryDrag({
-  tabs,
-  tabOrders,
-  setTabs,
-  setTabOrders,
-  vaultGroups,
   tabView,
-  storageMode,
-  serverOnline,
-  setServerOnline,
-  localServerUrl,
-  serverApiKey,
+  library: { tabs, tabOrders, setTabs, setTabOrders, vaultGroups },
+  connection: {
+    storageMode,
+    serverOnline,
+    setServerOnline,
+    localServerUrl,
+    serverApiKey,
+  },
 }: LibraryDragOptions): LibraryDragBindings {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -150,16 +156,18 @@ export function useLibraryDrag({
     if (!over || active.id === over.id) return;
     const source = tabs.find(tab => tab.id === active.id);
     const target = tabs.find(tab => tab.id === over.id);
-    const dropGroupId = target ? target.groupId : over.data.current?.groupId;
+    const dropGroupId = target
+      ? target.placement.groupId
+      : over.data.current?.groupId;
     const groupId = dropGroupId === "unassigned" ? null : dropGroupId;
     if (!source || (groupId !== null && typeof groupId !== "string")) return;
     const destinationKey = orderKey(groupId);
 
-    if (source.groupId === groupId) {
+    if (source.placement.groupId === groupId) {
       const original = dragSnapshotRef.current?.tabs.find(
         tab => tab.id === active.id
       );
-      if (original?.groupId !== groupId && lastCrossOverRef.current) {
+      if (original?.placement.groupId !== groupId && lastCrossOverRef.current) {
         if (target) lastCrossOverRef.current.overId = String(over.id);
       }
       if (
@@ -203,7 +211,11 @@ export function useLibraryDrag({
             : activeRect && activeRect.top > over.rect.top + over.rect.height)
     );
     setTabs(current =>
-      current.map(tab => (tab.id === source.id ? { ...tab, groupId } : tab))
+      current.map(tab =>
+        tab.id === source.id
+          ? { ...tab, placement: { ...tab.placement, groupId } }
+          : tab
+      )
     );
     setTabOrders(current => {
       const next = Object.fromEntries(
@@ -268,7 +280,8 @@ export function useLibraryDrag({
     const source = tabs.find(tab => tab.id === active.id);
     if (!source) return;
     const original = snapshot?.tabs.find(tab => tab.id === active.id);
-    const movedToAnotherGroup = original?.groupId !== source.groupId;
+    const movedToAnotherGroup =
+      original?.placement.groupId !== source.placement.groupId;
     const finalOverId = movedToAnotherGroup
       ? (lastCrossOver?.overId ?? String(over.id))
       : String(over.id);
@@ -279,10 +292,10 @@ export function useLibraryDrag({
     let nextTabOrders = tabOrders;
     if (
       active.id !== over.id &&
-      target?.groupId === source.groupId &&
+      target?.placement.groupId === source.placement.groupId &&
       !stayedOnInitialCrossTarget
     ) {
-      const sourceKey = orderKey(source.groupId);
+      const sourceKey = orderKey(source.placement.groupId);
       const currentOrder = nextTabOrders[sourceKey] ?? [];
       const sourceIndex = currentOrder.indexOf(source.id);
       const originalTargetIndex = currentOrder.indexOf(target.id);
@@ -310,7 +323,10 @@ export function useLibraryDrag({
       const activeOrder = (groupId: GroupId | null) => {
         const remaining = new Set(
           tabs
-            .filter(tab => !tab.archived && tab.groupId === groupId)
+            .filter(
+              tab =>
+                !tab.lifecycle.archived && tab.placement.groupId === groupId
+            )
             .map(tab => tab.id)
         );
         const ordered = (nextTabOrders[orderKey(groupId)] ?? []).filter(id =>
@@ -323,26 +339,26 @@ export function useLibraryDrag({
           await updateTabOnLocalServer(
             localServerUrl,
             source.id,
-            { groupId: source.groupId },
+            { placement: { groupId: source.placement.groupId } },
             serverApiKey
           );
           await reorderTabsOnLocalServer(
             localServerUrl,
-            original.groupId,
-            activeOrder(original.groupId),
+            original.placement.groupId,
+            activeOrder(original.placement.groupId),
             serverApiKey
           );
           await reorderTabsOnLocalServer(
             localServerUrl,
-            source.groupId,
-            activeOrder(source.groupId),
+            source.placement.groupId,
+            activeOrder(source.placement.groupId),
             serverApiKey
           );
         } else {
           await reorderTabsOnLocalServer(
             localServerUrl,
-            source.groupId,
-            activeOrder(source.groupId),
+            source.placement.groupId,
+            activeOrder(source.placement.groupId),
             serverApiKey
           );
         }
@@ -355,8 +371,8 @@ export function useLibraryDrag({
 
     if (movedToAnotherGroup) {
       const destination =
-        vaultGroups.find(group => group.id === source.groupId)?.name ??
-        "collection";
+        vaultGroups.find(group => group.id === source.placement.groupId)
+          ?.details.name ?? "collection";
       toast.success(`Moved to ${destination}`, {
         description: "Placed at the requested position in this collection.",
       });

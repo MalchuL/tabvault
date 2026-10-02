@@ -12,9 +12,8 @@ import type { GroupId, VaultGroup, VaultTab } from "@/domain/library/types";
 import { categoryColor } from "@/domain/library/categoryColor";
 import { HideDurationMenu } from "@/domain/library/components/shared/HideDurationMenu";
 
-type CollectionBoardProps = {
-  groups: VaultGroup[];
-  tabs: VaultTab[];
+/** Interaction handlers for CollectionBoardProps. */
+type CollectionBoardActions = {
   onOpen: (group: VaultGroup) => void;
   onShare: (group: VaultGroup) => void;
   onDelete: (group: VaultGroup) => void;
@@ -22,8 +21,14 @@ type CollectionBoardProps = {
   onBrowse: (groupId: GroupId) => void;
   onCreate: () => void;
   onHide: (groupId: GroupId, durationMs: number) => void;
-  query: string;
-  matchedTabIds: Set<string>;
+};
+/** Search state and handlers for CollectionBoardProps. */
+type CollectionBoardSearch = { query: string; matchedTabIds: Set<string> };
+type CollectionBoardProps = {
+  groups: VaultGroup[];
+  tabs: VaultTab[];
+  actions: CollectionBoardActions;
+  search: CollectionBoardSearch;
 };
 
 /**
@@ -35,15 +40,8 @@ type CollectionBoardProps = {
 export function CollectionBoard({
   groups,
   tabs,
-  onOpen,
-  onShare,
-  onDelete,
-  onEdit,
-  onBrowse,
-  onCreate,
-  onHide,
-  query,
-  matchedTabIds,
+  actions: { onOpen, onShare, onDelete, onEdit, onBrowse, onCreate, onHide },
+  search: { query, matchedTabIds },
 }: CollectionBoardProps) {
   return (
     <div
@@ -51,7 +49,9 @@ export function CollectionBoard({
       className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
     >
       {groups.map(group => {
-        const groupTabs = tabs.filter(tab => tab.groupId === group.id);
+        const groupTabs = tabs.filter(
+          tab => tab.placement.groupId === group.id
+        );
         return (
           <CollectionCard key={group.id} group={group}>
             <div className="flex items-start gap-3">
@@ -63,21 +63,23 @@ export function CollectionBoard({
               >
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: categoryColor(group.category) }}
+                  style={{
+                    backgroundColor: categoryColor(group.details.category),
+                  }}
                 />
                 <span className="truncate text-[15px] font-bold tracking-[-0.025em] text-[#26342c]">
-                  {group.name}
+                  {group.details.name}
                 </span>
               </Button>
               <div
                 className="flex shrink-0 items-center gap-0.5"
-                aria-label={`${group.name} collection actions`}
+                aria-label={`${group.details.name} collection actions`}
               >
                 <Button
                   variant="ghost"
                   onClick={() => onOpen(group)}
                   className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                  aria-label={`Open all tabs in ${group.name}`}
+                  aria-label={`Open all tabs in ${group.details.name}`}
                   title="Open all tabs"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
@@ -86,7 +88,7 @@ export function CollectionBoard({
                   variant="ghost"
                   onClick={() => onShare(group)}
                   className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                  aria-label={`Copy ${group.name} as Markdown`}
+                  aria-label={`Copy ${group.details.name} as Markdown`}
                   title="Copy as Markdown"
                 >
                   <Share2 className="h-3.5 w-3.5" />
@@ -95,7 +97,7 @@ export function CollectionBoard({
                   variant="ghost"
                   onClick={() => onEdit(group)}
                   className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                  aria-label={`Edit ${group.name}`}
+                  aria-label={`Edit ${group.details.name}`}
                   title="Edit collection"
                 >
                   <Pencil className="h-3.5 w-3.5" />
@@ -104,7 +106,7 @@ export function CollectionBoard({
                   variant="ghost"
                   onClick={() => onDelete(group)}
                   className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                  aria-label={`Delete ${group.name}`}
+                  aria-label={`Delete ${group.details.name}`}
                   title="Delete collection"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -135,12 +137,12 @@ export function CollectionBoard({
             </SortableContext>
             <div className="mt-5 flex items-center justify-between border-t border-[#e8e3d8] pt-3 font-mono text-[9px] uppercase tracking-[0.08em] text-[#858980]">
               <span>{groupTabs.length} tabs</span>
-              <span style={{ color: categoryColor(group.category) }}>
-                {group.category}
+              <span style={{ color: categoryColor(group.details.category) }}>
+                {group.details.category}
               </span>
               <HideDurationMenu
                 mode="hide"
-                target={group.name}
+                target={group.details.name}
                 onSelect={duration => onHide(group.id, duration)}
               />
               <Button
@@ -238,7 +240,7 @@ function SortableCollectionTab({
       onClick={() => onBrowse(groupId)}
       data-testid={`grouped-tab-${tab.id}`}
       data-search-state={searchActive ? (matched ? "match" : "dimmed") : "idle"}
-      aria-label={tab.title}
+      aria-label={tab.content.title}
       className={`flex h-9 w-9 shrink-0 touch-none items-center justify-center rounded-md border transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] ${
         searchActive
           ? matched
@@ -251,7 +253,7 @@ function SortableCollectionTab({
         transition,
         opacity: isDragging ? 0 : undefined,
       }}
-      title={tab.title}
+      title={tab.content.title}
     >
       <CollectionTabIcon tab={tab} />
     </Button>
@@ -270,15 +272,15 @@ export function CollectionTabIcon({ tab }: { tab: VaultTab }) {
     return (
       <span
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[9px] font-bold text-white"
-        style={{ backgroundColor: tab.color }}
+        style={{ backgroundColor: tab.content.color }}
         aria-hidden="true"
       >
-        {tab.icon.slice(0, 2)}
+        {tab.content.icon.slice(0, 2)}
       </span>
     );
   return (
     <img
-      src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(tab.url)}&sz=64`}
+      src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(tab.content.url)}&sz=64`}
       alt=""
       data-testid={`grouped-tab-icon-${tab.id}`}
       className="h-6 w-6 shrink-0 rounded-md bg-[#ece7dc] object-cover"

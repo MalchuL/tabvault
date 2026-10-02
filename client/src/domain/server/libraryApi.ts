@@ -5,20 +5,29 @@ import {
   toServerDocument,
   type PersistedVault,
 } from "@/domain/library/codec";
+import type { TabPatch } from "@/domain/library/types";
 import { DEFAULT_TABVAULT_API_KEY } from "./browserStorage";
 import { apiHeaders } from "./client";
 
-export type LocalServerTab = {
-  id: string;
-  url: string;
-  title: string;
+/** Display content for LocalServerTab. */
+type LocalServerTabContent = { url: string; title: string };
+/** Notes, review, and tag state for LocalServerTab. */
+type LocalServerTabAnnotations = {
   note?: string | null;
   agentReview?: string | null;
   customProperties?: Record<string, unknown>;
   tags: string[];
-  groupId?: string | null;
-  position?: number;
-  updatedAt?: string;
+};
+/** Collection membership and ordering for LocalServerTab. */
+type LocalServerTabPlacement = { groupId?: string | null; position?: number };
+/** Creation and modification times for LocalServerTab. */
+type LocalServerTabTimestamps = { updatedAt?: string };
+export type LocalServerTab = {
+  id: string;
+  content: LocalServerTabContent;
+  annotations: LocalServerTabAnnotations;
+  placement: LocalServerTabPlacement;
+  timestamps: LocalServerTabTimestamps;
 };
 
 /**
@@ -115,7 +124,7 @@ async function flushDeletionTombstones(
   apiKey: string,
   vault: PersistedVault
 ) {
-  const tombstones = vault.tombstones ?? { tabs: [], groups: [] };
+  const tombstones = vault.library.tombstones ?? { tabs: [], groups: [] };
   const root = url.replace(/\/+$/, "");
   const remainingGroups: string[] = [];
   for (const id of tombstones.groups) {
@@ -135,7 +144,10 @@ async function flushDeletionTombstones(
       await fetch(`${root}/api/v1/tabs/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: apiHeaders(apiKey),
-        body: JSON.stringify({ archived: true, groupId: null }),
+        body: JSON.stringify({
+          lifecycle: { archived: true },
+          placement: { groupId: null },
+        }),
       });
       response = await fetch(
         `${root}/api/v1/tabs/${encodeURIComponent(id)}?hard=true`,
@@ -146,7 +158,13 @@ async function flushDeletionTombstones(
   }
   return {
     ...vault,
-    tombstones: { tabs: remainingTabs, groups: remainingGroups },
+    library: {
+      ...vault.library,
+      library: {
+        ...vault.library,
+        tombstones: { tabs: remainingTabs, groups: remainingGroups },
+      },
+    },
   };
 }
 
@@ -182,28 +200,46 @@ export async function clearLibraryOnServer(
  * @returns {Promise<{ success: boolean; data: LocalServerTab }>} Created tab response.
  * @throws {Error} When the server rejects the tab.
  */
+/** Display content for saveTabToLocalServerInput. */
+type saveTabToLocalServerInputContent = {
+  url: string;
+  title: string;
+  favicon?: string | null;
+};
+/** Notes, review, and tag state for saveTabToLocalServerInput. */
+type saveTabToLocalServerInputAnnotations = {
+  note: string;
+  agentReview?: string;
+  viewed?: boolean;
+  tags: string[];
+};
+/** Collection membership and ordering for saveTabToLocalServerInput. */
+type saveTabToLocalServerInputPlacement = { groupId: string | null };
+/** Properties supplied to saveTabToLocalServer. */
+type saveTabToLocalServerInput = {
+  id?: string;
+  content: saveTabToLocalServerInputContent;
+  annotations: saveTabToLocalServerInputAnnotations;
+  placement: saveTabToLocalServerInputPlacement;
+};
 export async function saveTabToLocalServer(
   url: string,
-  tab: {
-    id?: string;
-    url: string;
-    title: string;
-    note: string;
-    agentReview?: string;
-    viewed?: boolean;
-    tags: string[];
-    groupId: string | null;
-    favicon?: string | null;
-  },
+  tab: saveTabToLocalServerInput,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
   const response = await fetch(`${url.replace(/\/+$/, "")}/api/v1/tabs`, {
     method: "POST",
     headers: apiHeaders(apiKey),
     body: JSON.stringify({
-      ...tab,
-      viewed: undefined,
-      customProperties: { viewed: tab.viewed ?? false },
+      id: tab.id,
+      content: { url: tab.content.url, title: tab.content.title },
+      annotations: {
+        note: tab.annotations.note,
+        agentReview: tab.annotations.agentReview,
+        tags: tab.annotations.tags,
+        customProperties: { viewed: tab.annotations.viewed ?? false },
+      },
+      placement: tab.placement,
     }),
   });
   if (!response.ok) throw new Error("TabVault local server rejected the tab");
@@ -221,17 +257,27 @@ export async function saveTabToLocalServer(
  * @returns {Promise<unknown>} Server creation response.
  * @throws {Error} When the server rejects the group.
  */
-export async function createGroupOnLocalServer(
-  url: string,
-  group: {
-    id?: string;
+/** Group creation fields for the nested HTTP contract. */
+export type GroupCreateInput = {
+  id?: string;
+  details: {
     name: string;
     category: string;
     description?: string;
     color?: string;
-    createdAt?: string;
-    updatedAt?: string;
-  },
+  };
+  timestamps?: { createdAt?: string; updatedAt?: string };
+};
+
+/** Editable group details and ordering. */
+export type GroupPatch = {
+  details?: Partial<GroupCreateInput["details"]>;
+  placement?: { position?: number };
+};
+
+export async function createGroupOnLocalServer(
+  url: string,
+  group: GroupCreateInput,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
   const response = await fetch(`${url.replace(/\/+$/, "")}/api/v1/groups`, {
@@ -255,17 +301,18 @@ export async function createGroupOnLocalServer(
 export async function updateTabOnLocalServer(
   url: string,
   id: string,
-  updates: Record<string, unknown>,
+  updates: TabPatch,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
   const payload = { ...updates };
-  if (typeof payload.viewed === "boolean") {
-    payload.customProperties = {
-      ...((payload.customProperties as Record<string, unknown> | undefined) ??
-        {}),
-      viewed: payload.viewed,
+  if (payload.annotations) {
+    const { viewed, ...annotations } = payload.annotations;
+    payload.annotations = {
+      ...annotations,
+      ...(viewed === undefined
+        ? {}
+        : { customProperties: { ...annotations.customProperties, viewed } }),
     };
-    delete payload.viewed;
   }
   const response = await fetch(
     `${url.replace(/\/+$/, "")}/api/v1/tabs/${encodeURIComponent(id)}`,
@@ -318,7 +365,7 @@ export async function reorderTabsOnLocalServer(
 export async function updateGroupOnLocalServer(
   url: string,
   id: string,
-  updates: Record<string, unknown>,
+  updates: GroupPatch,
   apiKey = DEFAULT_TABVAULT_API_KEY
 ) {
   const response = await fetch(

@@ -31,11 +31,12 @@ export function createSessionGroup(date = new Date()): VaultGroup {
   const timestamp = date.toISOString();
   return {
     id: crypto.randomUUID(),
-    name: sessionName(date),
-    description: "Captured from the browser",
-    category: "session",
-    accent: "#829b65",
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    details: {
+      name: sessionName(date),
+      description: "Captured from the browser",
+      category: "session",
+      accent: "#829b65",
+    },
+    timestamps: { createdAt: timestamp, updatedAt: timestamp },
   };
 }

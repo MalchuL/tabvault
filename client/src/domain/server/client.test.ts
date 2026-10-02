@@ -28,8 +28,8 @@ describe("createTabVaultApi", () => {
       api.groups.remove("group"),
       api.search.query(new URLSearchParams({ q: "docs" })),
       api.search.structured({}),
-      api.index.status(),
-      api.index.rebuild(),
+      api.search.index.status(),
+      api.search.index.rebuild(),
       api.transfer.sync(),
       api.transfer.export("json"),
       api.transfer.import({}),
@@ -75,9 +75,11 @@ describe("createTabVaultApi", () => {
           ok: true,
           json: async () => ({
             data: {
-              status: "ready",
-              contentHtml: '<img src="tabvault-asset://asset-1">',
-              title: "Captured",
+              capture: { status: "ready" },
+              article: {
+                contentHtml: '<img src="tabvault-asset://asset-1">',
+                title: "Captured",
+              },
             },
           }),
         })
@@ -102,7 +104,10 @@ describe("createTabVaultApi", () => {
       vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
-          data: { status: "failed", error: "capture failed" },
+          data: {
+            capture: { status: "failed", error: "capture failed" },
+            article: {},
+          },
         }),
       })
     );

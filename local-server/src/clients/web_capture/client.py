@@ -59,7 +59,7 @@ class WebCaptureClient:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise CaptureRejectedError("Only absolute HTTP(S) URLs are allowed")
-        if self.settings.preview_allow_private_hosts:
+        if self.settings.preview.allow_private_hosts:
             return
         # Get addresses for the hostname (it calls C func from asyncio).
         addresses = await asyncio.get_running_loop().getaddrinfo(
@@ -95,7 +95,7 @@ class WebCaptureClient:
                 count violates the capture policy.
         """
         current = url
-        async with httpx.AsyncClient(timeout=self.settings.preview_timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=self.settings.preview.timeout_seconds) as client:
             for _ in range(6):
                 await self._validate_url(current)
                 async with client.stream(
@@ -142,7 +142,7 @@ class WebCaptureClient:
             CapturedResponse: Validated HTML content and its final source URL.
         """
         return await self._fetch(
-            url, ("text/html", "application/xhtml+xml"), self.settings.preview_max_html_bytes
+            url, ("text/html", "application/xhtml+xml"), self.settings.preview.max_html_bytes
         )
 
     async def fetch_image(self, url: str) -> CapturedResponse:
@@ -157,4 +157,4 @@ class WebCaptureClient:
         Returns:
             CapturedResponse: Validated image bytes and their final source URL.
         """
-        return await self._fetch(url, ("image/*",), self.settings.preview_max_image_bytes)
+        return await self._fetch(url, ("image/*",), self.settings.preview.max_image_bytes)

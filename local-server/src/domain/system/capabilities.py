@@ -18,7 +18,7 @@ _INDEX_NOT_BUILT_FIX = (
     "can take several minutes."
 )
 _MODEL_DOWNLOAD_FIX = (
-    "Check network access to Hugging Face, or set TABVAULT_EMBEDDING_MODEL to a local model path, "
+    "Check network access to Hugging Face, or set TABVAULT_EMBEDDING__MODEL to a local model path, "
     "then rebuild the index."
 )
 

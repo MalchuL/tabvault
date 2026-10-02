@@ -15,31 +15,41 @@ from .dto import (
 
 
 def _names_by_id(groups: list[GroupDTO]) -> dict[str, str]:
-    return {group.id: group.name for group in groups}
+    return {group.id: group.details.name for group in groups}
 
 
 def to_view(tab: TabDTO, groups: list[GroupDTO]) -> TabViewDTO:
     """Replace private Group identity with its public name and remove Tab identity."""
     group = None
-    if tab.group_id is not None:
-        group = _names_by_id(groups).get(tab.group_id)
+    if tab.placement.group_id is not None:
+        group = _names_by_id(groups).get(tab.placement.group_id)
         if group is None:
             raise MCPClientError("Saved Tab belongs to a Group that is not accessible through MCP")
-    return TabViewDTO(
-        url=tab.url,
-        title=tab.title,
-        favicon=tab.favicon,
-        note=tab.note,
-        agent_review=tab.agent_review,
-        viewed=tab.viewed,
-        custom_properties=tab.custom_properties,
-        tags=tab.tags,
-        group=group,
-        archived=tab.archived,
-        archived_at=tab.archived_at,
-        hidden_until=tab.hidden_until,
-        created_at=tab.created_at,
-        updated_at=tab.updated_at,
+    return TabViewDTO.model_validate(
+        {
+            "content": {
+                "url": tab.content.url,
+                "title": tab.content.title,
+                "favicon": tab.content.favicon,
+            },
+            "annotations": {
+                "note": tab.annotations.note,
+                "agent_review": tab.annotations.agent_review,
+                "viewed": bool(tab.annotations.custom_properties.get("viewed", False)),
+                "custom_properties": tab.annotations.custom_properties,
+                "tags": tab.annotations.tags,
+            },
+            "placement": {"group": group},
+            "lifecycle": {
+                "archived": tab.lifecycle.archived,
+                "archived_at": tab.lifecycle.archived_at,
+                "hidden_until": tab.lifecycle.hidden_until,
+            },
+            "timestamps": {
+                "created_at": tab.timestamps.created_at,
+                "updated_at": tab.timestamps.updated_at,
+            },
+        }
     )
 
 

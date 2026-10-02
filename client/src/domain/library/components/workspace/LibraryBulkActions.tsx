@@ -1,3 +1,4 @@
+import type { VaultGroup } from "@/domain/library/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/shared/IconButton";
@@ -9,37 +10,50 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FolderInput, Trash2 } from "lucide-react";
 
-/**
- * Show selection-wide move, tag, and archive controls.
- * The workspace owns the selected IDs and performs every mutation.
- * @param {object} props - Selection counts, destinations, and owner callbacks.
- * @returns {React.ReactElement | null} Bulk toolbar when selection is active.
- */
-export function LibraryBulkActions({
-  selectionActive,
-  selectedCount,
-  visibleCount,
-  groups,
-  bulkTag,
-  isArchivePage,
-  onToggleSelectAll,
-  onMoveSelected,
-  onBulkTagChange,
-  onTagSelected,
-  onRemoveSelected,
-}: {
+/** Selection state and handlers for LibraryBulkActionsProps. */
+type LibraryBulkActionsSelection = {
   selectionActive: boolean;
   selectedCount: number;
   visibleCount: number;
-  groups: Array<{ id: string; name: string; category: string }>;
-  bulkTag: string;
-  isArchivePage: boolean;
   onToggleSelectAll: () => void;
-  onMoveSelected: (groupId: string) => void;
+};
+/** Tag assignment state for LibraryBulkActionsProps. */
+type LibraryBulkActionsTagging = {
+  bulkTag: string;
   onBulkTagChange: (tag: string) => void;
   onTagSelected: () => void;
+};
+/** Interaction handlers for LibraryBulkActionsProps. */
+type LibraryBulkActionsActions = {
+  onMoveSelected: (groupId: string) => void;
   onRemoveSelected: () => void;
-}) {
+};
+/** Properties supplied to LibraryBulkActions. */
+type LibraryBulkActionsProps = {
+  groups: Array<Pick<VaultGroup, "id" | "details">>;
+  isArchivePage: boolean;
+  selection: LibraryBulkActionsSelection;
+  tagging: LibraryBulkActionsTagging;
+  actions: LibraryBulkActionsActions;
+};
+/**
+ * Show selection-wide move, tag, and archive controls.
+ * The workspace owns the selected IDs and performs every mutation.
+ * @param {LibraryBulkActionsProps} props - Selection counts, destinations, and owner callbacks.
+ * @returns {React.ReactElement | null} Bulk toolbar when selection is active.
+ */
+export function LibraryBulkActions({
+  groups,
+  isArchivePage,
+  selection: {
+    selectionActive,
+    selectedCount,
+    visibleCount,
+    onToggleSelectAll,
+  },
+  tagging: { bulkTag, onBulkTagChange, onTagSelected },
+  actions: { onMoveSelected, onRemoveSelected },
+}: LibraryBulkActionsProps) {
   if (!selectionActive) return null;
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-[#dfdbd0] bg-[#f9f7f1] px-3 py-2.5">
@@ -65,16 +79,16 @@ export function LibraryBulkActions({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
               {groups
-                .filter(group => group.category === "manual")
+                .filter(group => group.details.category === "manual")
                 .map(group => (
                   <DropdownMenuItem
                     key={group.id}
                     onSelect={() => void onMoveSelected(group.id)}
                   >
-                    {group.name}
+                    {group.details.name}
                   </DropdownMenuItem>
                 ))}
-              {!groups.some(group => group.category === "manual") && (
+              {!groups.some(group => group.details.category === "manual") && (
                 <DropdownMenuItem disabled>
                   No collections available
                 </DropdownMenuItem>

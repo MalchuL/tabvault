@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel
 
 from api.routes.service_dependencies import get_tab_service
 from domain.custom_properties.dto import CustomPropertiesPatchDTO, CustomPropertiesUnsetDTO
-from lib.pagination import MAX_LIST_PAGE_SIZE, ListOptions
+from lib.pagination import ListOptions
 from lib.responses import SuccessResponseDTO, success
 
 from .dto import (
+    SortDirection,
     TabBatchCreateDTO,
     TabBatchCreateMetaDTO,
     TabCreateDTO,
@@ -19,9 +21,12 @@ from .dto import (
     TabDeleteResultDTO,
     TabDTO,
     TabListOptionsDTO,
+    TabListOptionsFiltersDTO,
+    TabListOptionsOrderingDTO,
     TabListResponseDTO,
     TabReorderDTO,
     TabReorderResultDTO,
+    TabSortBy,
     TabTagDTO,
     TabUpdateDTO,
 )
@@ -31,59 +36,59 @@ from .visibility import TabVisibility
 router = APIRouter(prefix="/tabs", tags=["tabs"])
 
 
+class TabFilterQuery(BaseModel):
+    """Flat HTTP filters parsed together without changing query parameter names."""
+
+    groupId: str = "all"
+    category: str | None = None
+    tags: str = ""
+    tagsAll: str = ""
+    search: str | None = None
+    visibility: TabVisibility = "visible"
+
+
+class TabOrderingQuery(BaseModel):
+    """Flat HTTP sorting parameters."""
+
+    sortBy: TabSortBy = "position"
+    sortDir: SortDirection = "asc"
+
+
 @router.get("", response_model=TabListResponseDTO, response_model_exclude_unset=True)
 async def list_tabs(
     service: Annotated[TabService, Depends(get_tab_service)],
-    group_id: str = Query("all", alias="groupId"),
-    category: str | None = None,
-    tags: str = "",
-    tags_all: str = Query("", alias="tagsAll"),
-    search: str | None = None,
-    sort_by: Literal["position", "createdAt", "updatedAt", "title"] = Query(
-        "position", alias="sortBy"
-    ),
-    sort_dir: Literal["asc", "desc"] = Query("asc", alias="sortDir"),
-    limit: int = Query(MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
-    offset: int = Query(0, ge=0),
+    filters: Annotated[TabFilterQuery, Depends()],
+    ordering: Annotated[TabOrderingQuery, Depends()],
+    pagination: Annotated[ListOptions, Depends()],
     fields: str = "full",
-    visibility: TabVisibility = "visible",
 ) -> TabListResponseDTO:
-    """List Saved Tabs using filters and offset pagination.
+    """List Saved Tabs with grouped filters, sorting, and pagination.
 
     Args:
-        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped application
-            service that implements the use case.
-        group_id (str): Stable identifier of the group targeted by the operation.
-        category (str | None): Optional free-form Group category used to restrict results.
-        tags (str): Tags associated with the saved tab.
-        tags_all (str): Tag names all matching tabs must contain.
-        search (str | None): Optional case-insensitive text query.
-        sort_by (Literal["position", "createdAt", "updatedAt", "title"]): Sort by value consumed by
-            this operation.
-        sort_dir (Literal["asc", "desc"]): Directory used to store sort data.
-        limit (int): Maximum number of matching records to return.
-        offset (int): Number of matching rows to skip before this page.
-        fields (str): Requested response projection controlling which fields are serialized.
-        visibility (TabVisibility): Mutually exclusive visible, hidden, or archived tab scope.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped tab service.
+        filters (Annotated[TabFilterQuery, Depends()]): Collection, tags, search, and visibility.
+        ordering (Annotated[TabOrderingQuery, Depends()]): Sort field and direction.
+        pagination (Annotated[ListOptions, Depends()]): Validated limit and offset.
+        fields (str): Full, minimal, or comma-separated nested projection paths.
 
     Returns:
-        TabListResponseDTO: Page of tabs matching the supplied filters and projection.
+        TabListResponseDTO: Matching records with pagination metadata.
     """
-    result = await service.list(
+    return await service.list(
         TabListOptionsDTO(
-            group_id=group_id,
-            category=category,
-            tags_any=[value for value in tags.split(",") if value],
-            tags_all=[value for value in tags_all.split(",") if value],
-            search=search,
-            sort_by=sort_by,
-            sort_dir=sort_dir,
             fields=fields,
-            visibility=visibility,
+            filters=TabListOptionsFiltersDTO(
+                group_id=filters.groupId,
+                category=filters.category,
+                tags_any=[value for value in filters.tags.split(",") if value],
+                tags_all=[value for value in filters.tagsAll.split(",") if value],
+                search=filters.search,
+                visibility=filters.visibility,
+            ),
+            ordering=TabListOptionsOrderingDTO(sort_by=ordering.sortBy, sort_dir=ordering.sortDir),
         ),
-        ListOptions(limit=limit, offset=offset),
+        pagination,
     )
-    return result
 
 
 @router.put("/order", response_model=SuccessResponseDTO[TabReorderResultDTO])

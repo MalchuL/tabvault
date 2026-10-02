@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { openSchemaV2Library } from "./schema-v2-fixture";
+import { openSchemaV4Library } from "./schema-v4-fixture";
 
 test("sidebar stays visible while a new page loads", async ({ page }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   const sidebar = page.getByTestId("workspace-sidebar");
   const originalSidebar = await sidebar.elementHandle();
   const originalCount = await sidebar
@@ -52,7 +52,7 @@ test("sidebar stays visible while a new page loads", async ({ page }) => {
 for (const width of [1440, 390]) {
   test(`workspace pages fit at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
-    await openSchemaV2Library(page);
+    await openSchemaV4Library(page);
     for (const [route, heading] of [
       ["/", "All tabs"],
       ["/dashboard", "Dashboard"],
@@ -96,7 +96,7 @@ for (const width of [1440, 390]) {
 test("reserved group spacing stays stable during drag reordering", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   const group = page.getByTestId("tab-group-unassigned");
   await expect(group).toHaveAttribute("data-drop-gap-height", "128");
   const nextGroupTop = (await page
@@ -138,9 +138,10 @@ test("reserved group spacing stays stable during drag reordering", async ({
       page.evaluate(() => {
         const vault = JSON.parse(localStorage.getItem("tabvault-v3")!);
         return {
-          groupId: vault.tabs.find((tab: { id: string }) => tab.id === "t-1001")
-            .groupId,
-          order: vault.tabOrders.unassigned,
+          groupId: vault.library.tabs.find(
+            (tab: { id: string }) => tab.id === "t-1001"
+          ).placement.groupId,
+          order: vault.library.tabOrders.unassigned,
         };
       })
     )
@@ -152,7 +153,7 @@ for (const width of [1440, 390]) {
     page,
   }) => {
     await page.setViewportSize({ width, height: 700 });
-    await openSchemaV2Library(page);
+    await openSchemaV4Library(page);
     const toolbar = page.getByTestId("library-search-toolbar");
     const search = page.getByRole("textbox", {
       name: "Search your TabVault library",
@@ -191,7 +192,7 @@ for (const width of [1440, 390]) {
 test("move icon describes its action and moves selected tabs", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   await page.getByRole("button", { name: "Select tabs", exact: true }).click();
   await page
     .getByTestId("tab-row-t-1001")

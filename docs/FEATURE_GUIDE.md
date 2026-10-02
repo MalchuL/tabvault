@@ -68,7 +68,7 @@ The sidebar contains controls that are easy to mistake for application modes. Th
 
 ## Server-backed workflows
 
-When `TABVAULT_API_KEY` is configured, API requests must send it in `X-API-Key`. The server has no default key and binds to `127.0.0.1` by default; a non-loopback bind requires a configured key. Restrict browser origins with `TABVAULT_CORS_ORIGINS` and use TLS termination before network exposure. [2] [3]
+When `TABVAULT_HTTP__API_KEY` is configured, API requests must send it in `X-API-Key`. The server has no default key and binds to `127.0.0.1` by default; a non-loopback bind requires a configured key. Restrict browser origins with `TABVAULT_HTTP__CORS_ORIGINS` and use TLS termination before network exposure. [2] [3]
 
 The client stores the endpoint and API key in browser or Chrome extension storage. `LibraryProvider` writes the browser vault after state changes, and the library API explicitly synchronizes with the configured server; offline edits remain usable locally while the server is unavailable. [2]
 
@@ -98,7 +98,7 @@ The extension also hosts local alert delivery. When a health schedule and “not
 
 ## MCP agent access
 
-The Python MCP bridge reads `TABVAULT_SERVER_URL` and `TABVAULT_API_KEY` and calls the FastAPI server with its `X-API-Key` header. It does not keep its own library database. Its tools address visible tabs by URL and groups by name; hidden and archived records stay outside the bridge. [5]
+The Python MCP bridge reads `TABVAULT_SERVER_URL` and `TABVAULT_HTTP__API_KEY` and calls the FastAPI server with its `X-API-Key` header. It does not keep its own library database. Its tools address visible tabs by URL and groups by name; hidden and archived records stay outside the bridge. [5]
 
 | Tool group               | Tools                                                                                                           | Intended use                                       |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |

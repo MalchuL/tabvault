@@ -10,84 +10,98 @@ from lib.dto_config import DTO, model_config
 from lib.pagination import PaginatedResponse
 
 
-class GroupCreateDTO(DTO):
-    """Describe one Group to create.
-
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
-
-    Attributes:
-        name (str): Human-readable name of this record.
-        category (str): Free-form Group category, such as ``session`` or ``manual``.
-        description (str | None): Optional human-readable explanatory text.
-        color (str | None): Optional accent color displayed in the library.
-        position (float | None): Stable display position within the current Group or Unassigned
-            section.
-        id (str | None): Stable identifier for this record.
-        created_at (datetime | None): UTC instant at which the record was created.
-        updated_at (datetime | None): UTC instant at which the record was last changed.
-    """
+class GroupCreateDetailsDTO(DTO):
+    """Details fields for GroupCreateDTO."""
 
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(min_length=1, max_length=128)
     description: str | None = Field(default="", max_length=20_000)
     color: str | None = Field(default=None, max_length=32)
+
+
+class GroupCreatePlacementDTO(DTO):
+    """Placement fields for GroupCreateDTO."""
+
     position: float | None = Field(default=None, ge=0)
-    id: str | None = Field(default=None, max_length=128)
+
+
+class GroupCreateTimestampsDTO(DTO):
+    """Timestamps fields for GroupCreateDTO."""
+
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
 
-class GroupUpdateDTO(BaseModel):
-    """Describe explicitly supplied Group fields.
+class GroupCreateDTO(DTO):
+    """Describe one Group to create. Fields are grouped by responsibility."""
 
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+    id: str | None = Field(default=None, max_length=128)
+    details: GroupCreateDetailsDTO
+    placement: GroupCreatePlacementDTO = Field(default_factory=GroupCreatePlacementDTO)
+    timestamps: GroupCreateTimestampsDTO = Field(default_factory=GroupCreateTimestampsDTO)
 
-    Attributes:
-        name (str | None): Human-readable name of this record.
-        category (str | None): Free-form Group category, such as ``session`` or ``manual``.
-        description (str | None): Optional human-readable explanatory text.
-        color (str | None): Optional accent color displayed in the library.
-        position (float | None): Stable display position within the current Group or Unassigned
-            section.
-    """
+
+class GroupUpdateDetailsDTO(BaseModel):
+    """Details fields for GroupUpdateDTO."""
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     category: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=20_000)
     color: str | None = Field(default=None, max_length=32)
+    model_config = model_config()
+
+
+class GroupUpdatePlacementDTO(BaseModel):
+    """Placement fields for GroupUpdateDTO."""
+
     position: float | None = Field(default=None, ge=0)
     model_config = model_config()
 
 
-class GroupDTO(DTO):
-    """Represent one flat Group.
+class GroupUpdateDTO(BaseModel):
+    """Describe explicitly supplied Group fields. Fields are grouped by responsibility."""
 
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+    model_config = model_config()
+    details: GroupUpdateDetailsDTO = Field(default_factory=GroupUpdateDetailsDTO)
+    placement: GroupUpdatePlacementDTO = Field(default_factory=GroupUpdatePlacementDTO)
 
-    Attributes:
-        id (str): Stable identifier for this record.
-        name (str): Human-readable name of this record.
-        category (str): Free-form Group category, such as ``session`` or ``manual``.
-        description (str): Optional human-readable explanatory text.
-        color (str | None): Optional accent color displayed in the library.
-        position (float): Stable display position within the current Group or Unassigned section.
-        created_at (datetime): UTC instant at which the record was created.
-        updated_at (datetime): UTC instant at which the record was last changed.
-        tab_count (int): Number of tab records represented by this object.
-    """
 
-    id: str
+class GroupDetailsDTO(DTO):
+    """Details fields for GroupDTO."""
+
     name: str
     category: str
     description: str
     color: str | None
+
+
+class GroupPlacementDTO(DTO):
+    """Placement fields for GroupDTO."""
+
     position: float
+
+
+class GroupTimestampsDTO(DTO):
+    """Timestamps fields for GroupDTO."""
+
     created_at: datetime
     updated_at: datetime
+
+
+class GroupCountsDTO(DTO):
+    """Counts fields for GroupDTO."""
+
     tab_count: int = 0
+
+
+class GroupDTO(DTO):
+    """Represent one flat Group. Fields are grouped by responsibility."""
+
+    id: str
+    details: GroupDetailsDTO
+    placement: GroupPlacementDTO
+    timestamps: GroupTimestampsDTO
+    counts: GroupCountsDTO = Field(default_factory=GroupCountsDTO)
 
 
 class GroupListResponseDTO(PaginatedResponse[GroupDTO]):

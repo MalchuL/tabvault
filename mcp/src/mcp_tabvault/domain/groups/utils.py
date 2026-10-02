@@ -33,7 +33,8 @@ async def visible_groups() -> list[GroupDTO]:
 def group_named(groups: list[GroupDTO], name: str) -> GroupDTO:
     """Return the oldest case-insensitive exact Group-name match."""
     match = next(
-        (group for group in reversed(groups) if group.name.casefold() == name.casefold()), None
+        (group for group in reversed(groups) if group.details.name.casefold() == name.casefold()),
+        None,
     )
     if match is None:
         raise MCPClientError(f"Group named {name!r} is not accessible through MCP")

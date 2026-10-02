@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix format format-check typecheck test migrate check run mcp docker-build
+.PHONY: lint lint-fix format format-check typecheck test check run mcp docker-build
 
 lint:
 	uv run ruff check .
@@ -17,9 +17,6 @@ typecheck:
 
 test:
 	uv run pytest
-
-migrate:
-	uv run alembic upgrade head
 
 check: format-check lint typecheck test
 

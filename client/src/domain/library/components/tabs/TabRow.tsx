@@ -1,10 +1,10 @@
+import type { VaultGroup } from "@/domain/library/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { NativeSelect } from "@/components/ui/native-select";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Eye, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
-import { HideDurationMenu } from "@/domain/library/components/shared/HideDurationMenu";
+import { GripVertical } from "lucide-react";
+import { TabRowActions } from "@/domain/library/components/tabs/TabRowActions";
 import { ReadableArticlePreview } from "@/domain/library/components/tabs/ReadableArticlePreview";
 import {
   StandardTabContent,
@@ -15,31 +15,53 @@ import { openSavedLink } from "@/domain/library/components/tabs/tabLinkEvents";
 import type { TabListItem } from "@/domain/library/components/tabs/TabList";
 import type { TabViewMode } from "@/domain/library/types";
 
-type TabRowProps = {
-  tab: TabListItem;
+/** Presentation settings for TabRowProps. */
+type TabRowPresentation = {
   index: number;
   viewMode: TabViewMode;
+  previewBackend?: { url: string; apiKey: string };
+  sortable?: SortableBindings;
+  overlay?: boolean;
+};
+/** Search state and handlers for TabRowProps. */
+type TabRowSearch = {
   query: string;
+  score?: number;
+  fallbackMode?: "text_fallback" | "semantic";
+};
+/** Selection state and handlers for TabRowProps. */
+type TabRowSelection = {
   selectionEnabled: boolean;
   isSelected: boolean;
   isKeyboardActive: boolean;
-  score?: number;
-  fallbackMode?: "text_fallback" | "semantic";
   onActiveIndex: (index: number) => void;
   onToggleSelection: (id: string) => void;
+};
+/** Interaction handlers for TabRowProps. */
+type TabRowActions = {
   onMove: (id: string, groupId: string | null) => void;
   onEdit: (tab: TabListItem) => void;
   onOpen: (tab: TabListItem, url?: string) => void;
   onViewedChange: (id: string, viewed: boolean) => void;
   onDelete: (tab: TabListItem) => void;
+  onOpenTagManager: () => void;
+};
+/** Archive and hidden state for TabRowProps. */
+type TabRowLifecycle = {
   lifecycleMode: "visible" | "hidden" | "archived";
   onRestore?: (tab: TabListItem) => void;
   onHide?: (tab: TabListItem, durationMs: number) => void;
   onUnhide?: (tab: TabListItem) => void;
   onProlong?: (tab: TabListItem, durationMs: number) => void;
-  onOpenTagManager: () => void;
-  groups: Array<{ id: string; name: string; category?: string }>;
-  previewBackend?: { url: string; apiKey: string };
+};
+type TabRowProps = {
+  tab: TabListItem;
+  groups: Array<Pick<VaultGroup, "id" | "details">>;
+  presentation: TabRowPresentation;
+  search: TabRowSearch;
+  selection: TabRowSelection;
+  actions: TabRowActions;
+  lifecycle: TabRowLifecycle;
 };
 
 type SortableBindings = Pick<
@@ -60,56 +82,70 @@ type SortableBindings = Pick<
  */
 const ignore = () => undefined;
 
+/** Presentation settings for TabDragPreviewProps. */
+type TabDragPreviewPresentation = {
+  viewMode: TabViewMode;
+  previewBackend?: { url: string; apiKey: string };
+};
+/** Search state and handlers for TabDragPreviewProps. */
+type TabDragPreviewSearch = {
+  query: string;
+  score?: number;
+  fallbackMode?: "text_fallback" | "semantic";
+};
+/** Selection state and handlers for TabDragPreviewProps. */
+type TabDragPreviewSelection = {
+  selectionEnabled: boolean;
+  isSelected: boolean;
+};
+/** Properties supplied to TabDragPreview. */
+type TabDragPreviewProps = {
+  tab: TabListItem;
+  groups: Array<Pick<VaultGroup, "id" | "details">>;
+  presentation: TabDragPreviewPresentation;
+  search: TabDragPreviewSearch;
+  selection: TabDragPreviewSelection;
+};
 /**
  * Render the floating preview shown during a tab drag.
  * It reuses the selected view mode without making the preview interactive.
- * @param {{ tab: TabListItem; viewMode: TabViewMode; query: string; selectionEnabled: boolean; isSelected: boolean; score?: number; fallbackMode?: "text_fallback" | "semantic"; groups: Array<{ id: string; name: string; category?: string }>; previewBackend?: { url: string; apiKey: string }; }} props - Tab, current view mode, search context, and preview settings.
+ * @param {TabDragPreviewProps} props - Tab, current view mode, search context, and preview settings.
  * @returns {React.ReactElement} Floating visual drag preview.
  */
 export function TabDragPreview({
   tab,
-  viewMode,
-  query,
-  selectionEnabled,
-  isSelected,
-  score,
-  fallbackMode,
   groups,
-  previewBackend,
-}: {
-  tab: TabListItem;
-  viewMode: TabViewMode;
-  query: string;
-  selectionEnabled: boolean;
-  isSelected: boolean;
-  score?: number;
-  fallbackMode?: "text_fallback" | "semantic";
-  groups: Array<{ id: string; name: string; category?: string }>;
-  previewBackend?: { url: string; apiKey: string };
-}) {
+  presentation: { viewMode, previewBackend },
+  search: { query, score, fallbackMode },
+  selection: { selectionEnabled, isSelected },
+}: TabDragPreviewProps) {
   return (
     <TabRowPresentation
       tab={tab}
-      index={0}
-      viewMode={viewMode}
-      query={query}
-      selectionEnabled={selectionEnabled}
-      isSelected={isSelected}
-      isKeyboardActive={false}
-      score={score}
-      fallbackMode={fallbackMode}
-      onActiveIndex={ignore}
-      onToggleSelection={ignore}
-      onMove={ignore}
-      onEdit={ignore}
-      onOpen={ignore}
-      onViewedChange={ignore}
-      onDelete={ignore}
-      lifecycleMode="visible"
-      onOpenTagManager={ignore}
       groups={groups}
-      previewBackend={previewBackend}
-      overlay
+      presentation={{
+        overlay: true,
+        index: 0,
+        viewMode: viewMode,
+        previewBackend: previewBackend,
+      }}
+      search={{ query: query, score: score, fallbackMode: fallbackMode }}
+      selection={{
+        selectionEnabled: selectionEnabled,
+        isSelected: isSelected,
+        isKeyboardActive: false,
+        onActiveIndex: ignore,
+        onToggleSelection: ignore,
+      }}
+      actions={{
+        onMove: ignore,
+        onEdit: ignore,
+        onOpen: ignore,
+        onViewedChange: ignore,
+        onDelete: ignore,
+        onOpenTagManager: ignore,
+      }}
+      lifecycle={{ lifecycleMode: "visible" }}
     />
   );
 }
@@ -123,45 +159,44 @@ export function TabDragPreview({
 export function SortableTabRow(props: TabRowProps) {
   const sortable = useSortable({
     id: props.tab.id,
-    disabled: props.viewMode === "preview",
+    disabled: props.presentation.viewMode === "preview",
   });
-  return <TabRowPresentation {...props} sortable={sortable} />;
+  return (
+    <TabRowPresentation
+      {...props}
+      presentation={{ ...props.presentation, sortable }}
+    />
+  );
 }
 
 /**
  * Render one saved tab with search, selection, and lifecycle controls.
  * The view mode chooses the row layout while handlers stay with the parent workspace.
- * @param {TabRowProps & { sortable?: SortableBindings; overlay?: boolean }} props - Tab, display state, search evidence, and action callbacks.
+ * @param {TabRowProps} props - Tab, display state, search evidence, and action callbacks.
  * @returns {React.ReactElement} Saved-tab row in the selected view mode.
  */
 function TabRowPresentation({
   tab,
-  index,
-  viewMode,
-  query,
-  selectionEnabled,
-  isSelected,
-  isKeyboardActive,
-  score,
-  fallbackMode,
-  onActiveIndex,
-  onToggleSelection,
-  onMove,
-  onEdit,
-  onOpen,
-  onViewedChange,
-  onDelete,
-  lifecycleMode,
-  onRestore,
-  onHide,
-  onUnhide,
-  onProlong,
-  onOpenTagManager,
   groups,
-  previewBackend,
-  sortable,
-  overlay = false,
-}: TabRowProps & { sortable?: SortableBindings; overlay?: boolean }) {
+  presentation: { index, viewMode, previewBackend, sortable, overlay = false },
+  search: { query, score, fallbackMode },
+  selection: {
+    selectionEnabled,
+    isSelected,
+    isKeyboardActive,
+    onActiveIndex,
+    onToggleSelection,
+  },
+  actions: {
+    onMove,
+    onEdit,
+    onOpen,
+    onViewedChange,
+    onDelete,
+    onOpenTagManager,
+  },
+  lifecycle: { lifecycleMode, onRestore, onHide, onUnhide, onProlong },
+}: TabRowProps) {
   const attributes = sortable?.attributes;
   const listeners = sortable?.listeners;
   const setNodeRef = sortable?.setNodeRef;
@@ -183,8 +218,6 @@ function TabRowPresentation({
         : isKeyboardActive
           ? "bg-[#fff7f1] outline outline-1 outline-[#eab79d]"
           : "bg-[#f6f3ec]/55 hover:bg-[#fffdf8]";
-  const destructiveAction =
-    lifecycleMode === "archived" ? "Permanently delete" : "Archive";
 
   return (
     <article
@@ -207,7 +240,7 @@ function TabRowPresentation({
             checked={isSelected}
             onCheckedChange={() => onToggleSelection(tab.id)}
             className="h-3.5 w-3.5 accent-[#e95224]"
-            aria-label={`Select ${tab.title}`}
+            aria-label={`Select ${tab.content.title}`}
           />
         </label>
       )}
@@ -218,7 +251,7 @@ function TabRowPresentation({
           size="icon-sm"
           {...attributes}
           {...listeners}
-          aria-label={`Reorder ${tab.title}`}
+          aria-label={`Reorder ${tab.content.title}`}
           className="size-6 mt-0.5 hidden shrink-0 touch-none cursor-grab text-[#c3c3bb] transition hover:text-[#e95224] active:cursor-grabbing sm:block"
         >
           <GripVertical className="h-4 w-4" />
@@ -233,23 +266,23 @@ function TabRowPresentation({
             {...attributes}
             {...listeners}
             data-testid={`tab-drag-handle-${tab.id}`}
-            aria-label={`Reorder ${tab.title}`}
+            aria-label={`Reorder ${tab.content.title}`}
             className="size-6 shrink-0 touch-none cursor-grab p-0.5 text-[#b3b4ac] transition hover:text-[#e95224] active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#e95224]"
           >
             <GripVertical className="h-3.5 w-3.5" />
           </Button>
           <TabFavicon tab={tab} size="compact" />
           <a
-            href={tab.url}
+            href={tab.content.url}
             target="_blank"
             rel="noreferrer"
             onClick={event => openSavedLink(event, tab, onOpen)}
             onAuxClick={event => openSavedLink(event, tab, onOpen)}
             onPointerDown={event => event.stopPropagation()}
             className="min-w-0 truncate text-[12px] font-bold tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
-            title={tab.title}
+            title={tab.content.title}
           >
-            {tab.title}
+            {tab.content.title}
           </a>
           <ViewedCheckbox
             tab={tab}
@@ -260,53 +293,22 @@ function TabRowPresentation({
             {...attributes}
             {...listeners}
             data-testid={`tab-drag-space-${tab.id}`}
-            aria-label={`Reorder ${tab.title} from empty row space`}
+            aria-label={`Reorder ${tab.content.title} from empty row space`}
             className="hidden h-6 min-w-5 flex-1 touch-none cursor-grab sm:block"
           />
-          <ManualGroupMoveSelect
+          <TabRowActions
             tab={tab}
+            viewMode={viewMode}
             groups={groups}
-            onMove={onMove}
-            className="max-w-24 py-1 text-right"
-          />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            type="button"
-            onClick={event => {
-              event.stopPropagation();
-              onEdit(tab);
+            actions={{ onMove: onMove, onEdit: onEdit, onDelete: onDelete }}
+            lifecycle={{
+              lifecycleMode: lifecycleMode,
+              onRestore: onRestore,
+              onHide: onHide,
+              onUnhide: onUnhide,
+              onProlong: onProlong,
             }}
-            onPointerDown={event => event.stopPropagation()}
-            className="size-6 shrink-0 rounded p-1 text-[#92958d] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#e95224]"
-            aria-label={`Edit ${tab.title}`}
-            title={`Edit ${tab.title}`}
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </Button>
-          <TabLifecycleActions
-            tab={tab}
-            mode={lifecycleMode}
-            onRestore={onRestore}
-            onHide={onHide}
-            onUnhide={onUnhide}
-            onProlong={onProlong}
           />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            type="button"
-            onClick={event => {
-              event.stopPropagation();
-              onDelete(tab);
-            }}
-            onPointerDown={event => event.stopPropagation()}
-            className="size-6 shrink-0 rounded p-1 text-[#92958d] hover:bg-[#fff0ea] hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#e95224]"
-            aria-label={`${destructiveAction} ${tab.title}`}
-            title={`${destructiveAction} ${tab.title}`}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
         </>
       ) : instantPreview ? (
         <div className="min-w-0 flex-1">
@@ -333,90 +335,50 @@ function TabRowPresentation({
                     : "local match"}
                 </span>
               )}
-              <ManualGroupMoveSelect
+              <TabRowActions
                 tab={tab}
+                viewMode={viewMode}
                 groups={groups}
-                onMove={onMove}
-                className="max-w-[120px] py-1 pr-1 text-right"
+                actions={{ onMove: onMove, onEdit: onEdit, onDelete: onDelete }}
+                lifecycle={{
+                  lifecycleMode: lifecycleMode,
+                  onRestore: onRestore,
+                  onHide: onHide,
+                  onUnhide: onUnhide,
+                  onProlong: onProlong,
+                }}
               />
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => onEdit(tab)}
-                className="size-6 rounded p-0.5 text-[#aaa9a1] hover:bg-[#efede6] hover:text-[#e95224]"
-                aria-label={`Edit ${tab.title}`}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-              <TabLifecycleActions
-                tab={tab}
-                mode={lifecycleMode}
-                onRestore={onRestore}
-                onHide={onHide}
-                onUnhide={onUnhide}
-                onProlong={onProlong}
-              />
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => onDelete(tab)}
-                className="size-6 rounded p-0.5 text-[#aaa9a1] hover:bg-[#fff0ea] hover:text-[#c84b26]"
-                aria-label={`${destructiveAction} ${tab.title}`}
-                title={`${destructiveAction} ${tab.title}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
             </div>
           </div>
         </div>
       ) : (
         <StandardTabContent
           tab={tab}
-          query={query}
-          score={score}
-          fallbackMode={fallbackMode}
           hidden={lifecycleMode === "hidden"}
-          onOpenTagManager={onOpenTagManager}
-          onOpen={onOpen}
-          onViewedChange={onViewedChange}
+          search={{ query: query, score: score, fallbackMode: fallbackMode }}
+          actions={{
+            onOpenTagManager: onOpenTagManager,
+            onOpen: onOpen,
+            onViewedChange: onViewedChange,
+          }}
         />
       )}
 
       {!compact && !instantPreview && (
         <div className="hidden items-start gap-2 pt-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 sm:flex">
-          <ManualGroupMoveSelect
+          <TabRowActions
             tab={tab}
+            viewMode={viewMode}
             groups={groups}
-            onMove={onMove}
-            className="max-w-[120px] py-1 pr-4 text-right"
+            actions={{ onMove: onMove, onEdit: onEdit, onDelete: onDelete }}
+            lifecycle={{
+              lifecycleMode: lifecycleMode,
+              onRestore: onRestore,
+              onHide: onHide,
+              onUnhide: onUnhide,
+              onProlong: onProlong,
+            }}
           />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onEdit(tab)}
-            className="size-6 mt-0.5 rounded p-0.5 text-[#aaa9a1] hover:bg-[#efede6] hover:text-[#e95224]"
-            aria-label={`Edit ${tab.title}`}
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </Button>
-          <TabLifecycleActions
-            tab={tab}
-            mode={lifecycleMode}
-            onRestore={onRestore}
-            onHide={onHide}
-            onUnhide={onUnhide}
-            onProlong={onProlong}
-          />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onDelete(tab)}
-            className="size-6 mt-0.5 rounded p-0.5 text-[#aaa9a1] hover:bg-[#fff0ea] hover:text-[#c84b26]"
-            aria-label={`${destructiveAction} ${tab.title}`}
-            title={`${destructiveAction} ${tab.title}`}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
         </div>
       )}
 
@@ -426,113 +388,5 @@ function TabRowPresentation({
         </span>
       )}
     </article>
-  );
-}
-
-/**
- * Offer manual groups as destinations for a saved tab.
- * Session and automatic groups are not user-selected move targets.
- * @param {{ tab: TabListItem; groups: Array<{ id: string; name: string; category?: string }>; onMove: (id: string, groupId: string | null) => void; className: string; }} props - Tab, manual destinations, move handler, and optional style.
- * @returns {React.ReactElement} Group destination selector.
- */
-function ManualGroupMoveSelect({
-  tab,
-  groups,
-  onMove,
-  className,
-}: {
-  tab: TabListItem;
-  groups: Array<{ id: string; name: string; category?: string }>;
-  onMove: (id: string, groupId: string | null) => void;
-  className: string;
-}) {
-  const manualGroups = groups.filter(group => group.category === "manual");
-  if (!manualGroups.length) return null;
-  const currentManualGroupId = manualGroups.some(
-    group => group.id === tab.groupId
-  )
-    ? tab.groupId
-    : "";
-
-  return (
-    <NativeSelect
-      aria-label={`Move ${tab.title}`}
-      value={currentManualGroupId ?? ""}
-      onChange={event => onMove(tab.id, event.target.value)}
-      className={`h-auto appearance-none border-0 bg-transparent px-0 shadow-none font-mono text-[9px] uppercase tracking-[0.06em] text-[#8a8e85] outline-none hover:text-[#e95224] ${className}`}
-    >
-      <option value="" disabled>
-        Move to…
-      </option>
-      {manualGroups.map(group => (
-        <option
-          key={group.id}
-          value={group.id}
-          disabled={group.id === tab.groupId}
-        >
-          {group.name}
-        </option>
-      ))}
-    </NativeSelect>
-  );
-}
-
-/**
- * Show restore, hide, or prolong controls for a tab.
- * Available actions follow the tab’s current visible, hidden, or archived view.
- * @param {{ tab: TabListItem; mode: "visible" | "hidden" | "archived"; onRestore?: (tab: TabListItem) => void; onHide?: (tab: TabListItem, durationMs: number) => void; onUnhide?: (tab: TabListItem) => void; onProlong?: (tab: TabListItem, durationMs: number) => void; }} props - Tab, lifecycle view, and available transition callbacks.
- * @returns {React.ReactElement} Controls allowed in the current lifecycle view.
- */
-function TabLifecycleActions({
-  tab,
-  mode,
-  onRestore,
-  onHide,
-  onUnhide,
-  onProlong,
-}: {
-  tab: TabListItem;
-  mode: "visible" | "hidden" | "archived";
-  onRestore?: (tab: TabListItem) => void;
-  onHide?: (tab: TabListItem, durationMs: number) => void;
-  onUnhide?: (tab: TabListItem) => void;
-  onProlong?: (tab: TabListItem, durationMs: number) => void;
-}) {
-  if (mode === "archived")
-    return (
-      <Button
-        variant="ghost"
-        type="button"
-        onClick={() => onRestore?.(tab)}
-        className="rounded px-1.5 py-1 font-mono text-[8px] uppercase text-[#56815d] hover:bg-[#edf2ea]"
-      >
-        Restore
-      </Button>
-    );
-  return (
-    <div className="flex items-center gap-1">
-      {mode === "hidden" && (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          type="button"
-          onClick={() => onUnhide?.(tab)}
-          className="size-6 rounded p-1 text-[#56815d] hover:bg-[#edf2ea] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#56815d]"
-          aria-label={`Unhide ${tab.title}`}
-          title={`Unhide ${tab.title}`}
-        >
-          <Eye className="h-3.5 w-3.5" />
-        </Button>
-      )}
-      <HideDurationMenu
-        mode={mode === "hidden" ? "prolong" : "hide"}
-        target={tab.title}
-        onSelect={duration =>
-          mode === "hidden"
-            ? onProlong?.(tab, duration)
-            : onHide?.(tab, duration)
-        }
-      />
-    </div>
   );
 }

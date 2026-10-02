@@ -62,7 +62,7 @@ def install_transport(
 @pytest.mark.anyio
 async def test_singleton_reads_environment_once_and_closes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TABVAULT_SERVER_URL", "http://server/")
-    monkeypatch.setenv("TABVAULT_API_KEY", "key")
+    monkeypatch.setenv("TABVAULT_HTTP__API_KEY", "key")
     first = get_client()
     monkeypatch.setenv("TABVAULT_SERVER_URL", "http://changed")
 
@@ -80,18 +80,23 @@ async def test_singleton_reads_environment_once_and_closes(monkeypatch: pytest.M
 @pytest.mark.anyio
 async def test_environment_defaults_and_dto_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TABVAULT_SERVER_URL", raising=False)
-    monkeypatch.setenv("TABVAULT_API_KEY", "")
+    monkeypatch.setenv("TABVAULT_HTTP__API_KEY", "")
     client = get_client()
     assert client.base_url == DEFAULT_SERVER_URL
     assert client.api_key is None
-    assert TabCreateDTO(url="https://example.com", agent_review="ok").model_dump(
-        by_alias=True, exclude_unset=True
-    ) == {"url": "https://example.com", "agentReview": "ok"}
+    assert TabCreateDTO.model_validate(
+        {"content": {"url": "https://example.com"}, "annotations": {"agent_review": "ok"}}
+    ).model_dump(by_alias=True, exclude_unset=True) == {
+        "content": {"url": "https://example.com"},
+        "annotations": {"agentReview": "ok"},
+    }
     naive = tab().model_dump(mode="json", by_alias=True)
-    naive["createdAt"] = "2026-08-24T16:38:22.557000"
-    naive["updatedAt"] = "2026-08-24T16:38:22.557000"
+    naive["timestamps"]["createdAt"] = "2026-08-24T16:38:22.557000"
+    naive["timestamps"]["updatedAt"] = "2026-08-24T16:38:22.557000"
     assert (
-        TabDTO.model_validate(naive).model_dump(mode="json", by_alias=True)["createdAt"]
+        TabDTO.model_validate(naive).model_dump(mode="json", by_alias=True)["timestamps"][
+            "createdAt"
+        ]
         == "2026-08-24T16:38:22.557000Z"
     )
     with pytest.raises(ValidationError, match="duplicates"):
@@ -186,18 +191,34 @@ async def test_all_client_operations_are_typed_and_use_current_routes() -> None:
 
     client = MCPClient("http://server", "secret")
     install_transport(client, handler)
-    assert (await client.list_tabs(TabListQueryDTO(group_id="unassigned"))).data[0].id == "tab"
+    assert (
+        await client.list_tabs(
+            TabListQueryDTO.model_validate({"filters": {"group_id": "unassigned"}})
+        )
+    ).data[0].id == "tab"
     assert (await client.search_tabs(SearchQueryDTO(q="query"))).data.results[0].score == 1
     assert (await client.get_tab("tab")).data.id == "tab"
-    created = await client.create_tab(TabCreateDTO(url="https://example.com"))
+    created = await client.create_tab(
+        TabCreateDTO.model_validate({"content": {"url": "https://example.com"}})
+    )
     assert created.meta is not None and created.meta.job.job_id == "job"
-    assert (await client.update_tab("tab", TabUpdateDTO(title="Changed"))).data.id == "tab"
+    assert (
+        await client.update_tab(
+            "tab", TabUpdateDTO.model_validate({"content": {"title": "Changed"}})
+        )
+    ).data.id == "tab"
     assert (await client.delete_tab("tab")).data.hard is False
     assert (await client.reorder_tabs(TabReorderDTO(tab_ids=["tab"]))).data.tab_ids == ["tab"]
     assert not (await client.list_group_tabs("group", GroupTabsQueryDTO())).data
     assert (await client.list_groups(GroupListQueryDTO())).data[0].id == "group"
-    assert (await client.create_group(GroupCreateDTO(name="Group"))).data.id == "group"
-    assert (await client.update_group("group", GroupUpdateDTO(name="New"))).data.id == "group"
+    assert (
+        await client.create_group(GroupCreateDTO.model_validate({"details": {"name": "Group"}}))
+    ).data.id == "group"
+    assert (
+        await client.update_group(
+            "group", GroupUpdateDTO.model_validate({"details": {"name": "New"}})
+        )
+    ).data.id == "group"
     assert (await client.delete_group("group")).data.archived_tab_count == 0
     assert (await client.list_tags(TagListQueryDTO())).data[0].name == "docs"
     assert (await client.tag_tab("tab", TabTagDTO(tag_name="docs"))).data.id == "tab"
@@ -214,8 +235,8 @@ async def test_all_client_operations_are_typed_and_use_current_routes() -> None:
         if request.method == "PATCH" and request.url.path == "/api/v1/tabs/tab"
     )
     assert create.headers["X-API-Key"] == "secret"
-    assert create.content == b'{"url":"https://example.com"}'
-    assert update.content == b'{"title":"Changed"}'
+    assert create.content == b'{"content":{"url":"https://example.com"}}'
+    assert update.content == b'{"content":{"title":"Changed"}}'
     assert seen[0].url.params["groupId"] == "unassigned"
     await client.aclose()
 
@@ -244,8 +265,12 @@ async def test_viewed_write_registers_property_once_after_read_only_requests() -
     )
     assert not (await client.list_tabs(TabListQueryDTO())).data
     assert [request.method for request in seen] == ["GET"]
-    await client.create_tab(TabCreateDTO(url="https://exact", viewed=False))
-    await client.update_tab("tab", TabUpdateDTO(viewed=True))
+    await client.create_tab(
+        TabCreateDTO.model_validate(
+            {"content": {"url": "https://exact"}, "annotations": {"viewed": False}}
+        )
+    )
+    await client.update_tab("tab", TabUpdateDTO.model_validate({"annotations": {"viewed": True}}))
     assert [request.method for request in seen] == ["GET", "GET", "POST", "POST", "PATCH"]
     assert seen[2].content == (
         b'{"name":"viewed","description":"","type":"boolean","default":false}'
@@ -328,11 +353,15 @@ async def test_viewed_write_preserves_existing_schema(definition: dict[str, obje
     )
     try:
         if definition["type"] == "boolean":
-            await client.update_tab("tab", TabUpdateDTO(viewed=True))
+            await client.update_tab(
+                "tab", TabUpdateDTO.model_validate({"annotations": {"viewed": True}})
+            )
             assert [request.method for request in seen] == ["GET", "PATCH"]
         else:
             with pytest.raises(MCPClientError, match="type boolean"):
-                await client.update_tab("tab", TabUpdateDTO(viewed=True))
+                await client.update_tab(
+                    "tab", TabUpdateDTO.model_validate({"annotations": {"viewed": True}})
+                )
             assert [request.method for request in seen] == ["GET"]
     finally:
         await client.aclose()

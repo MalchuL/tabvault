@@ -21,8 +21,8 @@ def visible_tabs(now: datetime) -> ColumnElement[bool]:
         ColumnElement[bool]: SQL predicate for active tabs that are currently visible.
     """
     return and_(
-        Tab.archived.is_(False),
-        or_(Tab.hidden_until.is_(None), Tab.hidden_until <= now),
+        Tab.__table__.c._archived.is_(False),
+        or_(Tab.__table__.c._hidden_until.is_(None), Tab.__table__.c._hidden_until <= now),
     )
 
 
@@ -35,7 +35,7 @@ def hidden_tabs(now: datetime) -> ColumnElement[bool]:
     Returns:
         ColumnElement[bool]: SQL predicate for active tabs hidden until a future instant.
     """
-    return and_(Tab.archived.is_(False), Tab.hidden_until > now)
+    return and_(Tab.__table__.c._archived.is_(False), Tab.__table__.c._hidden_until > now)
 
 
 def tabs_for_visibility(visibility: TabVisibility, now: datetime) -> ColumnElement[bool]:
@@ -51,7 +51,7 @@ def tabs_for_visibility(visibility: TabVisibility, now: datetime) -> ColumnEleme
     if visibility == "hidden":
         return hidden_tabs(now)
     if visibility == "archived":
-        return Tab.archived.is_(True)
+        return Tab.__table__.c._archived.is_(True)
     return visible_tabs(now)
 
 
@@ -64,4 +64,4 @@ def exportable_tabs(now: datetime) -> ColumnElement[bool]:
     Returns:
         ColumnElement[bool]: SQL predicate retaining archived and visible active tabs.
     """
-    return or_(Tab.archived.is_(True), visible_tabs(now))
+    return or_(Tab.__table__.c._archived.is_(True), visible_tabs(now))

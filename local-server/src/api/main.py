@@ -2,28 +2,29 @@
 
 from __future__ import annotations
 
-import asyncio
 import hmac
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from pathlib import Path
 from typing import Annotated
 
 import uvicorn
-from alembic.config import Config
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 
-from alembic import command
 from api.error_logging import register_error_handlers
 from api.idempotency import register_idempotency
 from api.request_logging import register_request_logging
 from api.routes.api import api_router
 from config.settings import Settings, configure_logging, get_settings
-from db.session import configure_database, dispose_database, get_session_factory
+from db.session import (
+    configure_database,
+    dispose_database,
+    get_session_factory,
+    initialize_database,
+)
 from domain.indexing.vector_index import LocalVectorIndex
 from domain.jobs.repository import JobRepository
 from domain.jobs.worker import JobWorker
@@ -48,7 +49,9 @@ async def require_api_key(value: ApiKeyDep, settings: SettingsDep) -> None:
     Raises:
         HTTPException: A configured API key is absent or does not match.
     """
-    if settings.api_key and (value is None or not hmac.compare_digest(value, settings.api_key)):
+    if settings.http.api_key and (
+        value is None or not hmac.compare_digest(value, settings.http.api_key)
+    ):
         raise HTTPException(
             401,
             detail=json_data(
@@ -65,13 +68,6 @@ async def require_api_key(value: ApiKeyDep, settings: SettingsDep) -> None:
         )
 
 
-def run_migrations() -> None:
-    """Upgrade the configured database to the latest schema revision."""
-    root = Path(__file__).parents[2]
-    config = Config(str(root / "alembic.ini"))
-    command.upgrade(config, "head")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize and dispose process-wide application resources.
@@ -84,15 +80,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     settings = get_settings()
     configure_logging(settings)
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    if "*" in settings.cors_origins:
+    settings.storage.data_dir.mkdir(parents=True, exist_ok=True)
+    if "*" in settings.http.cors_origins:
         logger.warning(
-            "CORS is open to all origins (*); configure TABVAULT_CORS_ORIGINS before network exposure"
+            "CORS is open to all origins (*); configure TABVAULT_HTTP__CORS_ORIGINS before network exposure"
         )
-    await asyncio.to_thread(run_migrations)
-    configure_logging(settings)
     engine, _session_factory = configure_database(settings)
-    if settings.effective_database_url.startswith("sqlite"):
+    await initialize_database(engine)
+    if settings.storage.effective_database_url.startswith("sqlite"):
         async with engine.begin() as connection:
             await connection.exec_driver_sql("PRAGMA journal_mode=WAL")
     app.state.vectors = LocalVectorIndex(settings)
@@ -129,15 +124,15 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=settings.http.cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["Content-Disposition"],
     )
-    register_idempotency(app, settings.api_prefix)
+    register_idempotency(app, settings.http.api_prefix)
 
     app.include_router(
-        api_router, prefix=settings.api_prefix, dependencies=[Depends(require_api_key)]
+        api_router, prefix=settings.http.api_prefix, dependencies=[Depends(require_api_key)]
     )
     register_error_handlers(app)
     register_request_logging(app)
@@ -153,11 +148,11 @@ def main() -> None:
     configure_logging(settings)
     uvicorn.run(
         "api.main:app",
-        host=settings.host,
-        port=settings.port,
+        host=settings.http.host,
+        port=settings.http.port,
         reload=False,
         access_log=False,
-        log_level=settings.log_level.lower(),
+        log_level=settings.logging.level.lower(),
     )
 
 

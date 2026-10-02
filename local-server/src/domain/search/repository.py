@@ -39,7 +39,7 @@ class SearchRepository:
         """
         filters: list[ColumnElement[bool]] = [visible_tabs(now)]
         if group_id:
-            filters.append(Tab.group_id == group_id)
+            filters.append(Tab.__table__.c._group_id == group_id)
         for tag in tags:
             filters.append(Tab.tags.any(func.lower(Tag.name) == tag.lower()))
         return list(

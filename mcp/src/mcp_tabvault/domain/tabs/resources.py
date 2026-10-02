@@ -37,7 +37,13 @@ async def recent_tabs(
         ValueError: The limit is outside the supported bounds.
         MCPClientError: API access fails or returned records cannot be mapped.
     """
-    query = TabListQueryDTO(sort_by="updatedAt", sort_dir="desc", limit=limit, fields="full")
+    query = TabListQueryDTO.model_validate(
+        {
+            "fields": "full",
+            "ordering": {"sort_by": "updatedAt", "sort_dir": "desc"},
+            "pagination": {"limit": limit},
+        }
+    )
     groups = await group_utils.visible_groups()
     response = await get_client().list_tabs(query)
     return mapper.to_page(response, groups)
@@ -66,7 +72,13 @@ async def unassigned_tabs(
         MCPClientError: API access fails or returned records cannot be mapped.
     """
     response = await get_client().list_tabs(
-        TabListQueryDTO(group_id="unassigned", limit=limit, fields="full")
+        TabListQueryDTO.model_validate(
+            {
+                "fields": "full",
+                "filters": {"group_id": "unassigned"},
+                "pagination": {"limit": limit},
+            }
+        )
     )
     return mapper.to_page(response, [])
 

@@ -52,45 +52,52 @@ export function DroppableGroup({
   );
 }
 
-/**
- * Show a group heading with view-specific lifecycle actions.
- * Collapse, archive, hide, and group actions are delegated to the owning workspace.
- * @param {{ groupId: string; groupName: string; groupCategory?: string; tabCount: number; collapsible: boolean; collapsed: boolean; onToggle?: (groupId: string) => void; onOpen?: (groupId: string) => void; onShare?: (groupId: string) => void; onDelete?: (groupId: string) => void; onEdit?: (groupId: string) => void; lifecycleMode: "visible" | "hidden" | "archived"; onHide?: (groupId: string, durationMs: number) => void; onUnhide?: (groupId: string) => void; onProlong?: (groupId: string, durationMs: number) => void; }} props - Group metadata, collapse state, lifecycle mode, and owner actions.
- * @returns {React.ReactElement} Group heading and action controls.
- */
-export function GroupSeparator({
-  groupId,
-  groupName,
-  groupCategory,
-  tabCount,
-  collapsible,
-  collapsed,
-  onToggle,
-  onOpen,
-  onShare,
-  onDelete,
-  onEdit,
-  lifecycleMode,
-  onHide,
-  onUnhide,
-  onProlong,
-}: {
+/** Group for GroupSeparatorProps. */
+type GroupSeparatorGroup = {
   groupId: string;
   groupName: string;
   groupCategory?: string;
   tabCount: number;
+};
+/** Collapse for GroupSeparatorProps. */
+type GroupSeparatorCollapse = {
   collapsible: boolean;
   collapsed: boolean;
   onToggle?: (groupId: string) => void;
+};
+/** Interaction handlers for GroupSeparatorProps. */
+type GroupSeparatorActions = {
   onOpen?: (groupId: string) => void;
   onShare?: (groupId: string) => void;
   onDelete?: (groupId: string) => void;
   onEdit?: (groupId: string) => void;
+};
+/** Archive and hidden state for GroupSeparatorProps. */
+type GroupSeparatorLifecycle = {
   lifecycleMode: "visible" | "hidden" | "archived";
   onHide?: (groupId: string, durationMs: number) => void;
   onUnhide?: (groupId: string) => void;
   onProlong?: (groupId: string, durationMs: number) => void;
-}) {
+};
+/** Properties supplied to GroupSeparator. */
+type GroupSeparatorProps = {
+  group: GroupSeparatorGroup;
+  collapse: GroupSeparatorCollapse;
+  actions: GroupSeparatorActions;
+  lifecycle: GroupSeparatorLifecycle;
+};
+/**
+ * Show a group heading with view-specific lifecycle actions.
+ * Collapse, archive, hide, and group actions are delegated to the owning workspace.
+ * @param {GroupSeparatorProps} props - Group metadata, collapse state, lifecycle mode, and owner actions.
+ * @returns {React.ReactElement} Group heading and action controls.
+ */
+export function GroupSeparator({
+  group: { groupId, groupName, groupCategory, tabCount },
+  collapse: { collapsible, collapsed, onToggle },
+  actions: { onOpen, onShare, onDelete, onEdit },
+  lifecycle: { lifecycleMode, onHide, onUnhide, onProlong },
+}: GroupSeparatorProps) {
   return (
     <div
       data-testid={`group-separator-${groupId}`}

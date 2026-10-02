@@ -3,13 +3,10 @@
 import {
   emptyBrowserVault,
   isPersistedVault,
-  migratePersistedVault,
   type PersistedVault,
 } from "@/domain/library/codec";
 
 const TABVAULT_STORAGE_KEY = "tabvault-v3";
-const PREVIOUS_TABVAULT_STORAGE_KEY = "tabvault-v2";
-const LEGACY_TABVAULT_STORAGE_KEY = "tabvault-v1";
 const TABVAULT_SERVER_URL_KEY = "tabvault-local-server-url";
 const TABVAULT_API_KEY_KEY = "tabvault-api-key";
 const TABVAULT_SYNC_STATUS_KEY = "tabvault-sync-status";
@@ -33,47 +30,26 @@ export type BrowserVaultInspection =
   | { status: "incompatible"; raw: unknown; storageKey: string };
 
 /**
- * Inspect all supported storage versions before the app hydrates its vault.
+ * Inspect the current storage key before the app hydrates its vault.
  *
  * @returns {Promise<BrowserVaultInspection>} Inspection result identifying an empty, compatible, or recoverable incompatible vault.
  */
 export async function inspectBrowserVault(): Promise<BrowserVaultInspection> {
+  const storageKey = TABVAULT_STORAGE_KEY;
   if (window.chrome?.storage?.local) {
-    const stored = await window.chrome.storage.local.get([
-      TABVAULT_STORAGE_KEY,
-      PREVIOUS_TABVAULT_STORAGE_KEY,
-      LEGACY_TABVAULT_STORAGE_KEY,
-    ]);
-    const storageKey =
-      stored[TABVAULT_STORAGE_KEY] !== undefined
-        ? TABVAULT_STORAGE_KEY
-        : stored[PREVIOUS_TABVAULT_STORAGE_KEY] !== undefined
-          ? PREVIOUS_TABVAULT_STORAGE_KEY
-          : stored[LEGACY_TABVAULT_STORAGE_KEY] !== undefined
-            ? LEGACY_TABVAULT_STORAGE_KEY
-            : null;
-    if (!storageKey) return { status: "empty" };
-    const raw = stored[storageKey];
-    const migrated = migratePersistedVault(raw);
-    return migrated
-      ? { status: "compatible", vault: migrated }
+    const stored = await window.chrome.storage.local.get(storageKey);
+    const raw: unknown = stored[storageKey];
+    if (raw === undefined) return { status: "empty" };
+    return isPersistedVault(raw)
+      ? { status: "compatible", vault: raw }
       : { status: "incompatible", raw, storageKey };
   }
-  const storageKey =
-    window.localStorage.getItem(TABVAULT_STORAGE_KEY) !== null
-      ? TABVAULT_STORAGE_KEY
-      : window.localStorage.getItem(PREVIOUS_TABVAULT_STORAGE_KEY) !== null
-        ? PREVIOUS_TABVAULT_STORAGE_KEY
-        : window.localStorage.getItem(LEGACY_TABVAULT_STORAGE_KEY) !== null
-          ? LEGACY_TABVAULT_STORAGE_KEY
-          : null;
-  if (!storageKey) return { status: "empty" };
-  const raw = window.localStorage.getItem(storageKey) ?? "";
+  const raw = window.localStorage.getItem(storageKey);
+  if (raw === null) return { status: "empty" };
   try {
     const value: unknown = JSON.parse(raw);
-    const migrated = migratePersistedVault(value);
-    return migrated
-      ? { status: "compatible", vault: migrated }
+    return isPersistedVault(value)
+      ? { status: "compatible", vault: value }
       : { status: "incompatible", raw, storageKey };
   } catch {
     return { status: "incompatible", raw, storageKey };
@@ -84,12 +60,12 @@ export async function inspectBrowserVault(): Promise<BrowserVaultInspection> {
  * Load a compatible vault, preserving an incompatible value for recovery.
  *
  * @returns {Promise<PersistedVault | undefined>} Compatible saved vault, or undefined when storage is empty.
- * @throws {Error} When stored data cannot be migrated to schema v3.
+ * @throws {Error} When stored data does not match schema v4.
  */
 export async function readBrowserVault() {
   const inspection = await inspectBrowserVault();
   if (inspection.status === "incompatible")
-    throw new Error("Browser library is not schema v3");
+    throw new Error("Browser library is not schema v4");
   return inspection.status === "compatible" ? inspection.vault : undefined;
 }
 
@@ -102,7 +78,7 @@ export async function readBrowserVault() {
  */
 export async function writeBrowserVault(vault: PersistedVault) {
   if (!isPersistedVault(vault))
-    throw new Error("Refusing to persist an invalid schema-v3 vault");
+    throw new Error("Refusing to persist an invalid schema-v4 vault");
   if (window.chrome?.storage?.local)
     await window.chrome.storage.local.set({ [TABVAULT_STORAGE_KEY]: vault });
   else window.localStorage.setItem(TABVAULT_STORAGE_KEY, JSON.stringify(vault));
@@ -258,21 +234,15 @@ export async function writeLibraryRefreshInterval(seconds: number) {
 }
 
 /**
- * Clear every vault version, then create an empty recoverable library.
+ * Clear the current vault, then create an empty recoverable library.
  *
  * @returns {Promise<void>} Resolves after browser-local library data is cleared.
  */
 export async function clearBrowserLibrary() {
   if (window.chrome?.storage?.local) {
-    await window.chrome.storage.local.remove([
-      TABVAULT_STORAGE_KEY,
-      PREVIOUS_TABVAULT_STORAGE_KEY,
-      LEGACY_TABVAULT_STORAGE_KEY,
-    ]);
+    await window.chrome.storage.local.remove([TABVAULT_STORAGE_KEY]);
   } else {
     window.localStorage.removeItem(TABVAULT_STORAGE_KEY);
-    window.localStorage.removeItem(PREVIOUS_TABVAULT_STORAGE_KEY);
-    window.localStorage.removeItem(LEGACY_TABVAULT_STORAGE_KEY);
   }
   await writeBrowserVault(emptyBrowserVault());
   await writeSyncStatus({

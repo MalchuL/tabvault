@@ -106,9 +106,9 @@ class PreviewQueryService:
         if asset is None:
             logger.warning("Asset %s is missing; returning the bundled fallback", asset_id)
             return self.mapper.file(assets / "fallback-preview.svg", "image/svg+xml")
-        path = self.settings.asset_dir / asset.path
+        path = self.settings.storage.asset_dir / asset.file.path
         if not path.exists():
             logger.warning("Asset file %s is unreadable; returning the bundled fallback", path)
-            name = "fallback-icon.svg" if asset.kind == "icon" else "fallback-preview.svg"
+            name = "fallback-icon.svg" if asset.file.kind == "icon" else "fallback-preview.svg"
             return self.mapper.file(assets / name, "image/svg+xml")
-        return self.mapper.file(path, asset.content_type)
+        return self.mapper.file(path, asset.file.content_type)

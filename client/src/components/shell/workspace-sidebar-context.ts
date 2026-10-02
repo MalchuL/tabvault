@@ -5,17 +5,29 @@ import type { StorageMode } from "@/domain/server/browserStorage";
 export const LIBRARY_OPEN_TAGS_FLAG = "tabvault-open-tags";
 
 /** Live library actions registered by the All Tabs workspace while it is mounted. */
-export type LibrarySidebarBridge = {
+/** Counts for LibrarySidebarBridge. */
+type LibrarySidebarBridgeCounts = {
   activeCount: number;
   archivedCount: number;
   hiddenCount: number;
   tagCount: number;
+};
+/** Storage and server connection state for LibrarySidebarBridge. */
+type LibrarySidebarBridgeConnection = {
   storageMode: StorageMode;
   serverOnline: boolean;
   isRefreshing: boolean;
+};
+/** Interaction handlers for LibrarySidebarBridge. */
+type LibrarySidebarBridgeActions = {
   onOpenTags: () => void;
   onRefreshLibrary: () => void;
   onCaptureTab?: () => void;
+};
+export type LibrarySidebarBridge = {
+  counts: LibrarySidebarBridgeCounts;
+  connection: LibrarySidebarBridgeConnection;
+  actions: LibrarySidebarBridgeActions;
 };
 
 export type WorkspaceSidebarContextValue = {
@@ -33,35 +45,41 @@ export const WorkspaceSidebarContext =
 export function useRegisterLibrarySidebar(bridge: LibrarySidebarBridge) {
   const context = useContext(WorkspaceSidebarContext);
   const bridgeRef = useRef(bridge);
-  const canCapture = Boolean(bridge.onCaptureTab);
+  const canCapture = Boolean(bridge.actions.onCaptureTab);
   useEffect(() => {
     bridgeRef.current = bridge;
   });
   useEffect(() => {
     if (!context) return;
     context.setBridge({
-      activeCount: bridge.activeCount,
-      archivedCount: bridge.archivedCount,
-      hiddenCount: bridge.hiddenCount,
-      tagCount: bridge.tagCount,
-      storageMode: bridge.storageMode,
-      serverOnline: bridge.serverOnline,
-      isRefreshing: bridge.isRefreshing,
-      onOpenTags: () => bridgeRef.current.onOpenTags(),
-      onRefreshLibrary: () => bridgeRef.current.onRefreshLibrary(),
-      onCaptureTab: canCapture
-        ? () => bridgeRef.current.onCaptureTab?.()
-        : undefined,
+      counts: {
+        activeCount: bridge.counts.activeCount,
+        archivedCount: bridge.counts.archivedCount,
+        hiddenCount: bridge.counts.hiddenCount,
+        tagCount: bridge.counts.tagCount,
+      },
+      connection: {
+        storageMode: bridge.connection.storageMode,
+        serverOnline: bridge.connection.serverOnline,
+        isRefreshing: bridge.connection.isRefreshing,
+      },
+      actions: {
+        onOpenTags: () => bridgeRef.current.actions.onOpenTags(),
+        onRefreshLibrary: () => bridgeRef.current.actions.onRefreshLibrary(),
+        onCaptureTab: canCapture
+          ? () => bridgeRef.current.actions.onCaptureTab?.()
+          : undefined,
+      },
     });
   }, [
     context,
-    bridge.activeCount,
-    bridge.archivedCount,
-    bridge.hiddenCount,
-    bridge.tagCount,
-    bridge.storageMode,
-    bridge.serverOnline,
-    bridge.isRefreshing,
+    bridge.counts.activeCount,
+    bridge.counts.archivedCount,
+    bridge.counts.hiddenCount,
+    bridge.counts.tagCount,
+    bridge.connection.storageMode,
+    bridge.connection.serverOnline,
+    bridge.connection.isRefreshing,
     canCapture,
   ]);
   useEffect(() => {

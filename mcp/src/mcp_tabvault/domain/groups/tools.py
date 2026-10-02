@@ -126,7 +126,9 @@ async def create_group(
         ValueError: Supplied fields fail request validation.
     """
     response = await get_client().create_group(
-        GroupCreateDTO(name=name, description=description, color=color)
+        GroupCreateDTO.model_validate(
+            {"details": {"name": name, "description": description, "color": color}}
+        )
     )
     return GroupResponseViewDTO(data=mapper.to_view(response.data))
 
@@ -192,7 +194,7 @@ async def update_group(
         "category": "manual",
     }
     body = GroupUpdateDTO.model_validate(
-        {key: value for key, value in values.items() if value is not None}
+        {"details": {key: value for key, value in values.items() if value is not None}}
     )
     response = await get_client().update_group(group.id, body)
     return GroupResponseViewDTO(data=mapper.to_view(response.data))
@@ -233,7 +235,7 @@ async def delete_group(
     response = await get_client().delete_group(group.id)
     return GroupDeleteResponseViewDTO(
         data=GroupDeleteViewDTO(
-            name=group.name,
+            name=group.details.name,
             archived_tab_count=response.data.archived_tab_count,
             deleted_at=response.data.deleted_at,
         )

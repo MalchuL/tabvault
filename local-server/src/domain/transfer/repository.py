@@ -1,5 +1,7 @@
 """Persistence for import, export, synchronization, and backups."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any, Literal, cast
 
@@ -8,8 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from domain.tabs.visibility import exportable_tabs
+from lib.model_changes import apply_model_changes
 from lib.time import utc_now
-from models import Backup, Group, PropertySchema, Tab, Tag, Tombstone
+from models import Backup, Base, Group, PropertySchema, Tab, Tag, Tombstone
 
 
 class TransferRepository:
@@ -94,9 +97,15 @@ class TransferRepository:
         """
         tags = list((await self.session.scalars(select(Tag).order_by(func.lower(Tag.name)))).all())
         groups = list(
-            (await self.session.scalars(select(Group).order_by(Group.position, Group.id))).all()
+            (
+                await self.session.scalars(
+                    select(Group).order_by(Group.__table__.c._position, Group.id)
+                )
+            ).all()
         )
-        query = select(Tab).options(selectinload(Tab.tags)).order_by(Tab.position, Tab.id)
+        query = (
+            select(Tab).options(selectinload(Tab.tags)).order_by(Tab.__table__.c._position, Tab.id)
+        )
         if not include_hidden:
             if now is None:
                 raise ValueError("now is required when hidden tabs are excluded")
@@ -153,7 +162,7 @@ class TransferRepository:
         Args:
             group_id (str): Collection ID or null for Unassigned.
         """
-        await self.session.execute(delete(Tab).where(Tab.group_id == group_id))
+        await self.session.execute(delete(Tab).where(Tab.__table__.c._group_id == group_id))
         await self.session.execute(delete(Group).where(Group.id == group_id))
         await self.session.flush()
 
@@ -227,15 +236,14 @@ class TransferRepository:
         await self.session.flush()
 
     @staticmethod
-    async def apply_changes(model: object, changes: dict[str, object]) -> None:
+    async def apply_changes(model: Base, changes: dict[str, object]) -> None:
         """Stage mapped field changes.
 
         Args:
             model (object): ORM row receiving validated changes.
             changes (dict[str, object]): Validated field values to apply to the row.
         """
-        for key, value in changes.items():
-            setattr(model, key, value)
+        apply_model_changes(model, changes)
 
     async def tombstone_exists(self, entity_type: Literal["group", "tab"], entity_id: str) -> bool:
         """Check whether an imported entity was permanently deleted.

@@ -80,7 +80,7 @@ describe("browser storage", () => {
       raw: { schemaVersion: 99 },
       storageKey: "tabvault-v3",
     });
-    await expect(readBrowserVault()).rejects.toThrow("schema v3");
+    await expect(readBrowserVault()).rejects.toThrow("schema v4");
     await writeSyncStatus({ state: "synced", localSavedAt: 12 });
     expect(await readSyncStatus()).toEqual({
       state: "synced",
@@ -89,11 +89,7 @@ describe("browser storage", () => {
     expect(localStorage.getItem("tabvault-sync-status")).toBeNull();
 
     await clearBrowserLibrary();
-    expect(storage.remove).toHaveBeenCalledWith([
-      "tabvault-v3",
-      "tabvault-v2",
-      "tabvault-v1",
-    ]);
+    expect(storage.remove).toHaveBeenCalledWith(["tabvault-v3"]);
     expect(values["tabvault-v3"]).toEqual(emptyBrowserVault());
   });
 });

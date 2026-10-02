@@ -8,15 +8,23 @@ import {
 } from "@/components/ui/dialog";
 import { DialogHeading } from "@/domain/library/components/shared/DialogParts";
 
-type TagManagerDialogProps = {
-  tags: Record<string, string>;
+/** Editable draft state for TagManagerDialogProps. */
+type TagManagerDialogDraft = {
   newTagName: string;
   onNewTagNameChange: (name: string) => void;
+  onAdd: () => void;
+};
+/** Interaction handlers for TagManagerDialogProps. */
+type TagManagerDialogActions = {
   onDescriptionChange: (name: string, description: string) => void;
   onRename: (oldName: string, newName: string) => void;
   onRemove: (name: string) => void;
-  onAdd: () => void;
   onClose: () => void;
+};
+type TagManagerDialogProps = {
+  tags: Record<string, string>;
+  draft: TagManagerDialogDraft;
+  actions: TagManagerDialogActions;
 };
 
 /**
@@ -27,13 +35,8 @@ type TagManagerDialogProps = {
  */
 export function TagManagerDialog({
   tags,
-  newTagName,
-  onNewTagNameChange,
-  onDescriptionChange,
-  onRename,
-  onRemove,
-  onAdd,
-  onClose,
+  draft: { newTagName, onNewTagNameChange, onAdd },
+  actions: { onDescriptionChange, onRename, onRemove, onClose },
 }: TagManagerDialogProps) {
   return (
     <Dialog open onOpenChange={open => !open && onClose()}>

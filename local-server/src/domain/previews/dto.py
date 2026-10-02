@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, TypeAlias
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from lib.dto_config import DTO, model_config
 
@@ -12,21 +12,33 @@ PreviewStatus: TypeAlias = Literal["pending", "running", "ready", "unavailable"]
 AssetKind: TypeAlias = Literal["image", "icon"]
 
 
-class PreviewDTO(DTO):
-    """Captured preview content or pending state."""
+class PreviewArticleDTO(DTO):
+    """Article fields for PreviewDTO."""
 
-    tab_id: str
-    status: PreviewStatus
     title: str | None = None
     byline: str | None = None
     site_name: str | None = None
     excerpt: str | None = None
     content_html: str | None = None
     length: int | None = None
+
+
+class PreviewCaptureDTO(DTO):
+    """Capture fields for PreviewDTO."""
+
+    status: PreviewStatus
     source_url: str | None = None
     error: str | None = None
     fetched_at: datetime | None = None
     fallback_asset: str
+
+
+class PreviewDTO(DTO):
+    """Captured preview content or pending state. Fields are grouped by responsibility."""
+
+    tab_id: str
+    article: PreviewArticleDTO = Field(default_factory=PreviewArticleDTO)
+    capture: PreviewCaptureDTO
 
 
 class AssetFileDTO(BaseModel):

@@ -1,9 +1,15 @@
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { patchTab } from "@/domain/library/patch";
 /**
  * Signal Library design reminder: This page is an asymmetric link-library workspace.
  * The left rail indexes collections, the center is a calm reading surface, and orange signals active work.
  */
+import {
+  LibraryHeader,
+  LibraryResultSummary,
+  LibraryViewControls,
+  LibraryEmptyState,
+} from "@/domain/library/components/workspace/LibraryWorkspaceParts";
+import { LibrarySavedViews } from "@/domain/library/components/workspace/LibrarySavedViews";
 import {
   useCallback,
   useEffect,
@@ -57,8 +63,6 @@ import {
   TabDragPreview,
   TabList,
 } from "@/domain/library/components/tabs/TabList";
-import { IconButton } from "@/components/shared/IconButton";
-import { ContextHelp } from "@/components/shared/ContextHelp";
 import {
   LIBRARY_OPEN_TAGS_FLAG,
   useRegisterLibrarySidebar,
@@ -99,37 +103,7 @@ import {
   executeDedupePlan,
   type DedupeMutation,
 } from "@/domain/deduplication/execution";
-import {
-  Boxes,
-  Check,
-  ListChecks,
-  SlidersHorizontal,
-  ChevronRight,
-  Eye,
-  LayoutList,
-  Rows3,
-  Search,
-  Trash2,
-} from "lucide-react";
 import { toast } from "sonner";
-
-const logoUrl = "/icon-128.png";
-
-/**
- * Display the TabVault icon at a caller-selected size.
- * The image retains its product alt text for screen readers.
- * @param {{ className?: string }} props - Optional CSS classes controlling the icon size.
- * @returns {React.ReactElement} Branded image.
- */
-function BrandMark({ className = "h-8 w-8" }: { className?: string }) {
-  return (
-    <img
-      src={logoUrl}
-      alt="TabVault"
-      className={`${className} object-contain`}
-    />
-  );
-}
 
 /**
  * Coordinate saved-tab browsing, search, grouping, and persistence.
@@ -139,45 +113,48 @@ function BrandMark({ className = "h-8 w-8" }: { className?: string }) {
 export function LibraryWorkspace() {
   const [location, setLocation] = useLocation();
   const { vault, dispatch } = useLibrary();
-  const { tabs, vaultGroups, tagCatalog, tabOrders } = vault;
-  const savedSearches = vault.savedSearches ?? [];
-  const tabView = vault.tabView ?? "standard";
+  const {
+    library: { tabs, vaultGroups, tagCatalog, tabOrders },
+  } = vault;
+  const savedSearches = vault.library.savedSearches ?? [];
+  const tabView = vault.preferences.tabView ?? "standard";
   /**
    * Update the saved-tab collection through the library provider.
    * Keeps mutations on the shared vault rather than local component state.
    * @param {SetStateAction<VaultTab[]>} value - New tab array or updater.
    */
   const setTabs = (value: SetStateAction<VaultTab[]>) =>
-    dispatch({ type: "update", key: "tabs", value });
+    dispatch({ type: "update", group: "library", key: "tabs", value });
   /**
    * Update the saved groups through the library provider.
    * Keeps group changes in the persisted vault.
    * @param {SetStateAction<VaultGroup[]>} value - New group array or updater.
    */
   const setVaultGroups = (value: SetStateAction<VaultGroup[]>) =>
-    dispatch({ type: "update", key: "vaultGroups", value });
+    dispatch({ type: "update", group: "library", key: "vaultGroups", value });
   /**
    * Update the library tag descriptions.
    * Changes flow through the shared vault dispatch.
    * @param {SetStateAction<Record<string, string>>} value - New tag catalog or updater.
    */
   const setTagCatalog = (value: SetStateAction<Record<string, string>>) =>
-    dispatch({ type: "update", key: "tagCatalog", value });
+    dispatch({ type: "update", group: "library", key: "tagCatalog", value });
   /**
    * Update the per-group saved-tab order.
    * Changes flow through the shared vault dispatch.
    * @param {SetStateAction<Record<string, string[]>>} value - New order buckets or updater.
    */
   const setTabOrders = (value: SetStateAction<Record<string, string[]>>) =>
-    dispatch({ type: "update", key: "tabOrders", value });
+    dispatch({ type: "update", group: "library", key: "tabOrders", value });
   /**
-   * Update saved searches while tolerating older vaults without the field.
-   * Missing search state starts as an empty list.
+   * Update saved searches within the current library.
+   * Optional search state starts as an empty list.
    * @param {SetStateAction<SavedSearch[]>} value - New saved searches or updater.
    */
   const setSavedSearches = (value: SetStateAction<SavedSearch[]>) =>
     dispatch({
       type: "update",
+      group: "library",
       key: "savedSearches",
       value: current =>
         typeof value === "function" ? value(current ?? []) : value,
@@ -190,6 +167,7 @@ export function LibraryWorkspace() {
   const setTabView = (value: SetStateAction<LibraryViewMode>) =>
     dispatch({
       type: "update",
+      group: "preferences",
       key: "tabView",
       value: current =>
         typeof value === "function" ? value(current ?? "standard") : value,
@@ -238,7 +216,7 @@ export function LibraryWorkspace() {
   const libraryRefreshInFlight = useRef(false);
   const vaultRef = useRef<PersistedVault | null>(null);
   const tombstonesRef = useRef(
-    vault.tombstones ?? { tabs: [] as string[], groups: [] as string[] }
+    vault.library.tombstones ?? { tabs: [] as string[], groups: [] as string[] }
   );
   const refreshLibraryRef = useRef<
     (options?: { silent?: boolean }) => Promise<void>
@@ -256,40 +234,43 @@ export function LibraryWorkspace() {
     handleLibraryDragEnd,
     cancelLibraryDrag,
   } = useLibraryDrag({
-    tabs,
-    tabOrders,
-    setTabs,
-    setTabOrders,
-    vaultGroups,
     tabView,
-    storageMode,
-    serverOnline,
-    setServerOnline,
-    localServerUrl,
-    serverApiKey,
+    library: { tabs, tabOrders, setTabs, setTabOrders, vaultGroups },
+    connection: {
+      storageMode,
+      serverOnline,
+      setServerOnline,
+      localServerUrl,
+      serverApiKey,
+    },
   });
 
   /**
    * Assemble the current browser vault for synchronization.
    * Refs supply the latest property schema and tombstones while visible state supplies tabs and preferences.
-   * @returns {PersistedVault} Complete schema-v3 vault snapshot.
+   * @returns {PersistedVault} Complete schema-v4 vault snapshot.
    */
   const currentVault = (): PersistedVault => ({
-    schemaVersion: 3,
+    schemaVersion: 4,
     propertySchema: propertySchemaRef.current,
-    tabs,
-    vaultGroups,
-    tagCatalog,
-    tabOrders,
-    savedSearches,
-    tabView,
-    tombstones: tombstonesRef.current,
+    library: {
+      tabs,
+      vaultGroups,
+      tagCatalog,
+      tabOrders,
+      savedSearches,
+      tombstones: tombstonesRef.current,
+    },
+    preferences: { tabView },
   });
 
   const applyVault = useCallback(
     (vault: PersistedVault) => {
       propertySchemaRef.current = vault.propertySchema;
-      tombstonesRef.current = vault.tombstones ?? { tabs: [], groups: [] };
+      tombstonesRef.current = vault.library.tombstones ?? {
+        tabs: [],
+        groups: [],
+      };
       dispatch({ type: "replace", vault });
     },
     [dispatch]
@@ -297,7 +278,8 @@ export function LibraryWorkspace() {
   vaultRef.current = currentVault();
 
   const sortByStoredOrder = useCallback(
-    (items: VaultTab[]) => sortTabs(items, { vaultGroups, tabOrders }),
+    (items: VaultTab[]) =>
+      sortTabs(items, { library: { vaultGroups, tabOrders } }),
     [tabOrders, vaultGroups]
   );
 
@@ -313,7 +295,7 @@ export function LibraryWorkspace() {
   const activeTabs = useMemo(
     () =>
       tabs.filter(
-        tab => !tab.archived && !isCurrentlyHidden(tab, visibilityNow)
+        tab => !tab.lifecycle.archived && !isCurrentlyHidden(tab, visibilityNow)
       ),
     [tabs, visibilityNow]
   );
@@ -321,13 +303,17 @@ export function LibraryWorkspace() {
     () => tabs.filter(tab => isCurrentlyHidden(tab, visibilityNow)),
     [tabs, visibilityNow]
   );
-  const archivedTabs = useMemo(() => tabs.filter(tab => tab.archived), [tabs]);
+  const archivedTabs = useMemo(
+    () => tabs.filter(tab => tab.lifecycle.archived),
+    [tabs]
+  );
   const selectedGroupTabs = sortByStoredOrder(
     isArchivePage
       ? archivedTabs
       : (isHiddenPage ? hiddenTabs : activeTabs).filter(
           tab =>
-            searchGroupFilter === "all" || tab.groupId === searchGroupFilter
+            searchGroupFilter === "all" ||
+            tab.placement.groupId === searchGroupFilter
         )
   );
   const pageTabs = isArchivePage
@@ -340,9 +326,11 @@ export function LibraryWorkspace() {
       ? new Set(
           vaultGroups
             .filter(group => {
-              const members = tabs.filter(tab => tab.groupId === group.id);
+              const members = tabs.filter(
+                tab => tab.placement.groupId === group.id
+              );
               if (!members.length) return !isHiddenPage && !isArchivePage;
-              return pageTabs.some(tab => tab.groupId === group.id);
+              return pageTabs.some(tab => tab.placement.groupId === group.id);
             })
             .map(group => group.id)
         )
@@ -369,8 +357,15 @@ export function LibraryWorkspace() {
     return sortByStoredOrder(
       pageTabs.filter(
         tab =>
-          (searchGroupFilter === "all" || tab.groupId === searchGroupFilter) &&
-          [tab.title, tab.note, tab.agentReview, tab.domain, ...tab.tags]
+          (searchGroupFilter === "all" ||
+            tab.placement.groupId === searchGroupFilter) &&
+          [
+            tab.content.title,
+            tab.annotations.note,
+            tab.annotations.agentReview,
+            tab.content.domain,
+            ...tab.annotations.tags,
+          ]
             .join(" ")
             .toLowerCase()
             .includes(normalized)
@@ -388,52 +383,63 @@ export function LibraryWorkspace() {
   ]);
 
   const {
-    selectedResultIds,
-    setSelectedResultIds,
-    selectionMode,
-    setSelectionMode,
-    bulkTag,
-    setBulkTag,
-    undoSnapshot,
-    selectionActive,
-    toggleResultSelection,
-    createUndoSnapshot,
-    undoLastBulkAction,
-    bulkMoveSelected,
-    bulkTagSelected,
-    permanentlyDeleteTabs,
-    toggleSelectionMode,
-    toggleSelectAll,
-    removeSelected,
-  } = useLibrarySelection({
-    tabs,
-    tabOrders,
-    tagCatalog,
-    visibleTabs,
-    query,
-    isArchivePage,
-    setTabs,
-    setTabOrders,
-    setTagCatalog,
-    recordTombstones: ids => {
-      const tombstones = {
-        ...tombstonesRef.current,
-        tabs: Array.from(new Set([...tombstonesRef.current.tabs, ...ids])),
-      };
-      tombstonesRef.current = tombstones;
-      dispatch({ type: "update", key: "tombstones", value: tombstones });
+    selection: {
+      selectedResultIds,
+      setSelectedResultIds,
+      selectionMode,
+      setSelectionMode,
+      selectionActive,
+      toggleResultSelection,
+      toggleSelectionMode,
     },
-    storageMode,
-    serverOnline,
-    setServerOnline,
-    localServerUrl,
-    serverApiKey,
+    bulk: {
+      bulkTag,
+      setBulkTag,
+      bulkMoveSelected,
+      bulkTagSelected,
+      permanentlyDeleteTabs,
+      toggleSelectAll,
+      removeSelected,
+    },
+    undo: { undoSnapshot, createUndoSnapshot, undoLastBulkAction },
+  } = useLibrarySelection({
+    library: {
+      tabs,
+      tabOrders,
+      tagCatalog,
+      setTabs,
+      setTabOrders,
+      setTagCatalog,
+      recordTombstones: ids => {
+        const tombstones = {
+          ...tombstonesRef.current,
+          tabs: Array.from(new Set([...tombstonesRef.current.tabs, ...ids])),
+        };
+        tombstonesRef.current = tombstones;
+        dispatch({
+          type: "update",
+          group: "library",
+          key: "tombstones",
+          value: tombstones,
+        });
+      },
+    },
+    view: { visibleTabs, query, isArchivePage },
+    connection: {
+      storageMode,
+      serverOnline,
+      setServerOnline,
+      localServerUrl,
+      serverApiKey,
+    },
   });
 
   useEffect(() => {
     const nextDeadline = tabs
-      .filter(tab => !tab.archived && isCurrentlyHidden(tab, visibilityNow))
-      .map(tab => Date.parse(tab.hiddenUntil ?? ""))
+      .filter(
+        tab => !tab.lifecycle.archived && isCurrentlyHidden(tab, visibilityNow)
+      )
+      .map(tab => Date.parse(tab.lifecycle.hiddenUntil ?? ""))
       .filter(deadline => Number.isFinite(deadline))
       .sort((left, right) => left - right)[0];
     if (!nextDeadline) return;
@@ -642,7 +648,7 @@ export function LibraryWorkspace() {
       applyVault(vault);
       if (!options?.silent) {
         toast.success("Library refreshed", {
-          description: `${vault.tabs.length} tabs merged with the server.`,
+          description: `${vault.library.tabs.length} tabs merged with the server.`,
         });
       }
     } catch {
@@ -707,10 +713,12 @@ export function LibraryWorkspace() {
         item.id === tab.id
           ? {
               ...item,
-              groupId: null,
-              archived: true,
-              archivedAt,
-              updatedAt: new Date().toISOString(),
+              placement: { ...item.placement, groupId: null },
+              lifecycle: { ...item.lifecycle, archived: true, archivedAt },
+              timestamps: {
+                ...item.timestamps,
+                updatedAt: new Date().toISOString(),
+              },
             }
           : item
       )
@@ -733,11 +741,11 @@ export function LibraryWorkspace() {
       await updateTabOnLocalServer(
         localServerUrl,
         tab.id,
-        { archived: true, groupId: null },
+        { lifecycle: { archived: true }, placement: { groupId: null } },
         serverApiKey
       );
     }
-    toast.success(`Archived “${tab.title}”`);
+    toast.success(`Archived “${tab.content.title}”`);
   };
 
   /**
@@ -749,14 +757,16 @@ export function LibraryWorkspace() {
    */
   const patchTabVisibility = (
     tab: VaultTab,
-    changes: Pick<VaultTab, "hiddenUntil" | "archived" | "archivedAt"> &
-      Partial<Pick<VaultTab, "groupId">>,
+    changes: Pick<VaultTab, "lifecycle"> & Partial<Pick<VaultTab, "placement">>,
     message: string
   ) => {
     setTabs(current =>
       current.map(item =>
         item.id === tab.id
-          ? { ...item, ...changes, updatedAt: new Date().toISOString() }
+          ? patchTab(item, {
+              ...changes,
+              timestamps: { updatedAt: new Date().toISOString() },
+            })
           : item
       )
     );
@@ -785,11 +795,13 @@ export function LibraryWorkspace() {
     patchTabVisibility(
       tab,
       {
-        hiddenUntil: new Date(Date.now() + durationMs).toISOString(),
-        archived: Boolean(tab.archived),
-        archivedAt: tab.archivedAt,
+        lifecycle: {
+          hiddenUntil: new Date(Date.now() + durationMs).toISOString(),
+          archived: Boolean(tab.lifecycle.archived),
+          archivedAt: tab.lifecycle.archivedAt,
+        },
       },
-      `Hidden “${tab.title}”`
+      `Hidden “${tab.content.title}”`
     );
 
   /**
@@ -799,18 +811,20 @@ export function LibraryWorkspace() {
    * @param {number} durationMs - Additional duration in milliseconds.
    */
   const prolongTabFor = (tab: VaultTab, durationMs: number) => {
-    const currentDeadline = Date.parse(tab.hiddenUntil ?? "");
+    const currentDeadline = Date.parse(tab.lifecycle.hiddenUntil ?? "");
     const base = Number.isFinite(currentDeadline)
       ? Math.max(Date.now(), currentDeadline)
       : Date.now();
     patchTabVisibility(
       tab,
       {
-        hiddenUntil: new Date(base + durationMs).toISOString(),
-        archived: Boolean(tab.archived),
-        archivedAt: tab.archivedAt,
+        lifecycle: {
+          hiddenUntil: new Date(base + durationMs).toISOString(),
+          archived: Boolean(tab.lifecycle.archived),
+          archivedAt: tab.lifecycle.archivedAt,
+        },
       },
-      `Prolonged “${tab.title}”`
+      `Prolonged “${tab.content.title}”`
     );
   };
 
@@ -823,11 +837,13 @@ export function LibraryWorkspace() {
     patchTabVisibility(
       tab,
       {
-        hiddenUntil: null,
-        archived: Boolean(tab.archived),
-        archivedAt: tab.archivedAt,
+        lifecycle: {
+          hiddenUntil: null,
+          archived: Boolean(tab.lifecycle.archived),
+          archivedAt: tab.lifecycle.archivedAt,
+        },
       },
-      `Unhidden “${tab.title}”`
+      `Unhidden “${tab.content.title}”`
     );
 
   /**
@@ -839,12 +855,14 @@ export function LibraryWorkspace() {
     patchTabVisibility(
       tab,
       {
-        groupId: null,
-        archived: false,
-        archivedAt: null,
-        hiddenUntil: tab.hiddenUntil,
+        placement: { groupId: null },
+        lifecycle: {
+          archived: false,
+          archivedAt: null,
+          hiddenUntil: tab.lifecycle.hiddenUntil,
+        },
       },
-      `Restored “${tab.title}”`
+      `Restored “${tab.content.title}”`
     );
     setTabOrders(current => ({
       ...current,
@@ -870,14 +888,14 @@ export function LibraryWorkspace() {
   ) => {
     const members = tabs.filter(
       tab =>
-        !tab.archived &&
+        !tab.lifecycle.archived &&
         (groupId === "unassigned"
-          ? tab.groupId === null
-          : tab.groupId === groupId)
+          ? tab.placement.groupId === null
+          : tab.placement.groupId === groupId)
     );
     const updates = members.map(tab => {
       if (action === "unhide") return { tab, hiddenUntil: null };
-      const currentDeadline = Date.parse(tab.hiddenUntil ?? "");
+      const currentDeadline = Date.parse(tab.lifecycle.hiddenUntil ?? "");
       const base =
         action === "prolong" && Number.isFinite(currentDeadline)
           ? Math.max(Date.now(), currentDeadline)
@@ -893,8 +911,11 @@ export function LibraryWorkspace() {
         return update
           ? {
               ...tab,
-              hiddenUntil: update.hiddenUntil,
-              updatedAt: new Date().toISOString(),
+              lifecycle: { ...tab.lifecycle, hiddenUntil: update.hiddenUntil },
+              timestamps: {
+                ...tab.timestamps,
+                updatedAt: new Date().toISOString(),
+              },
             }
           : tab;
       })
@@ -906,7 +927,7 @@ export function LibraryWorkspace() {
           updateTabOnLocalServer(
             localServerUrl,
             tab.id,
-            { hiddenUntil },
+            { lifecycle: { hiddenUntil } },
             serverApiKey
           )
         )
@@ -939,12 +960,18 @@ export function LibraryWorkspace() {
             ? mutation.role === "duplicate"
               ? {
                   ...tab,
-                  groupId: null,
-                  archived: true,
-                  archivedAt: now,
-                  updatedAt: now,
+                  placement: { ...tab.placement, groupId: null },
+                  lifecycle: {
+                    ...tab.lifecycle,
+                    archived: true,
+                    archivedAt: now,
+                  },
+                  timestamps: { ...tab.timestamps, updatedAt: now },
                 }
-              : { ...tab, ...mutation.updates, updatedAt: now }
+              : patchTab(tab, {
+                  ...mutation.updates,
+                  timestamps: { updatedAt: now },
+                })
             : tab
         ) as VaultTab[]
     );
@@ -1052,13 +1079,21 @@ export function LibraryWorkspace() {
    * @param {string | null} groupId - Destination collection ID, or null for Unassigned.
    */
   const moveTab = (tabId: string, groupId: GroupId | null) => {
-    const sourceGroup = tabs.find(tab => tab.id === tabId)?.groupId;
+    const sourceGroup = tabs.find(tab => tab.id === tabId)?.placement.groupId;
     const destination =
-      vaultGroups.find(group => group.id === groupId)?.name ?? "Unassigned";
+      vaultGroups.find(group => group.id === groupId)?.details.name ??
+      "Unassigned";
     setTabs(current =>
       current.map(tab =>
         tab.id === tabId
-          ? { ...tab, groupId, updatedAt: new Date().toISOString() }
+          ? {
+              ...tab,
+              placement: { ...tab.placement, groupId },
+              timestamps: {
+                ...tab.timestamps,
+                updatedAt: new Date().toISOString(),
+              },
+            }
           : tab
       )
     );
@@ -1084,7 +1119,7 @@ export function LibraryWorkspace() {
       void updateTabOnLocalServer(
         localServerUrl,
         tabId,
-        { groupId },
+        { placement: { groupId } },
         serverApiKey
       ).catch(() => setServerOnline(false));
   };
@@ -1119,21 +1154,23 @@ export function LibraryWorkspace() {
     const sessionGroup = createSessionGroup(capturedAt);
     const newTab: VaultTab = {
       id: crypto.randomUUID(),
-      groupId: sessionGroup.id,
-      title,
-      url,
-      domain: domainFromUrl(url),
-      note: "",
-      agentReview: "",
-      viewed: false,
-      customProperties: { viewed: false },
-      tags: [],
-      color: "#F05A28",
-      icon: "●",
-      createdAt: now,
-      updatedAt: now,
-      archived: false,
-      archivedAt: null,
+      placement: { groupId: sessionGroup.id },
+      content: {
+        title,
+        url,
+        domain: domainFromUrl(url),
+        color: "#F05A28",
+        icon: "●",
+      },
+      annotations: {
+        note: "",
+        agentReview: "",
+        viewed: false,
+        customProperties: { viewed: false },
+        tags: [],
+      },
+      timestamps: { createdAt: now, updatedAt: now },
+      lifecycle: { archived: false, archivedAt: null },
     };
     setVaultGroups(current => [sessionGroup, ...current]);
     setTabs(current => [newTab, ...current]);
@@ -1148,12 +1185,16 @@ export function LibraryWorkspace() {
           localServerUrl,
           {
             id: sessionGroup.id,
-            name: sessionGroup.name,
-            description: sessionGroup.description,
-            category: sessionGroup.category,
-            color: sessionGroup.accent,
-            createdAt: sessionGroup.createdAt,
-            updatedAt: sessionGroup.updatedAt,
+            details: {
+              name: sessionGroup.details.name,
+              description: sessionGroup.details.description,
+              category: sessionGroup.details.category,
+              color: sessionGroup.details.accent,
+            },
+            timestamps: {
+              createdAt: sessionGroup.timestamps.createdAt,
+              updatedAt: sessionGroup.timestamps.updatedAt,
+            },
           },
           serverApiKey
         );
@@ -1161,13 +1202,14 @@ export function LibraryWorkspace() {
           localServerUrl,
           {
             id: newTab.id,
-            url,
-            title,
-            note: newTab.note,
-            agentReview: newTab.agentReview,
-            viewed: newTab.viewed,
-            tags: newTab.tags,
-            groupId: sessionGroup.id,
+            content: { url, title },
+            annotations: {
+              note: newTab.annotations.note,
+              agentReview: newTab.annotations.agentReview,
+              viewed: newTab.annotations.viewed,
+              tags: newTab.annotations.tags,
+            },
+            placement: { groupId: sessionGroup.id },
           },
           serverApiKey
         );
@@ -1190,16 +1232,24 @@ export function LibraryWorkspace() {
   captureCurrentTabRef.current = captureCurrentTab;
 
   useRegisterLibrarySidebar({
-    activeCount: activeTabs.length,
-    archivedCount: archivedTabs.length,
-    hiddenCount: hiddenTabs.length,
-    tagCount: Object.keys(tagCatalog).length,
-    storageMode,
-    serverOnline,
-    isRefreshing: isRefreshingLibrary,
-    onOpenTags: () => setShowTagManager(true),
-    onRefreshLibrary: () => void refreshLibrary(),
-    onCaptureTab: extensionContext ? () => void captureCurrentTab() : undefined,
+    counts: {
+      activeCount: activeTabs.length,
+      archivedCount: archivedTabs.length,
+      hiddenCount: hiddenTabs.length,
+      tagCount: Object.keys(tagCatalog).length,
+    },
+    connection: {
+      storageMode,
+      serverOnline,
+      isRefreshing: isRefreshingLibrary,
+    },
+    actions: {
+      onOpenTags: () => setShowTagManager(true),
+      onRefreshLibrary: () => void refreshLibrary(),
+      onCaptureTab: extensionContext
+        ? () => void captureCurrentTab()
+        : undefined,
+    },
   });
 
   useEffect(() => {
@@ -1223,10 +1273,10 @@ export function LibraryWorkspace() {
       ) {
         void readBrowserVault().then(saved => {
           if (
-            saved?.tabs &&
-            saved.vaultGroups &&
-            saved.tagCatalog &&
-            saved.tabOrders
+            saved?.library.tabs &&
+            saved.library.vaultGroups &&
+            saved.library.tagCatalog &&
+            saved.library.tabOrders
           ) {
             applyVault(saved);
             if (captureMessage.type === "TABVAULT_LIBRARY_UPDATED")
@@ -1249,12 +1299,8 @@ export function LibraryWorkspace() {
     const now = createdAt.toISOString();
     const group: VaultGroup = {
       id,
-      name,
-      description: "",
-      category: "manual",
-      accent: "#8a9c92",
-      createdAt: now,
-      updatedAt: now,
+      details: { name, description: "", category: "manual", accent: "#8a9c92" },
+      timestamps: { createdAt: now, updatedAt: now },
     };
     setVaultGroups(current => [group, ...current]);
     if (storageMode === "backend" && serverOnline)
@@ -1262,12 +1308,16 @@ export function LibraryWorkspace() {
         localServerUrl,
         {
           id: group.id,
-          name: group.name,
-          description: group.description,
-          category: "manual",
-          color: group.accent,
-          createdAt: group.createdAt,
-          updatedAt: group.updatedAt,
+          details: {
+            name: group.details.name,
+            description: group.details.description,
+            category: "manual",
+            color: group.details.accent,
+          },
+          timestamps: {
+            createdAt: group.timestamps.createdAt,
+            updatedAt: group.timestamps.updatedAt,
+          },
         },
         serverApiKey
       ).catch(() => setServerOnline(false));
@@ -1285,21 +1335,27 @@ export function LibraryWorkspace() {
    */
   const saveCollection = async () => {
     if (!editingCollection) return;
-    const name = editingCollection.name.trim();
+    const name = editingCollection.details.name.trim();
     if (!name) {
       toast.error("A collection needs a name");
       return;
     }
-    const category = editingCollection.category.trim() || "manual";
+    const category = editingCollection.details.category.trim() || "manual";
     setVaultGroups(current =>
       current.map(group =>
         group.id === editingCollection.id
           ? {
               ...editingCollection,
-              name,
-              description: editingCollection.description.trim(),
-              category,
-              updatedAt: new Date().toISOString(),
+              details: {
+                ...editingCollection.details,
+                name,
+                description: editingCollection.details.description.trim(),
+                category,
+              },
+              timestamps: {
+                ...editingCollection.timestamps,
+                updatedAt: new Date().toISOString(),
+              },
             }
           : group
       )
@@ -1309,9 +1365,11 @@ export function LibraryWorkspace() {
         localServerUrl,
         editingCollection.id,
         {
-          name,
-          description: editingCollection.description.trim(),
-          category,
+          details: {
+            name,
+            description: editingCollection.details.description.trim(),
+            category,
+          },
         },
         serverApiKey
       ).catch(() => setServerOnline(false));
@@ -1330,7 +1388,7 @@ export function LibraryWorkspace() {
    * @returns {VaultTab[]} Tabs belonging to the collection in display order.
    */
   const tabsForCollection = (groupId: GroupId) =>
-    sortByStoredOrder(tabs.filter(tab => tab.groupId === groupId));
+    sortByStoredOrder(tabs.filter(tab => tab.placement.groupId === groupId));
 
   /**
    * Set one tab's viewed state.
@@ -1343,7 +1401,14 @@ export function LibraryWorkspace() {
     setTabs(current =>
       current.map(tab =>
         tab.id === tabId
-          ? { ...tab, viewed, updatedAt: new Date().toISOString() }
+          ? {
+              ...tab,
+              annotations: { ...tab.annotations, viewed },
+              timestamps: {
+                ...tab.timestamps,
+                updatedAt: new Date().toISOString(),
+              },
+            }
           : tab
       )
     );
@@ -1351,7 +1416,7 @@ export function LibraryWorkspace() {
       void updateTabOnLocalServer(
         localServerUrl,
         tabId,
-        { viewed },
+        { annotations: { viewed } },
         serverApiKey
       ).catch(() => setServerOnline(false));
   };
@@ -1364,11 +1429,20 @@ export function LibraryWorkspace() {
    */
   const markOpenedUrlsViewed = (openedUrls: string[]) => {
     const opened = new Set(openedUrls);
-    const affected = tabs.filter(tab => !tab.archived && opened.has(tab.url));
+    const affected = tabs.filter(
+      tab => !tab.lifecycle.archived && opened.has(tab.content.url)
+    );
     setTabs(current =>
       current.map(tab =>
-        opened.has(tab.url)
-          ? { ...tab, viewed: true, updatedAt: new Date().toISOString() }
+        opened.has(tab.content.url)
+          ? {
+              ...tab,
+              annotations: { ...tab.annotations, viewed: true },
+              timestamps: {
+                ...tab.timestamps,
+                updatedAt: new Date().toISOString(),
+              },
+            }
           : tab
       )
     );
@@ -1378,7 +1452,7 @@ export function LibraryWorkspace() {
           updateTabOnLocalServer(
             localServerUrl,
             tab.id,
-            { viewed: true },
+            { annotations: { viewed: true } },
             serverApiKey
           )
         )
@@ -1396,10 +1470,10 @@ export function LibraryWorkspace() {
    * @param {string} url - URL to open, defaulting to the tab URL.
    * @returns {Promise<void>} Resolves after the browser open attempt.
    */
-  const openSavedTab = async (tab: VaultTab, url = tab.url) => {
+  const openSavedTab = async (tab: VaultTab, url = tab.content.url) => {
     const result = await openTabUrls([url]);
     if (result.openedCount) {
-      markOpenedUrlsViewed([tab.url]);
+      markOpenedUrlsViewed([tab.content.url]);
       return;
     }
     toast.error("The browser blocked this tab");
@@ -1418,7 +1492,9 @@ export function LibraryWorkspace() {
       toast("This collection is empty");
       return;
     }
-    const result = await openTabUrls(collectionTabs.map(tab => tab.url));
+    const result = await openTabUrls(
+      collectionTabs.map(tab => tab.content.url)
+    );
     markOpenedUrlsViewed(result.openedUrls ?? []);
     if (result.openedCount === result.requestedCount) {
       toast.success(
@@ -1445,14 +1521,16 @@ export function LibraryWorkspace() {
   const shareCollectionAsMarkdown = async (group: VaultGroup) => {
     const collectionTabs = tabsForCollection(group.id);
     const markdown = [
-      `# ${group.name}`,
+      `# ${group.details.name}`,
       "",
-      ...collectionTabs.map(tab => `- [${tab.title}](${tab.url})`),
+      ...collectionTabs.map(
+        tab => `- [${tab.content.title}](${tab.content.url})`
+      ),
     ].join("\n");
     try {
       await navigator.clipboard.writeText(markdown);
       toast.success("Markdown copied", {
-        description: `${collectionTabs.length} link${collectionTabs.length === 1 ? "" : "s"} from ${group.name}.`,
+        description: `${collectionTabs.length} link${collectionTabs.length === 1 ? "" : "s"} from ${group.details.name}.`,
       });
     } catch {
       toast.error("Clipboard permission was unavailable");
@@ -1471,18 +1549,29 @@ export function LibraryWorkspace() {
       groups: Array.from(new Set([...tombstonesRef.current.groups, group.id])),
     };
     tombstonesRef.current = tombstones;
-    dispatch({ type: "update", key: "tombstones", value: tombstones });
-    const movedTabs = tabs.filter(tab => tab.groupId === group.id);
+    dispatch({
+      type: "update",
+      group: "library",
+      key: "tombstones",
+      value: tombstones,
+    });
+    const movedTabs = tabs.filter(tab => tab.placement.groupId === group.id);
     const movedTabIds = new Set(movedTabs.map(tab => tab.id));
     setTabs(current =>
       current.map(tab =>
-        tab.groupId === group.id
+        tab.placement.groupId === group.id
           ? {
               ...tab,
-              groupId: null,
-              archived: true,
-              archivedAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
+              placement: { ...tab.placement, groupId: null },
+              lifecycle: {
+                ...tab.lifecycle,
+                archived: true,
+                archivedAt: new Date().toISOString(),
+              },
+              timestamps: {
+                ...tab.timestamps,
+                updatedAt: new Date().toISOString(),
+              },
             }
           : tab
       )
@@ -1510,7 +1599,7 @@ export function LibraryWorkspace() {
         group.id,
         serverApiKey
       ).catch(() => setServerOnline(false));
-    toast.success(`Deleted ${group.name}`, {
+    toast.success(`Deleted ${group.details.name}`, {
       description: `${movedTabs.length} tab${movedTabs.length === 1 ? "" : "s"} archived and Unassigned.`,
     });
   };
@@ -1522,7 +1611,7 @@ export function LibraryWorkspace() {
    * @param {VaultGroup} group - Collection selected for deletion.
    */
   const requestCollectionDelete = (group: VaultGroup) => {
-    if (tabs.some(tab => tab.groupId === group.id)) {
+    if (tabs.some(tab => tab.placement.groupId === group.id)) {
       setCollectionPendingDelete(group);
       return;
     }
@@ -1536,7 +1625,10 @@ export function LibraryWorkspace() {
    * @param {VaultTab} tab - Saved tab to edit.
    */
   const openTabEditor = (tab: VaultTab) =>
-    setEditingTab({ ...tab, tags: [...tab.tags] });
+    setEditingTab({
+      ...tab,
+      annotations: { ...tab.annotations, tags: [...tab.annotations.tags] },
+    });
 
   /**
    * Save the edited tab fields.
@@ -1545,8 +1637,8 @@ export function LibraryWorkspace() {
    */
   const saveTab = () => {
     if (!editingTab) return;
-    const title = editingTab.title.trim();
-    const url = editingTab.url.trim();
+    const title = editingTab.content.title.trim();
+    const url = editingTab.content.url.trim();
     if (!title || !url) {
       toast.error("A title and URL are required");
       return;
@@ -1557,19 +1649,30 @@ export function LibraryWorkspace() {
     }
     const updatedTab = {
       ...editingTab,
-      title,
-      url,
-      note: editingTab.note.trim(),
-      agentReview: editingTab.agentReview.trim(),
-      domain: domainFromUrl(url),
-      tags: editingTab.tags.map(tag => tag.trim()).filter(Boolean),
-      updatedAt: new Date().toISOString(),
+      content: {
+        ...editingTab.content,
+        title,
+        url,
+        domain: domainFromUrl(url),
+      },
+      annotations: {
+        ...editingTab.annotations,
+        note: editingTab.annotations.note.trim(),
+        agentReview: editingTab.annotations.agentReview.trim(),
+        tags: editingTab.annotations.tags
+          .map(tag => tag.trim())
+          .filter(Boolean),
+      },
+      timestamps: {
+        ...editingTab.timestamps,
+        updatedAt: new Date().toISOString(),
+      },
     };
     setTabs(current =>
       current.map(tab => (tab.id === updatedTab.id ? updatedTab : tab))
     );
     setTagCatalog(current =>
-      updatedTab.tags.reduce(
+      updatedTab.annotations.tags.reduce(
         (next, tag) => ({ ...next, [tag]: next[tag] ?? "" }),
         current
       )
@@ -1579,15 +1682,19 @@ export function LibraryWorkspace() {
         localServerUrl,
         updatedTab.id,
         {
-          url: updatedTab.url,
-          title: updatedTab.title,
-          note: updatedTab.note,
-          agentReview: updatedTab.agentReview,
-          viewed: updatedTab.viewed,
-          customProperties: updatedTab.customProperties,
-          tags: updatedTab.tags,
-          groupId: updatedTab.groupId,
-          hiddenUntil: updatedTab.hiddenUntil ?? null,
+          content: {
+            url: updatedTab.content.url,
+            title: updatedTab.content.title,
+          },
+          annotations: {
+            note: updatedTab.annotations.note,
+            agentReview: updatedTab.annotations.agentReview,
+            viewed: updatedTab.annotations.viewed,
+            customProperties: updatedTab.annotations.customProperties,
+            tags: updatedTab.annotations.tags,
+          },
+          placement: { groupId: updatedTab.placement.groupId },
+          lifecycle: { hiddenUntil: updatedTab.lifecycle.hiddenUntil ?? null },
         },
         serverApiKey
       ).catch(() => setServerOnline(false));
@@ -1606,12 +1713,20 @@ export function LibraryWorkspace() {
     const value = tagDraft.trim();
     if (!value || !editingTab) return;
     if (
-      editingTab.tags.some(tag => tag.toLowerCase() === value.toLowerCase())
+      editingTab.annotations.tags.some(
+        tag => tag.toLowerCase() === value.toLowerCase()
+      )
     ) {
       setTagDraft("");
       return;
     }
-    setEditingTab({ ...editingTab, tags: [...editingTab.tags, value] });
+    setEditingTab({
+      ...editingTab,
+      annotations: {
+        ...editingTab.annotations,
+        tags: [...editingTab.annotations.tags, value],
+      },
+    });
     setTagDraft("");
   };
 
@@ -1621,7 +1736,7 @@ export function LibraryWorkspace() {
     return Object.keys(tagCatalog)
       .filter(
         tag =>
-          !editingTab.tags.some(
+          !editingTab.annotations.tags.some(
             existing => existing.toLowerCase() === tag.toLowerCase()
           )
       )
@@ -1643,14 +1758,22 @@ export function LibraryWorkspace() {
       const { [oldName]: description = "", ...rest } = current;
       return { ...rest, [cleanName]: description };
     });
-    const affected = tabs.filter(tab => tab.tags.includes(oldName));
+    const affected = tabs.filter(tab => tab.annotations.tags.includes(oldName));
     setTabs(current =>
       current.map(tab => ({
         ...tab,
-        tags: tab.tags.map(tag => (tag === oldName ? cleanName : tag)),
-        updatedAt: tab.tags.includes(oldName)
-          ? new Date().toISOString()
-          : tab.updatedAt,
+        annotations: {
+          ...tab.annotations,
+          tags: tab.annotations.tags.map(tag =>
+            tag === oldName ? cleanName : tag
+          ),
+        },
+        timestamps: {
+          ...tab.timestamps,
+          updatedAt: tab.annotations.tags.includes(oldName)
+            ? new Date().toISOString()
+            : tab.timestamps.updatedAt,
+        },
       }))
     );
     if (storageMode === "backend" && serverOnline)
@@ -1660,7 +1783,11 @@ export function LibraryWorkspace() {
             localServerUrl,
             tab.id,
             {
-              tags: tab.tags.map(tag => (tag === oldName ? cleanName : tag)),
+              annotations: {
+                tags: tab.annotations.tags.map(tag =>
+                  tag === oldName ? cleanName : tag
+                ),
+              },
             },
             serverApiKey
           )
@@ -1683,7 +1810,7 @@ export function LibraryWorkspace() {
    * @param {string} name - Tag name to remove.
    */
   const removeTag = (name: string) => {
-    const affected = tabs.filter(tab => tab.tags.includes(name));
+    const affected = tabs.filter(tab => tab.annotations.tags.includes(name));
     setTagCatalog(current => {
       const next = { ...current };
       delete next[name];
@@ -1692,10 +1819,16 @@ export function LibraryWorkspace() {
     setTabs(current =>
       current.map(tab => ({
         ...tab,
-        tags: tab.tags.filter(tag => tag !== name),
-        updatedAt: tab.tags.includes(name)
-          ? new Date().toISOString()
-          : tab.updatedAt,
+        annotations: {
+          ...tab.annotations,
+          tags: tab.annotations.tags.filter(tag => tag !== name),
+        },
+        timestamps: {
+          ...tab.timestamps,
+          updatedAt: tab.annotations.tags.includes(name)
+            ? new Date().toISOString()
+            : tab.timestamps.updatedAt,
+        },
       }))
     );
     if (storageMode === "backend" && serverOnline)
@@ -1704,7 +1837,11 @@ export function LibraryWorkspace() {
           updateTabOnLocalServer(
             localServerUrl,
             tab.id,
-            { tags: tab.tags.filter(tag => tag !== name) },
+            {
+              annotations: {
+                tags: tab.annotations.tags.filter(tag => tag !== name),
+              },
+            },
             serverApiKey
           )
         )
@@ -1790,285 +1927,143 @@ export function LibraryWorkspace() {
       <div className="min-h-screen bg-[#f6f3ec] text-[#18261f]">
         <main className="min-h-screen">
           <div className="mx-auto max-w-[1540px] px-5 py-5 sm:px-7">
-            <section className="flex flex-wrap items-center justify-between gap-3">
-              <div className="max-w-2xl">
-                <h1 className="font-['DM_Sans'] text-2xl font-bold tracking-[-0.04em] text-[#18261f]">
-                  {isArchivePage
-                    ? "Archive"
-                    : isHiddenPage
-                      ? "Hidden"
-                      : "All tabs"}
-                </h1>
-              </div>
-              <Button
-                variant="ghost"
-                onClick={() => setLocation("/dashboard")}
-                className="inline-flex shrink-0 items-center gap-2 rounded px-2 py-2 text-left font-mono text-[9px] uppercase tracking-[0.09em] text-[#6d746b] transition hover:text-[#e95224] active:scale-[0.98]"
-                title="Open dashboard"
-              >
-                <BrandMark className="h-3.5 w-3.5 shrink-0" />
-                {libraryStorageLabel}
-                <ChevronRight className="h-3 w-3" />
-              </Button>
-            </section>
+            <LibraryHeader
+              title={
+                isArchivePage ? "Archive" : isHiddenPage ? "Hidden" : "All tabs"
+              }
+              libraryStorageLabel={libraryStorageLabel}
+              onOpenDashboard={() => setLocation("/dashboard")}
+            />
 
             <div className="mt-4">
               <section>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                  <div>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      <h2 className="font-['DM_Sans'] text-sm font-semibold tracking-[-0.02em]">
-                        {query
-                          ? isRemoteSearching
-                            ? "Searching local knowledge…"
-                            : `${visibleTabs.length} ${searchResponse?.mode === "semantic" ? "matched on meaning" : "matched locally"}`
-                          : `${visibleTabs.length} tabs`}
-                      </h2>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {query && (
-                      <p className="hidden max-w-[250px] text-right text-[11px] leading-5 text-[#80847d] md:block">
-                        {searchStatusCopy}
-                      </p>
-                    )}
-                    {!query && isAllTabsPage && (
-                      <>
-                        <Button
-                          variant="ghost"
-                          onClick={() => void quickClean()}
-                          disabled={isQuickCleaning}
-                          className="rounded border border-[#d9d3c6] bg-[#fffdf8] px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#e95224] hover:text-[#e95224] disabled:opacity-50"
-                        >
-                          {isQuickCleaning ? "Cleaning…" : "Quick clean"}
-                        </Button>
-                        <IconButton
-                          label="Advanced deduplication"
-                          onClick={() => setLocation("/deduplicate")}
-                        >
-                          <SlidersHorizontal />
-                        </IconButton>
-                      </>
-                    )}
-                    {!query && !isGroupBoard && (
-                      <IconButton
-                        label={selectionMode ? "Done selecting" : "Select tabs"}
-                        aria-pressed={selectionMode}
-                        onClick={toggleSelectionMode}
-                        className={
-                          selectionMode ? "bg-[#fff0ea] text-[#c84b26]" : ""
-                        }
-                      >
-                        {selectionMode ? <Check /> : <ListChecks />}
-                      </IconButton>
-                    )}
-                  </div>
-                </div>
+                <LibraryResultSummary
+                  search={{
+                    query: query,
+                    isRemoteSearching: isRemoteSearching,
+                    visibleCount: visibleTabs.length,
+                    isSemanticSearch: searchResponse?.mode === "semantic",
+                    searchStatusCopy: searchStatusCopy,
+                  }}
+                  page={{
+                    isAllTabsPage: isAllTabsPage,
+                    isGroupBoard: isGroupBoard,
+                  }}
+                  cleanup={{
+                    isQuickCleaning: isQuickCleaning,
+                    onQuickClean: () => void quickClean(),
+                    onAdvancedDedupe: () => setLocation("/deduplicate"),
+                  }}
+                  selection={{
+                    selectionMode: selectionMode,
+                    onToggleSelectionMode: toggleSelectionMode,
+                  }}
+                />
                 <div
                   data-testid="library-search-toolbar"
                   className="sticky top-14 z-20 mt-3 bg-[#f6f3ec] py-2 lg:top-0"
                 >
                   <LibrarySearchInput
-                    query={query}
-                    activeResultId={visibleTabs[activeResultIndex]?.id}
-                    searchGroupFilter={searchGroupFilter}
-                    groups={vaultGroups}
-                    semanticLensTone={semanticLensTone}
-                    semanticLensLabel={semanticLensLabel}
-                    isRemoteSearching={isRemoteSearching}
-                    onQueryChange={nextQuery => {
-                      setQuery(nextQuery);
-                      setActiveResultIndex(0);
+                    search={{
+                      query: query,
+                      activeResultId: visibleTabs[activeResultIndex]?.id,
+                      onQueryChange: nextQuery => {
+                        setQuery(nextQuery);
+                        setActiveResultIndex(0);
+                      },
+                      onKeyDown: handleSearchKeyDown,
                     }}
-                    onGroupFilterChange={groupId =>
-                      setSearchGroupFilter(groupId)
-                    }
-                    onKeyDown={handleSearchKeyDown}
+                    filter={{
+                      searchGroupFilter: searchGroupFilter,
+                      groups: vaultGroups,
+                      onGroupFilterChange: groupId =>
+                        setSearchGroupFilter(groupId),
+                    }}
+                    index={{
+                      semanticLensTone: semanticLensTone,
+                      semanticLensLabel: semanticLensLabel,
+                      isRemoteSearching: isRemoteSearching,
+                    }}
                   />
                   <LibraryBulkActions
-                    selectionActive={selectionActive}
-                    selectedCount={selectedResultIds.size}
-                    visibleCount={visibleTabs.length}
                     groups={vaultGroups}
-                    bulkTag={bulkTag}
                     isArchivePage={isArchivePage}
-                    onToggleSelectAll={toggleSelectAll}
-                    onMoveSelected={groupId => void bulkMoveSelected(groupId)}
-                    onBulkTagChange={setBulkTag}
-                    onTagSelected={() => void bulkTagSelected()}
-                    onRemoveSelected={() => void removeSelected()}
+                    selection={{
+                      selectionActive: selectionActive,
+                      selectedCount: selectedResultIds.size,
+                      visibleCount: visibleTabs.length,
+                      onToggleSelectAll: toggleSelectAll,
+                    }}
+                    tagging={{
+                      bulkTag: bulkTag,
+                      onBulkTagChange: setBulkTag,
+                      onTagSelected: () => void bulkTagSelected(),
+                    }}
+                    actions={{
+                      onMoveSelected: groupId => void bulkMoveSelected(groupId),
+                      onRemoveSelected: () => void removeSelected(),
+                    }}
                   />
                 </div>
-                {query && (
-                  <div className="flex flex-wrap items-center gap-2 border-b border-[#dfdbd0] bg-[#fffdf8] px-3 py-2">
-                    <Button
-                      variant="ghost"
-                      onClick={() => setShowSavedSearches(!showSavedSearches)}
-                      className="rounded border border-[#d9d3c6] px-2 py-1.5 font-mono text-[9px] uppercase tracking-[0.06em] text-[#617066] hover:border-[#e95224] hover:text-[#e95224]"
-                    >
-                      Views{" "}
-                      {savedSearches.length ? `· ${savedSearches.length}` : ""}
-                    </Button>
-                    <ContextHelp
-                      title="Saved views"
-                      side="bottom"
-                      align="start"
-                    >
-                      A saved view remembers this search phrase and shelf
-                      filter. It does not duplicate or move your tabs.
-                    </ContextHelp>
-                    {undoSnapshot && (
-                      <div className="flex items-center gap-2 rounded border border-[#b7cbb4] bg-[#edf2ea] px-2 py-1.5 text-[10px] text-[#48644d]">
-                        <span>Undo {undoSnapshot.label}</span>
-                        <Button
-                          variant="ghost"
-                          onClick={() => void undoLastBulkAction()}
-                          className="font-mono text-[9px] font-bold uppercase tracking-[0.06em] text-[#2f773c] hover:underline"
-                        >
-                          Undo
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {query && showSavedSearches && (
-                  <div className="border-b border-[#dfdbd0] bg-[#f9f7f1] p-3">
-                    <div className="flex gap-2">
-                      <Input
-                        value={savedSearchName}
-                        onChange={event =>
-                          setSavedSearchName(event.target.value)
-                        }
-                        onKeyDown={event => {
-                          if (event.key === "Enter") saveCurrentSearch();
-                        }}
-                        placeholder={query}
-                        className="h-auto min-w-0 flex-1 rounded-none border-x-0 border-t-0 border-b border-[#bcb6a8] bg-transparent px-1 py-1.5 text-[11px] shadow-none outline-none focus:border-[#e95224]"
-                      />
-                      <Button
-                        variant="ghost"
-                        onClick={saveCurrentSearch}
-                        className="rounded bg-[#e95224] px-2.5 py-1.5 font-mono text-[9px] font-bold uppercase tracking-[0.06em] text-white hover:bg-[#d94a1e]"
-                      >
-                        Save view
-                      </Button>
-                    </div>
-                    {savedSearches.length > 0 && (
-                      <div className="mt-3 space-y-1">
-                        {savedSearches.map(view => (
-                          <div
-                            key={view.id}
-                            className="flex items-center gap-2 rounded bg-[#fffdf8] px-2 py-1.5"
-                          >
-                            <Button
-                              variant="ghost"
-                              onClick={() => applySavedSearch(view)}
-                              className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-[#425047] hover:text-[#e95224]"
-                            >
-                              {view.name}
-                              <span className="ml-2 font-mono text-[8px] font-normal uppercase text-[#969991]">
-                                {view.groupId === "all"
-                                  ? "all shelves"
-                                  : (vaultGroups.find(
-                                      group => group.id === view.groupId
-                                    )?.name ?? "collection")}
-                              </span>
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              onClick={() =>
-                                setSavedSearches(current =>
-                                  current.filter(item => item.id !== view.id)
-                                )
-                              }
-                              className="rounded p-1 text-[#989990] hover:bg-[#fff0ea] hover:text-[#c84725]"
-                              aria-label={`Delete ${view.name} saved search`}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                  <p className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[#838980]">
-                    <ContextHelp
-                      title="Tab views and reordering"
-                      side="bottom"
-                      align="start"
-                    >
-                      Standard shows details, Compact shows only a favicon and
-                      title, and Instant Preview renders a readable article card
-                      when page content is available. Group board summarizes
-                      collections. Drag a row by its handle to change its order
-                      within that collection.
-                    </ContextHelp>
-                  </p>
-                  <div
-                    className="flex overflow-hidden rounded-md border border-[#d9d3c6] bg-[#fffdf8]"
-                    role="group"
-                    aria-label="Tab view mode"
-                  >
-                    <IconButton
-                      onClick={() => {
-                        setSearchGroupFilter("all");
-                        setSelectionMode(false);
-                        setSelectedResultIds(new Set());
-                        setTabView("groups");
-                      }}
-                      className={`p-2 ${tabView === "groups" ? "bg-[#edf2ea] text-[#36533a]" : "text-[#858980] hover:bg-[#f7f4ed]"}`}
-                      label="Collection-group board view"
-                      aria-pressed={tabView === "groups"}
-                    >
-                      <Boxes className="h-3.5 w-3.5" />
-                    </IconButton>
-                    <IconButton
-                      onClick={() => setTabView("standard")}
-                      className={`border-l border-[#d9d3c6] p-2 ${tabView === "standard" ? "bg-[#edf2ea] text-[#36533a]" : "text-[#858980] hover:bg-[#f7f4ed]"}`}
-                      label="Standard tab view"
-                      aria-pressed={tabView === "standard"}
-                    >
-                      <LayoutList className="h-3.5 w-3.5" />
-                    </IconButton>
-                    <IconButton
-                      onClick={() => setTabView("compact")}
-                      className={`border-l border-[#d9d3c6] p-2 ${tabView === "compact" ? "bg-[#edf2ea] text-[#36533a]" : "text-[#858980] hover:bg-[#f7f4ed]"}`}
-                      label="Compact tab view"
-                      aria-pressed={tabView === "compact"}
-                    >
-                      <Rows3 className="h-3.5 w-3.5" />
-                    </IconButton>
-                    <IconButton
-                      onClick={() => setTabView("preview")}
-                      className={`border-l border-[#d9d3c6] p-2 ${tabView === "preview" ? "bg-[#edf2ea] text-[#36533a]" : "text-[#858980] hover:bg-[#f7f4ed]"}`}
-                      label="Instant-preview tab view"
-                      aria-pressed={tabView === "preview"}
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                    </IconButton>
-                  </div>
-                </div>
+                <LibrarySavedViews
+                  query={query}
+                  picker={{
+                    showSavedSearches: showSavedSearches,
+                    onToggleSavedSearches: () =>
+                      setShowSavedSearches(!showSavedSearches),
+                  }}
+                  draft={{
+                    savedSearchName: savedSearchName,
+                    onNameChange: setSavedSearchName,
+                    onSave: saveCurrentSearch,
+                  }}
+                  views={{
+                    savedSearches: savedSearches,
+                    groups: vaultGroups,
+                    onApply: applySavedSearch,
+                    onDelete: id =>
+                      setSavedSearches(current =>
+                        current.filter(item => item.id !== id)
+                      ),
+                  }}
+                  undo={{
+                    undoLabel: undoSnapshot?.label,
+                    onUndo: () => void undoLastBulkAction(),
+                  }}
+                />
+                <LibraryViewControls
+                  tabView={tabView}
+                  onViewChange={view => {
+                    if (view === "groups") {
+                      setSearchGroupFilter("all");
+                      setSelectionMode(false);
+                      setSelectedResultIds(new Set());
+                    }
+                    setTabView(view);
+                  }}
+                />
                 {isGroupBoard ? (
                   <CollectionBoard
                     groups={vaultGroups}
                     tabs={sortByStoredOrder(activeTabs)}
-                    query={query}
-                    matchedTabIds={new Set(visibleTabs.map(tab => tab.id))}
-                    onOpen={group => void openCollectionTabs(group)}
-                    onShare={group => void shareCollectionAsMarkdown(group)}
-                    onDelete={requestCollectionDelete}
-                    onEdit={group => setEditingCollection({ ...group })}
-                    onBrowse={groupId => {
-                      setSearchGroupFilter(groupId);
-                      setQuery("");
-                      setTabView("standard");
+                    search={{
+                      query: query,
+                      matchedTabIds: new Set(visibleTabs.map(tab => tab.id)),
                     }}
-                    onCreate={createGroup}
-                    onHide={(groupId, duration) =>
-                      void changeGroupVisibility(groupId, "hide", duration)
-                    }
+                    actions={{
+                      onOpen: group => void openCollectionTabs(group),
+                      onShare: group => void shareCollectionAsMarkdown(group),
+                      onDelete: requestCollectionDelete,
+                      onEdit: group => setEditingCollection({ ...group }),
+                      onBrowse: groupId => {
+                        setSearchGroupFilter(groupId);
+                        setQuery("");
+                        setTabView("standard");
+                      },
+                      onCreate: createGroup,
+                      onHide: (groupId, duration) =>
+                        void changeGroupVisibility(groupId, "hide", duration),
+                    }}
                   />
                 ) : visibleTabs.length ||
                   (!isArchivePage && !isHiddenPage && !query) ? (
@@ -2080,106 +2075,109 @@ export function LibraryWorkspace() {
                       )}
                     <TabList
                       tabs={visibleTabs}
-                      viewMode={tabView === "groups" ? "standard" : tabView}
-                      query={query}
-                      selectionEnabled={selectionMode}
-                      collapsibleGroups={!isArchivePage && !query}
-                      collapsedGroupIds={collapsedGroupIds}
-                      onToggleGroup={groupId =>
-                        setCollapsedGroupIds(current => {
-                          const next = new Set(current);
-                          if (next.has(groupId)) next.delete(groupId);
-                          else next.add(groupId);
-                          return next;
-                        })
-                      }
-                      activeResultIndex={activeResultIndex}
-                      selectedResultIds={selectedResultIds}
-                      semanticScores={semanticScores}
-                      fallbackMode={searchResponse?.mode}
-                      onActiveIndex={setActiveResultIndex}
-                      onToggleSelection={toggleResultSelection}
-                      onMove={moveTab}
-                      onEdit={openTabEditor}
-                      onOpen={(tab, url) =>
-                        void openSavedTab(tab as VaultTab, url)
-                      }
-                      onViewedChange={setTabViewed}
-                      onDelete={tab => void deleteTab(tab as VaultTab)}
-                      lifecycleMode={
-                        isArchivePage
+                      presentation={{
+                        viewMode: tabView === "groups" ? "standard" : tabView,
+                        previewBackend:
+                          storageMode === "backend" && serverOnline
+                            ? { url: localServerUrl, apiKey: serverApiKey }
+                            : undefined,
+                      }}
+                      search={{
+                        query: query,
+                        semanticScores: semanticScores,
+                        fallbackMode: searchResponse?.mode,
+                      }}
+                      selection={{
+                        selectionEnabled: selectionMode,
+                        activeResultIndex: activeResultIndex,
+                        selectedResultIds: selectedResultIds,
+                        onActiveIndex: setActiveResultIndex,
+                        onToggleSelection: toggleResultSelection,
+                      }}
+                      collections={{
+                        collapsibleGroups: !isArchivePage && !query,
+                        collapsedGroupIds: collapsedGroupIds,
+                        onToggleGroup: groupId =>
+                          setCollapsedGroupIds(current => {
+                            const next = new Set(current);
+                            if (next.has(groupId)) next.delete(groupId);
+                            else next.add(groupId);
+                            return next;
+                          }),
+                        groups: vaultGroups,
+                        visibleGroupIds: visibleGroupIds,
+                        collectionActions: {
+                          onOpenGroup: groupId => {
+                            const group = vaultGroups.find(
+                              item => item.id === groupId
+                            );
+                            if (group) void openCollectionTabs(group);
+                          },
+                          onShareGroup: groupId => {
+                            const group = vaultGroups.find(
+                              item => item.id === groupId
+                            );
+                            if (group) void shareCollectionAsMarkdown(group);
+                          },
+                          onDeleteGroup: groupId => {
+                            const group = vaultGroups.find(
+                              item => item.id === groupId
+                            );
+                            if (group) requestCollectionDelete(group);
+                          },
+                          onEditGroup: groupId => {
+                            const group = vaultGroups.find(
+                              item => item.id === groupId
+                            );
+                            if (group) setEditingCollection({ ...group });
+                          },
+                          onHideGroup: (groupId, duration) =>
+                            void changeGroupVisibility(
+                              groupId,
+                              "hide",
+                              duration
+                            ),
+                          onUnhideGroup: groupId =>
+                            void changeGroupVisibility(groupId, "unhide"),
+                          onProlongGroup: (groupId, duration) =>
+                            void changeGroupVisibility(
+                              groupId,
+                              "prolong",
+                              duration
+                            ),
+                        },
+                      }}
+                      actions={{
+                        onMove: moveTab,
+                        onEdit: openTabEditor,
+                        onOpen: (tab, url) =>
+                          void openSavedTab(tab as VaultTab, url),
+                        onViewedChange: setTabViewed,
+                        onDelete: tab => void deleteTab(tab as VaultTab),
+                        onOpenTagManager: () => setShowTagManager(true),
+                      }}
+                      lifecycle={{
+                        lifecycleMode: isArchivePage
                           ? "archived"
                           : isHiddenPage
                             ? "hidden"
-                            : "visible"
-                      }
-                      onRestore={tab => restoreTab(tab as VaultTab)}
-                      onHide={(tab, duration) =>
-                        hideTabFor(tab as VaultTab, duration)
-                      }
-                      onUnhide={tab => unhideTab(tab as VaultTab)}
-                      onProlong={(tab, duration) =>
-                        prolongTabFor(tab as VaultTab, duration)
-                      }
-                      onOpenTagManager={() => setShowTagManager(true)}
-                      onOpenGroup={groupId => {
-                        const group = vaultGroups.find(
-                          item => item.id === groupId
-                        );
-                        if (group) void openCollectionTabs(group);
+                            : "visible",
+                        onRestore: tab => restoreTab(tab as VaultTab),
+                        onHide: (tab, duration) =>
+                          hideTabFor(tab as VaultTab, duration),
+                        onUnhide: tab => unhideTab(tab as VaultTab),
+                        onProlong: (tab, duration) =>
+                          prolongTabFor(tab as VaultTab, duration),
                       }}
-                      onShareGroup={groupId => {
-                        const group = vaultGroups.find(
-                          item => item.id === groupId
-                        );
-                        if (group) void shareCollectionAsMarkdown(group);
-                      }}
-                      onDeleteGroup={groupId => {
-                        const group = vaultGroups.find(
-                          item => item.id === groupId
-                        );
-                        if (group) requestCollectionDelete(group);
-                      }}
-                      onEditGroup={groupId => {
-                        const group = vaultGroups.find(
-                          item => item.id === groupId
-                        );
-                        if (group) setEditingCollection({ ...group });
-                      }}
-                      onHideGroup={(groupId, duration) =>
-                        void changeGroupVisibility(groupId, "hide", duration)
-                      }
-                      onUnhideGroup={groupId =>
-                        void changeGroupVisibility(groupId, "unhide")
-                      }
-                      onProlongGroup={(groupId, duration) =>
-                        void changeGroupVisibility(groupId, "prolong", duration)
-                      }
-                      groups={vaultGroups}
-                      visibleGroupIds={visibleGroupIds}
-                      previewBackend={
-                        storageMode === "backend" && serverOnline
-                          ? { url: localServerUrl, apiKey: serverApiKey }
-                          : undefined
-                      }
                     />
                   </>
                 ) : (
-                  <div className="border-t border-[#dcd7cc] bg-[#fffdf8] px-5 py-12 text-center">
-                    <Search className="mx-auto h-5 w-5 text-[#e95224]" />
-                    <p className="mt-3 text-[13px] font-bold">
-                      {(isArchivePage || isHiddenPage) && !query
-                        ? `${workspaceLabel} is empty.`
-                        : "No links matched that query."}
-                    </p>
-                    <p className="mt-1 text-[11px] text-[#7b8078]">
-                      {isArchivePage && !query
-                        ? "Archived links remain recoverable here until you permanently delete them."
-                        : isHiddenPage && !query
-                          ? "Tabs with future hide deadlines appear here."
-                          : "Try a topic, note, or tag. Semantic search understands related language."}
-                    </p>
-                  </div>
+                  <LibraryEmptyState
+                    query={query}
+                    isArchivePage={isArchivePage}
+                    isHiddenPage={isHiddenPage}
+                    workspaceLabel={workspaceLabel}
+                  />
                 )}
               </section>
             </div>
@@ -2193,7 +2191,7 @@ export function LibraryWorkspace() {
               new Set([
                 "manual",
                 "session",
-                ...vaultGroups.map(group => group.category),
+                ...vaultGroups.map(group => group.details.category),
               ])
             )}
             onChange={setEditingCollection}
@@ -2213,19 +2211,23 @@ export function LibraryWorkspace() {
         {showTagManager && (
           <TagManagerDialog
             tags={tagCatalog}
-            newTagName={newTagName}
-            onNewTagNameChange={setNewTagName}
-            onDescriptionChange={(name, description) =>
-              setTagCatalog(current => ({ ...current, [name]: description }))
-            }
-            onRename={renameTag}
-            onRemove={removeTag}
-            onAdd={addLibraryTag}
-            onClose={() => {
-              setShowTagManager(false);
-              toast.success("Tag directory saved", {
-                description: "The local index is ready for the next question.",
-              });
+            draft={{
+              newTagName: newTagName,
+              onNewTagNameChange: setNewTagName,
+              onAdd: addLibraryTag,
+            }}
+            actions={{
+              onDescriptionChange: (name, description) =>
+                setTagCatalog(current => ({ ...current, [name]: description })),
+              onRename: renameTag,
+              onRemove: removeTag,
+              onClose: () => {
+                setShowTagManager(false);
+                toast.success("Tag directory saved", {
+                  description:
+                    "The local index is ready for the next question.",
+                });
+              },
             }}
           />
         )}
@@ -2234,15 +2236,19 @@ export function LibraryWorkspace() {
           <EditTabDialog
             tab={editingTab}
             groups={vaultGroups}
-            tagDraft={tagDraft}
-            tagSuggestions={tagSuggestions}
-            tagCatalog={tagCatalog}
             propertySchema={propertySchemaRef.current}
-            onChange={setEditingTab}
-            onTagDraftChange={setTagDraft}
-            onAddTag={addTagToTab}
-            onClose={() => setEditingTab(null)}
-            onSave={saveTab}
+            tags={{
+              tagDraft: tagDraft,
+              tagSuggestions: tagSuggestions,
+              tagCatalog: tagCatalog,
+              onTagDraftChange: setTagDraft,
+              onAddTag: addTagToTab,
+            }}
+            actions={{
+              onChange: setEditingTab,
+              onClose: () => setEditingTab(null),
+              onSave: saveTab,
+            }}
           />
         )}
       </div>
@@ -2257,18 +2263,23 @@ export function LibraryWorkspace() {
         ) : activeDragTab ? (
           <TabDragPreview
             tab={activeDragTab}
-            viewMode={tabView === "groups" ? "standard" : tabView}
-            query={query}
-            selectionEnabled={selectionMode}
-            isSelected={selectedResultIds.has(activeDragTab.id)}
-            score={semanticScores.get(activeDragTab.id)}
-            fallbackMode={searchResponse?.mode}
             groups={vaultGroups}
-            previewBackend={
-              storageMode === "backend" && serverOnline
-                ? { url: localServerUrl, apiKey: serverApiKey }
-                : undefined
-            }
+            presentation={{
+              viewMode: tabView === "groups" ? "standard" : tabView,
+              previewBackend:
+                storageMode === "backend" && serverOnline
+                  ? { url: localServerUrl, apiKey: serverApiKey }
+                  : undefined,
+            }}
+            search={{
+              query: query,
+              score: semanticScores.get(activeDragTab.id),
+              fallbackMode: searchResponse?.mode,
+            }}
+            selection={{
+              selectionEnabled: selectionMode,
+              isSelected: selectedResultIds.has(activeDragTab.id),
+            }}
           />
         ) : null}
       </DragOverlay>

@@ -3,7 +3,20 @@
 from pathlib import Path
 
 from lib.time import stored_utc, utc_now
-from models import Backup, Group, Tab, Tag
+from models import (
+    Backup,
+    Group,
+    GroupDetails,
+    GroupPlacement,
+    GroupTimestamps,
+    Tab,
+    TabAnnotations,
+    TabContent,
+    TabLifecycle,
+    TabPlacement,
+    TabTimestamps,
+    Tag,
+)
 
 from .dto import BackupDTO, TransferGroupDTO, TransferTabDTO, TransferTagDTO
 
@@ -38,15 +51,23 @@ class TransferMapper:
         Returns:
             TransferGroupDTO: Portable group metadata and category.
         """
-        return TransferGroupDTO(
-            id=group.id,
-            name=group.name,
-            category=group.category,
-            description=group.description,
-            color=group.color,
-            position=group.position,
-            created_at=stored_utc(group.created_at) or group.created_at,
-            updated_at=stored_utc(group.updated_at) or group.updated_at,
+        return TransferGroupDTO.model_validate(
+            {
+                "id": group.id,
+                "details": {
+                    "name": group.details.name,
+                    "category": group.details.category,
+                    "description": group.details.description,
+                    "color": group.details.color,
+                },
+                "placement": {"position": group.placement.position},
+                "timestamps": {
+                    "created_at": stored_utc(group.timestamps.created_at)
+                    or group.timestamps.created_at,
+                    "updated_at": stored_utc(group.timestamps.updated_at)
+                    or group.timestamps.updated_at,
+                },
+            }
         )
 
     @staticmethod
@@ -59,22 +80,38 @@ class TransferMapper:
         Returns:
             TransferTabDTO: Portable saved-tab fields and associations.
         """
-        return TransferTabDTO(
-            id=tab.id,
-            url=tab.url,
-            title=tab.title,
-            favicon=f"/api/v1/assets/{tab.favicon_asset_id}" if tab.favicon_asset_id else None,
-            note=tab.note,
-            agent_review=tab.agent_review,
-            custom_properties=dict(tab.custom_properties or {}),
-            tags=[tag.name for tag in tab.tags],
-            group_id=tab.group_id,
-            position=tab.position,
-            archived=tab.archived,
-            archived_at=stored_utc(tab.archived_at),
-            hidden_until=stored_utc(tab.hidden_until),
-            created_at=stored_utc(tab.created_at) or tab.created_at,
-            updated_at=stored_utc(tab.updated_at) or tab.updated_at,
+        return TransferTabDTO.model_validate(
+            {
+                "id": tab.id,
+                "content": {
+                    "url": tab.content.url,
+                    "title": tab.content.title,
+                    "favicon": f"/api/v1/assets/{tab.content.favicon_asset_id}"
+                    if tab.content.favicon_asset_id
+                    else None,
+                },
+                "annotations": {
+                    "note": tab.annotations.note,
+                    "agent_review": tab.annotations.agent_review,
+                    "custom_properties": dict(tab.annotations.custom_properties or {}),
+                    "tags": [tag.name for tag in tab.tags],
+                },
+                "placement": {
+                    "group_id": tab.placement.group_id,
+                    "position": tab.placement.position,
+                },
+                "lifecycle": {
+                    "archived": tab.lifecycle.archived,
+                    "archived_at": stored_utc(tab.lifecycle.archived_at),
+                    "hidden_until": stored_utc(tab.lifecycle.hidden_until),
+                },
+                "timestamps": {
+                    "created_at": stored_utc(tab.timestamps.created_at)
+                    or tab.timestamps.created_at,
+                    "updated_at": stored_utc(tab.timestamps.updated_at)
+                    or tab.timestamps.updated_at,
+                },
+            }
         )
 
     @staticmethod
@@ -106,13 +143,17 @@ class TransferMapper:
         """
         return Group(
             id=dto.id,
-            name=dto.name,
-            category=dto.category,
-            description=dto.description or "",
-            color=dto.color,
-            position=dto.position,
-            created_at=dto.created_at or utc_now(),
-            updated_at=dto.updated_at or utc_now(),
+            details=GroupDetails(
+                name=dto.details.name,
+                category=dto.details.category,
+                description=dto.details.description or "",
+                color=dto.details.color,
+            ),
+            placement=GroupPlacement(position=dto.placement.position),
+            timestamps=GroupTimestamps(
+                created_at=dto.timestamps.created_at or utc_now(),
+                updated_at=dto.timestamps.updated_at or utc_now(),
+            ),
         )
 
     @staticmethod
@@ -138,12 +179,12 @@ class TransferMapper:
             dict[str, object]: Serialized fields keyed for the caller.
         """
         return {
-            "name": dto.name,
-            "category": dto.category,
-            "description": dto.description or "",
-            "color": dto.color,
-            "position": dto.position,
-            "updated_at": dto.updated_at,
+            "name": dto.details.name,
+            "category": dto.details.category,
+            "description": dto.details.description or "",
+            "color": dto.details.color,
+            "position": dto.placement.position,
+            "updated_at": dto.timestamps.updated_at,
         }
 
     @staticmethod
@@ -159,19 +200,26 @@ class TransferMapper:
         """
         return Tab(
             id=dto.id,
-            url=dto.url,
-            title=dto.title,
-            note=dto.note or "",
-            agent_review=dto.agent_review or "",
-            custom_properties=dict(dto.custom_properties),
-            group_id=None if dto.archived else dto.group_id,
-            position=dto.position,
-            archived=dto.archived,
-            archived_at=dto.archived_at,
-            hidden_until=dto.hidden_until,
-            created_at=dto.created_at or utc_now(),
-            updated_at=dto.updated_at or utc_now(),
             tags=tags,
+            content=TabContent(url=dto.content.url, title=dto.content.title),
+            annotations=TabAnnotations(
+                note=dto.annotations.note or "",
+                agent_review=dto.annotations.agent_review or "",
+                custom_properties=dict(dto.annotations.custom_properties),
+            ),
+            placement=TabPlacement(
+                group_id=None if dto.lifecycle.archived else dto.placement.group_id,
+                position=dto.placement.position,
+            ),
+            lifecycle=TabLifecycle(
+                archived=dto.lifecycle.archived,
+                archived_at=dto.lifecycle.archived_at,
+                hidden_until=dto.lifecycle.hidden_until,
+            ),
+            timestamps=TabTimestamps(
+                created_at=dto.timestamps.created_at or utc_now(),
+                updated_at=dto.timestamps.updated_at or utc_now(),
+            ),
         )
 
     @staticmethod
@@ -186,18 +234,18 @@ class TransferMapper:
             dict[str, object]: Serialized fields keyed for the caller.
         """
         return {
-            "url": dto.url,
-            "title": dto.title,
-            "note": dto.note or "",
-            "agent_review": dto.agent_review or "",
-            "custom_properties": dict(dto.custom_properties),
-            "group_id": None if dto.archived else dto.group_id,
-            "position": dto.position,
-            "archived": dto.archived,
-            "archived_at": dto.archived_at,
-            "hidden_until": dto.hidden_until,
+            "url": dto.content.url,
+            "title": dto.content.title,
+            "note": dto.annotations.note or "",
+            "agent_review": dto.annotations.agent_review or "",
+            "custom_properties": dict(dto.annotations.custom_properties),
+            "group_id": None if dto.lifecycle.archived else dto.placement.group_id,
+            "position": dto.placement.position,
+            "archived": dto.lifecycle.archived,
+            "archived_at": dto.lifecycle.archived_at,
+            "hidden_until": dto.lifecycle.hidden_until,
             "tags": tags,
-            "updated_at": dto.updated_at,
+            "updated_at": dto.timestamps.updated_at,
         }
 
     @staticmethod

@@ -18,14 +18,28 @@ class StorageCountsDTO(BaseModel):
     model_config = model_config()
 
 
+class VectorConfigurationDTO(BaseModel):
+    """Embedding provider and model reported by the local index."""
+
+    provider: Literal["sentence-transformers"]
+    model: str
+    model_config = model_config()
+
+
+class VectorDiagnosticsDTO(BaseModel):
+    """Latest indexing failure, if any."""
+
+    last_error: str | None
+    model_config = model_config()
+
+
 class VectorStatusDTO(BaseModel):
-    """Local vector-index availability."""
+    """Local vector-index availability and grouped configuration."""
 
     status: VectorStatus
     indexed_count: int
-    provider: Literal["sentence-transformers"]
-    model: str
-    last_error: str | None
+    configuration: VectorConfigurationDTO
+    diagnostics: VectorDiagnosticsDTO
     model_config = model_config()
 
 
@@ -52,7 +66,7 @@ class HealthDTO(BaseModel):
 
     status: Literal["ok"]
     version: str
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     storage: StorageCountsDTO
     vector_index: VectorStatusDTO
     model_config = model_config()

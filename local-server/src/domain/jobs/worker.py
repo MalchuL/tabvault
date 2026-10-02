@@ -114,14 +114,14 @@ class JobWorker:
             await db.commit()
             try:
                 result_value: BaseModel | dict[str, object]
-                if job.kind == "preview_capture" and job.target_id:
+                if job.target.kind == "preview_capture" and job.target.target_id:
                     result_value = await PreviewService(
                         db,
                         self.settings,
                         WebCaptureClient(self.settings),
                         PreviewRepository(db),
-                    ).capture_tab(job.target_id)
-                elif job.kind == "search_reindex":
+                    ).capture_tab(job.target.target_id)
+                elif job.target.kind == "search_reindex":
                     tabs = await IndexingRepository(db).active_tabs(utc_now())
                     result_value = {
                         "indexedCount": await self.vectors.rebuild(
@@ -131,7 +131,12 @@ class JobWorker:
                                     "\n".join(
                                         filter(
                                             None,
-                                            [tab.title, tab.note, tab.agent_review, tab.url],
+                                            [
+                                                tab.content.title,
+                                                tab.annotations.note,
+                                                tab.annotations.agent_review,
+                                                tab.content.url,
+                                            ],
                                         )
                                     ),
                                 )
@@ -139,13 +144,17 @@ class JobWorker:
                             ]
                         )
                     }
-                elif job.kind == "backup_restore" and job.result and "content" in job.result:
+                elif (
+                    job.target.kind == "backup_restore"
+                    and job.execution.result
+                    and "content" in job.execution.result
+                ):
                     result_value = await TransferService(
                         db,
                         self.settings,
                         TransferRepository(db),
                         repository,
-                    ).apply(job.result["content"], "json", "replace")
+                    ).apply(job.execution.result["content"], "json", "replace")
                 else:
                     result_value = {"skipped": "unknown_job"}
                 result = (

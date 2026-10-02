@@ -8,7 +8,7 @@ from domain.jobs.repository import JobRepository
 from lib.time import utc_now
 from models import HealthSchedule
 
-from .dto import HealthScheduleDTO, IndexStatusDTO
+from .dto import HealthScheduleDTO, IndexDiagnosticsDTO, IndexStatusDTO
 from .mapper import IndexingMapper
 from .repository import IndexingRepository
 from .vector_index import LocalVectorIndex
@@ -69,8 +69,15 @@ class IndexingService:
         """
         schedule = await self.repository.schedule()
         return IndexStatusDTO(
-            **self.vectors.status().model_dump(),
-            health_check=self.mapper.schedule(schedule),
+            **{
+                key: value
+                for key, value in self.vectors.status().model_dump().items()
+                if key != "diagnostics"
+            },
+            diagnostics=IndexDiagnosticsDTO(
+                last_error=self.vectors.status().diagnostics.last_error,
+                health_check=self.mapper.schedule(schedule),
+            ),
         )
 
     async def health_schedule(self) -> HealthScheduleDTO:

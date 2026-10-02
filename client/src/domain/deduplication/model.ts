@@ -1,13 +1,19 @@
-export type DedupeTab = {
-  id: string;
-  url: string;
-  title: string;
+/** Display content for DedupeTab. */
+type DedupeTabContent = { url: string; title: string };
+/** Notes, review, and tag state for DedupeTab. */
+type DedupeTabAnnotations = {
   note: string;
   agentReview: string;
   viewed: boolean;
   tags: string[];
-  createdAt: string;
-  updatedAt: string;
+};
+/** Creation and modification times for DedupeTab. */
+type DedupeTabTimestamps = { createdAt: string; updatedAt: string };
+export type DedupeTab = {
+  id: string;
+  content: DedupeTabContent;
+  annotations: DedupeTabAnnotations;
+  timestamps: DedupeTabTimestamps;
 };
 
 export type SurvivorRule =
@@ -102,7 +108,7 @@ function instant(value: string) {
  */
 function oldestFirst(left: DedupeTab, right: DedupeTab) {
   return (
-    instant(left.createdAt) - instant(right.createdAt) ||
+    instant(left.timestamps.createdAt) - instant(right.timestamps.createdAt) ||
     left.id.localeCompare(right.id)
   );
 }
@@ -115,7 +121,7 @@ function oldestFirst(left: DedupeTab, right: DedupeTab) {
 function caseInsensitiveUnion(tabs: DedupeTab[]) {
   const result = new Map<string, string>();
   for (const tab of [...tabs].sort(oldestFirst))
-    for (const tag of tab.tags) {
+    for (const tag of tab.annotations.tags) {
       const key = tag.toLocaleLowerCase();
       if (!result.has(key)) result.set(key, tag);
     }
@@ -133,7 +139,7 @@ function caseInsensitiveIntersection(tabs: DedupeTab[]) {
     tabs
       .slice(1)
       .every(tab =>
-        tab.tags.some(
+        tab.annotations.tags.some(
           candidate => candidate.toLocaleLowerCase() === tag.toLocaleLowerCase()
         )
       )
@@ -174,10 +180,10 @@ export async function buildQuickCleanPlan(
   tabs: DedupeTab[]
 ): Promise<DedupePlan> {
   const groups = await clustersBy(tabs, tab => [
-    tab.url,
-    tab.title,
-    tab.note,
-    tab.agentReview,
+    tab.content.url,
+    tab.content.title,
+    tab.annotations.note,
+    tab.annotations.agentReview,
   ]);
   return {
     kind: "quick",
@@ -190,7 +196,7 @@ export async function buildQuickCleanPlan(
         duplicateIds: sorted.slice(1).map(tab => tab.id),
         survivorPatch: {
           tags: caseInsensitiveUnion(sorted),
-          viewed: sorted.some(tab => tab.viewed),
+          viewed: sorted.some(tab => tab.annotations.viewed),
         },
       };
     }),
@@ -208,10 +214,13 @@ function selectSurvivor(tabs: DedupeTab[], rule: SurvivorRule) {
   return [...tabs].sort((left, right) => {
     const comparison =
       rule === "LATEST_UPDATED"
-        ? instant(right.updatedAt) - instant(left.updatedAt)
+        ? instant(right.timestamps.updatedAt) -
+          instant(left.timestamps.updatedAt)
         : rule === "NEWEST_CREATED"
-          ? instant(right.createdAt) - instant(left.createdAt)
-          : instant(left.createdAt) - instant(right.createdAt);
+          ? instant(right.timestamps.createdAt) -
+            instant(left.timestamps.createdAt)
+          : instant(left.timestamps.createdAt) -
+            instant(right.timestamps.createdAt);
     return comparison || left.id.localeCompare(right.id);
   })[0];
 }
@@ -233,24 +242,21 @@ function reduceString(
   field: "title" | "note" | "agentReview",
   reducer: StringReducer,
   separator: string
-) {
-  if (reducer === "SURVIVOR_VALUE") return survivor[field];
+): string {
+  const value = (tab: DedupeTab) =>
+    field === "title" ? tab.content.title : tab.annotations[field];
+  if (reducer === "SURVIVOR_VALUE") return value(survivor);
   const ordered = [...tabs].sort(oldestFirst);
   if (reducer === "CONCAT")
-    return ordered
-      .map(tab => tab[field])
-      .filter(Boolean)
-      .join(separator);
+    return ordered.map(value).filter(Boolean).join(separator);
   const wanted = reducer === "LONGEST" ? Math.max : Math.min;
   const targetLength = ordered.reduce(
-    (length, tab) => wanted(length, tab[field].length),
-    ordered[0][field].length
+    (length, tab) => wanted(length, value(tab).length),
+    value(ordered[0]).length
   );
-  if (survivor[field].length === targetLength) return survivor[field];
-  return (
-    ordered.find(tab => tab[field].length === targetLength)?.[field] ??
-    survivor[field]
-  );
+  if (value(survivor).length === targetLength) return value(survivor);
+  const selected = ordered.find(tab => value(tab).length === targetLength);
+  return selected ? value(selected) : value(survivor);
 }
 
 /**
@@ -265,12 +271,12 @@ function reduceViewed(
   survivor: DedupeTab,
   reducer: ViewedReducer
 ) {
-  if (reducer === "SURVIVOR_VALUE") return survivor.viewed;
-  const viewed = tabs.filter(tab => tab.viewed).length;
+  if (reducer === "SURVIVOR_VALUE") return survivor.annotations.viewed;
+  const viewed = tabs.filter(tab => tab.annotations.viewed).length;
   if (reducer === "ANY") return viewed > 0;
   if (reducer === "ALL") return viewed === tabs.length;
   const unviewed = tabs.length - viewed;
-  return viewed === unviewed ? survivor.viewed : viewed > unviewed;
+  return viewed === unviewed ? survivor.annotations.viewed : viewed > unviewed;
 }
 
 /**
@@ -285,7 +291,7 @@ export async function buildAdvancedDedupePlan(
   tabs: DedupeTab[],
   options: AdvancedDedupeOptions
 ): Promise<DedupePlan> {
-  const groups = await clustersBy(tabs, tab => [tab.url]);
+  const groups = await clustersBy(tabs, tab => [tab.content.url]);
   return {
     kind: "advanced",
     clusters: groups.map(([hash, members]) => {
@@ -322,7 +328,7 @@ export async function buildAdvancedDedupePlan(
           viewed: reduceViewed(members, survivor, options.viewed),
           tags:
             options.tags === "SURVIVOR_VALUE"
-              ? survivor.tags
+              ? survivor.annotations.tags
               : options.tags === "INTERSECTION"
                 ? caseInsensitiveIntersection(members)
                 : caseInsensitiveUnion(members),

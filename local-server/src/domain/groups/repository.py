@@ -8,6 +8,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from domain.tabs.visibility import hidden_tabs, visible_tabs
 from lib.base_repository import BaseRepository
+from lib.model_changes import apply_model_changes
 from lib.pagination import ListOptions, Page
 from models import Group, Tab, Tombstone
 
@@ -72,19 +73,19 @@ class GroupRepository(BaseRepository[Group]):
         """
         visible_count = (
             select(func.count(Tab.id))
-            .where(Tab.group_id == Group.id, visible_tabs(now))
+            .where(Tab.__table__.c._group_id == Group.id, visible_tabs(now))
             .correlate(Group)
             .scalar_subquery()
         )
         hidden_count = (
             select(func.count(Tab.id))
-            .where(Tab.group_id == Group.id, hidden_tabs(now))
+            .where(Tab.__table__.c._group_id == Group.id, hidden_tabs(now))
             .correlate(Group)
             .scalar_subquery()
         )
         filters = []
         if category is not None:
-            filters.append(Group.category == category)
+            filters.append(Group.__table__.c._category == category)
         if visibility == "hidden":
             filters.append(hidden_count > 0)
             tab_count = hidden_count
@@ -98,7 +99,7 @@ class GroupRepository(BaseRepository[Group]):
             await self.session.execute(
                 select(Group, tab_count.label("tab_count"))
                 .where(*filters)
-                .order_by(Group.created_at.desc(), Group.id.desc())
+                .order_by(Group.__table__.c._created_at.desc(), Group.id.desc())
                 .limit(list_options.limit)
                 .offset(list_options.offset)
             )
@@ -137,9 +138,9 @@ class GroupRepository(BaseRepository[Group]):
                 str(group_id): int(count)
                 for group_id, count in (
                     await self.session.execute(
-                        select(Tab.group_id, func.count(Tab.id))
-                        .where(predicate, Tab.group_id.is_not(None))
-                        .group_by(Tab.group_id)
+                        select(Tab.__table__.c._group_id, func.count(Tab.id))
+                        .where(predicate, Tab.__table__.c._group_id.is_not(None))
+                        .group_by(Tab.__table__.c._group_id)
                     )
                 ).all()
             }
@@ -154,7 +155,9 @@ class GroupRepository(BaseRepository[Group]):
         Returns:
             float: Maximum stored position plus one, or ``0.0`` when there are no groups.
         """
-        maximum = await self.session.scalar(select(func.coalesce(func.max(Group.position), -1)))
+        maximum = await self.session.scalar(
+            select(func.coalesce(func.max(Group.__table__.c._position), -1))
+        )
         return float(maximum if maximum is not None else -1) + 1
 
     async def add_group(self, group: Group) -> Group:
@@ -182,8 +185,7 @@ class GroupRepository(BaseRepository[Group]):
             group (Group): Persistent group row to update.
             changes (dict[str, object]): Mapped attribute names and replacement values.
         """
-        for key, value in changes.items():
-            setattr(group, key, value)
+        apply_model_changes(group, changes)
 
     async def delete_with_tabs(self, group_id: str, now: datetime) -> int:
         """Archive and unassign every member before deleting its group.
@@ -201,13 +203,15 @@ class GroupRepository(BaseRepository[Group]):
                 were already archived.
         """
         archived_tab_count = int(
-            await self.session.scalar(select(func.count(Tab.id)).where(Tab.group_id == group_id))
+            await self.session.scalar(
+                select(func.count(Tab.id)).where(Tab.__table__.c._group_id == group_id)
+            )
             or 0
         )
         await self.session.execute(
             update(Tab)
-            .where(Tab.group_id == group_id)
-            .values(group_id=None, archived=True, archived_at=now, updated_at=now)
+            .where(Tab.__table__.c._group_id == group_id)
+            .values(_group_id=None, _archived=True, _archived_at=now, _updated_at=now)
         )
         await self.session.execute(delete(Group).where(Group.id == group_id))
         self.session.add(Tombstone(entity_type="group", entity_id=group_id))

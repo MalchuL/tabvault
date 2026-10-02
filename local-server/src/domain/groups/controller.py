@@ -150,12 +150,12 @@ async def group_tabs(
     """
     await groups.get(group_id)
     result = await tabs.list(
-        TabListOptionsDTO(
-            group_id=group_id,
-            sort_by="position",
-            sort_dir="asc",
-            fields=fields,
-            visibility=visibility,
+        TabListOptionsDTO.model_validate(
+            {
+                "fields": fields,
+                "filters": {"group_id": group_id, "visibility": visibility},
+                "ordering": {"sort_by": "position", "sort_dir": "asc"},
+            }
         ),
         ListOptions(limit=limit, offset=offset),
     )

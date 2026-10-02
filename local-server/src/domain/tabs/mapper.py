@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from lib.time import stored_utc
-from models import Tab, Tag
+from models import Tab, TabAnnotations, TabContent, TabLifecycle, TabPlacement, Tag
 
 from .dto import TabCreateDTO, TabDTO, TabProjectionDTO, TabUpdateDTO
 
@@ -33,22 +33,38 @@ class TabMapper:
         Returns:
             TabDTO: Complete API representation of the saved tab.
         """
-        return TabDTO(
-            id=tab.id,
-            url=tab.url,
-            title=tab.title,
-            favicon=f"/api/v1/assets/{tab.favicon_asset_id}" if tab.favicon_asset_id else None,
-            note=tab.note,
-            agent_review=tab.agent_review,
-            custom_properties=custom_properties,
-            tags=[tag.name for tag in tab.tags],
-            group_id=tab.group_id,
-            position=tab.position,
-            archived=tab.archived,
-            archived_at=stored_utc(tab.archived_at),
-            hidden_until=stored_utc(tab.hidden_until),
-            created_at=stored_utc(tab.created_at) or tab.created_at,
-            updated_at=stored_utc(tab.updated_at) or tab.updated_at,
+        return TabDTO.model_validate(
+            {
+                "id": tab.id,
+                "content": {
+                    "url": tab.content.url,
+                    "title": tab.content.title,
+                    "favicon": f"/api/v1/assets/{tab.content.favicon_asset_id}"
+                    if tab.content.favicon_asset_id
+                    else None,
+                },
+                "annotations": {
+                    "note": tab.annotations.note,
+                    "agent_review": tab.annotations.agent_review,
+                    "custom_properties": custom_properties,
+                    "tags": [tag.name for tag in tab.tags],
+                },
+                "placement": {
+                    "group_id": tab.placement.group_id,
+                    "position": tab.placement.position,
+                },
+                "lifecycle": {
+                    "archived": tab.lifecycle.archived,
+                    "archived_at": stored_utc(tab.lifecycle.archived_at),
+                    "hidden_until": stored_utc(tab.lifecycle.hidden_until),
+                },
+                "timestamps": {
+                    "created_at": stored_utc(tab.timestamps.created_at)
+                    or tab.timestamps.created_at,
+                    "updated_at": stored_utc(tab.timestamps.updated_at)
+                    or tab.timestamps.updated_at,
+                },
+            }
         )
 
     @classmethod
@@ -72,15 +88,29 @@ class TabMapper:
         dto = cls.to_dto(tab, custom_properties)
         if fields == "full":
             return dto
-        allowed = (
-            {"id", "url", "title", "favicon", "groupId", "tags"}
+        paths = (
+            {
+                "id",
+                "content.url",
+                "content.title",
+                "content.favicon",
+                "placement.groupId",
+                "annotations.tags",
+            }
             if fields == "minimal"
             else {value.strip() for value in fields.split(",")}
         )
         values = dto.model_dump(by_alias=True)
-        return TabProjectionDTO.model_validate(
-            {key: value for key, value in values.items() if key in allowed}
-        )
+        selected: dict[str, Any] = {}
+        for path in paths:
+            group, separator, field = path.partition(".")
+            if group not in values:
+                continue
+            if separator and isinstance(values[group], dict) and field in values[group]:
+                selected.setdefault(group, {})[field] = values[group][field]
+            elif not separator:
+                selected[group] = values[group]
+        return TabProjectionDTO.model_validate(selected)
 
     @staticmethod
     def from_create_dto(
@@ -102,16 +132,14 @@ class TabMapper:
             Tab: Unsaved saved-tab model initialized from the request.
         """
         values: dict[str, Any] = {
-            "url": dto.url,
-            "title": dto.title or dto.url,
-            "note": dto.note or "",
-            "agent_review": dto.agent_review or "",
-            "custom_properties": dict(dto.custom_properties),
-            "group_id": group_id,
-            "position": position,
-            "archived": False,
-            "archived_at": None,
-            "hidden_until": None,
+            "content": TabContent(url=dto.content.url, title=dto.content.title or dto.content.url),
+            "annotations": TabAnnotations(
+                note=dto.annotations.note or "",
+                agent_review=dto.annotations.agent_review or "",
+                custom_properties=dict(dto.annotations.custom_properties),
+            ),
+            "placement": TabPlacement(group_id=group_id, position=position),
+            "lifecycle": TabLifecycle(),
             "tags": tags,
         }
         if dto.id is not None:
@@ -132,7 +160,11 @@ class TabMapper:
         Returns:
             dict[str, Any]: Explicitly supplied tab fields keyed by ORM attribute name.
         """
-        values = dto.model_dump(exclude_unset=True)
+        values = {
+            field: value
+            for group in dto.model_dump(exclude_unset=True).values()
+            for field, value in group.items()
+        }
         for field in ("note", "agent_review"):
             if field in values and values[field] is None:
                 values[field] = ""

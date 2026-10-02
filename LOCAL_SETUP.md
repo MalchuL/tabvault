@@ -14,7 +14,7 @@ Load `dist/public/` as an unpacked Chrome extension. Local-only mode needs no se
 ```bash
 cd local-server
 uv sync --group dev
-TABVAULT_API_KEY=admin uv run tabvault-server
+TABVAULT_HTTP__API_KEY=admin uv run tabvault-server
 ```
 
 The API defaults to `http://127.0.0.1:47821/api/v1`. It stores its SQLite database and derived
@@ -24,8 +24,8 @@ assets under `~/.local/share/tabvault/` and runs Alembic upgrades on startup. Te
 curl -H 'X-API-Key: admin' http://127.0.0.1:47821/api/v1/health
 ```
 
-For a network bind, set both `TABVAULT_HOST=0.0.0.0` and a strong `TABVAULT_API_KEY`. Configure a
-restrictive `TABVAULT_CORS_ORIGINS`; wildcard CORS is intended for local development.
+For a network bind, set both `TABVAULT_HTTP__HOST=0.0.0.0` and a strong `TABVAULT_HTTP__API_KEY`. Configure a
+restrictive `TABVAULT_HTTP__CORS_ORIGINS`; wildcard CORS is intended for local development.
 
 JSON and Markdown transfer use `GET /api/v1/export?format=...`, `POST /api/v1/import?mode=upload`,
 and `POST /api/v1/import/validate`. Replace import and clear-library operations create backups.
@@ -35,7 +35,7 @@ and `POST /api/v1/import/validate`. Replace import and clear-library operations 
 ```bash
 cd local-server
 uv sync --extra semantic
-TABVAULT_API_KEY=admin uv run tabvault-server
+TABVAULT_HTTP__API_KEY=admin uv run tabvault-server
 ```
 
 `deepvk/USER-bge-m3` loads lazily and caches in the data directory. Zvec is local and persistent.
@@ -47,7 +47,7 @@ semantic search returns `503 E_SEMANTIC_UNAVAILABLE`.
 ```bash
 cd mcp
 TABVAULT_SERVER_URL=http://127.0.0.1:47821 \
-TABVAULT_API_KEY=admin \
+TABVAULT_HTTP__API_KEY=admin \
 uv run tabvault-mcp
 ```
 

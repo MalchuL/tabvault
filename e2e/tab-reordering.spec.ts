@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { openSchemaV2Library } from "./schema-v2-fixture";
+import { openSchemaV4Library } from "./schema-v4-fixture";
 
 test("All Tabs, Hidden, and Archive share grouped lifecycle behavior", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   await expect(page.getByTestId("tab-row-t-hidden")).toHaveCount(0);
   await expect(page.getByTestId("tab-row-t-archived")).toHaveCount(0);
   await expect(page.getByTestId("tab-group-unassigned")).toBeVisible();
@@ -41,7 +41,7 @@ test("All Tabs, Hidden, and Archive share grouped lifecycle behavior", async ({
 test("archiving clears membership and hard deletion is offered only in Archive", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   const row = page.getByTestId("tab-row-t-research");
   await row.hover();
   await row.getByLabel("Archive Model Context Protocol specification").click();
@@ -58,14 +58,14 @@ test("archiving clears membership and hard deletion is offered only in Archive",
     JSON.parse(localStorage.getItem("tabvault-v3") || "{}")
   );
   expect(
-    saved.tabs.some((tab: { id: string }) => tab.id === "t-research")
+    saved.library.tabs.some((tab: { id: string }) => tab.id === "t-research")
   ).toBe(false);
 });
 
 test("group hide is client-orchestrated and category colors are deterministic", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   const manualDot = page
     .getByTestId("group-separator-research")
     .locator("span[title='Category: manual']");
@@ -89,7 +89,7 @@ test("group hide is client-orchestrated and category colors are deterministic", 
 test("manual groups are the only quick and selected move targets", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   await expect(page.getByTestId("collection-drop-research")).toBeVisible();
   await expect(page.getByTestId("collection-drop-session")).toHaveCount(0);
   await expect(page.getByTestId("collection-drop-empty")).toHaveCount(0);
@@ -143,21 +143,21 @@ test("manual groups are the only quick and selected move targets", async ({
 test("group board keeps every tab visible and emphasizes search matches", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   await page.evaluate(() => {
     const vault = JSON.parse(localStorage.getItem("tabvault-v3") || "{}");
-    const source = vault.tabs.find(
+    const source = vault.library.tabs.find(
       (tab: { id: string }) => tab.id === "advanced-new"
     );
     for (let index = 1; index <= 3; index += 1) {
       const id = `group-board-extra-${index}`;
-      vault.tabs.push({
+      vault.library.tabs.push({
         ...source,
         id,
-        title: `Extra session tab ${index}`,
+        content: { ...source.content, title: `Extra session tab ${index}` },
         url: `https://example.com/group-board-${index}`,
       });
-      vault.tabOrders.session.push(id);
+      vault.library.tabOrders.session.push(id);
     }
     localStorage.setItem("tabvault-v3", JSON.stringify(vault));
   });
@@ -186,7 +186,7 @@ test("group board keeps every tab visible and emphasizes search matches", async 
 test("saved links use extension tabs instead of capturable anchor navigation", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   await page.evaluate(() => {
     const target = window as unknown as {
       chrome: unknown;
@@ -231,7 +231,7 @@ test("saved links use extension tabs instead of capturable anchor navigation", a
 test("workspace sidebar remains available on secondary pages", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   const sidebar = page.getByTestId("workspace-sidebar");
   await expect(sidebar).toBeVisible();
   await expect(
@@ -255,7 +255,7 @@ test("workspace sidebar remains available on secondary pages", async ({
 test("empty Session groups remain until explicitly deleted", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   await page
     .getByTestId("tab-row-t-duplicate")
     .getByLabel("Move Agents can organize the web better than we can")
@@ -272,7 +272,7 @@ test("empty Session groups remain until explicitly deleted", async ({
     .poll(() =>
       page.evaluate(() => {
         const vault = JSON.parse(localStorage.getItem("tabvault-v3") || "{}");
-        return vault.vaultGroups?.some(
+        return vault.library.vaultGroups?.some(
           (group: { id: string }) => group.id === "session"
         );
       })
@@ -283,7 +283,7 @@ test("empty Session groups remain until explicitly deleted", async ({
 test("empty groups delete immediately while populated groups require approval", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
 
   await page.getByLabel("Delete Empty shelf").click();
   await expect(page.getByTestId("group-separator-empty")).toHaveCount(0);
@@ -300,7 +300,7 @@ test("empty groups delete immediately while populated groups require approval", 
 test("Quick Clean merges tags/viewed and archives later exact occurrences", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   page.once("dialog", dialog => void dialog.dismiss());
   await page.getByRole("button", { name: "Quick clean" }).click();
   await expect(page.getByTestId("tab-row-t-duplicate")).toBeVisible();
@@ -321,7 +321,7 @@ test("Quick Clean merges tags/viewed and archives later exact occurrences", asyn
 test("Advanced Deduplicator previews and applies an exact-URL fixed plan", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   await page
     .getByTestId("workspace-sidebar")
     .getByRole("button", { name: "Deduplicate" })
@@ -348,9 +348,11 @@ test("Advanced Deduplicator previews and applies an exact-URL fixed plan", async
     JSON.parse(localStorage.getItem("tabvault-v3") || "{}")
   );
   expect(
-    saved.tabs.find((tab: { id: string }) => tab.id === "advanced-old").archived
+    saved.library.tabs.find((tab: { id: string }) => tab.id === "advanced-old")
+      .lifecycle.archived
   ).toBe(true);
   expect(
-    saved.tabs.find((tab: { id: string }) => tab.id === "advanced-new").archived
+    saved.library.tabs.find((tab: { id: string }) => tab.id === "advanced-new")
+      .lifecycle.archived
   ).not.toBe(true);
 });

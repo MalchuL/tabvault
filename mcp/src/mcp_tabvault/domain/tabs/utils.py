@@ -20,9 +20,9 @@ def is_hidden(tab: TabDTO) -> bool:
     Returns:
         bool: Whether the visibility deadline is in the future.
     """
-    if tab.hidden_until is None:
+    if tab.lifecycle.hidden_until is None:
         return False
-    deadline = tab.hidden_until
+    deadline = tab.lifecycle.hidden_until
     if deadline.tzinfo is None:
         deadline = deadline.replace(tzinfo=UTC)
     return deadline > datetime.now(UTC)
@@ -47,21 +47,19 @@ async def first_visible_tab(url: str) -> TabDTO:
     offset = 0
     while True:
         response = await client.list_tabs(
-            TabListQueryDTO(
-                group_id="all",
-                search=url,
-                limit=100,
-                offset=offset,
-                fields="full",
-                sort_by="createdAt",
-                sort_dir="asc",
-                visibility="visible",
+            TabListQueryDTO.model_validate(
+                {
+                    "fields": "full",
+                    "filters": {"group_id": "all", "search": url, "visibility": "visible"},
+                    "pagination": {"limit": 100, "offset": offset},
+                    "ordering": {"sort_by": "createdAt", "sort_dir": "asc"},
+                }
             )
         )
         for item in response.data:
             if not isinstance(item, TabDTO):
                 raise MCPClientError("TabVault API returned an incomplete Saved Tab")
-            if item.url == url and not item.archived and not is_hidden(item):
+            if item.content.url == url and not item.lifecycle.archived and not is_hidden(item):
                 return item
         if not response.has_next:
             raise MCPClientError(f"Saved Tab with URL {url!r} is not accessible through MCP")

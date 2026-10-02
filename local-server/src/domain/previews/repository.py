@@ -1,11 +1,14 @@
 """Persistence for captured previews and assets."""
 
+from __future__ import annotations
+
 from typing import cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Asset, Preview, Tab
+from lib.model_changes import apply_model_changes
+from models import Asset, Base, Preview, Tab
 
 
 class PreviewRepository:
@@ -80,7 +83,7 @@ class PreviewRepository:
         """
         return cast(
             Asset | None,
-            await self.session.scalar(select(Asset).where(Asset.checksum == checksum)),
+            await self.session.scalar(select(Asset).where(Asset.__table__.c._checksum == checksum)),
         )
 
     async def save_asset(self, asset: Asset) -> Asset:
@@ -97,12 +100,11 @@ class PreviewRepository:
         return asset
 
     @staticmethod
-    async def apply_changes(model: object, changes: dict[str, object]) -> None:
+    async def apply_changes(model: Base, changes: dict[str, object]) -> None:
         """Stage mapped fields on a preview-owned model.
 
         Args:
             model (object): ORM row receiving validated changes.
             changes (dict[str, object]): Validated field values to apply to the row.
         """
-        for key, value in changes.items():
-            setattr(model, key, value)
+        apply_model_changes(model, changes)

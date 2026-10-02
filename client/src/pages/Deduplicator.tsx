@@ -1,3 +1,4 @@
+import { patchTab } from "@/domain/library/patch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -16,7 +17,7 @@ import {
   executeDedupePlan,
   type DedupeMutation,
 } from "@/domain/deduplication/execution";
-import type { PersistedVault, VaultTab } from "@/domain/library/types";
+import type { PersistedVault } from "@/domain/library/types";
 import { useLibrary } from "@/domain/library/library-context";
 import { updateTabOnLocalServer } from "@/domain/server/libraryApi";
 import {
@@ -60,9 +61,11 @@ const OPTION_HELP: Record<string, string> = {
  */
 function visibleTabs(vault: PersistedVault) {
   const now = Date.now();
-  return vault.tabs.filter(
+  return vault.library.tabs.filter(
     tab =>
-      !tab.archived && (!tab.hiddenUntil || Date.parse(tab.hiddenUntil) <= now)
+      !tab.lifecycle.archived &&
+      (!tab.lifecycle.hiddenUntil ||
+        Date.parse(tab.lifecycle.hiddenUntil) <= now)
   );
 }
 
@@ -76,29 +79,28 @@ function visibleTabs(vault: PersistedVault) {
  */
 function applyMutation(vault: PersistedVault, mutation: DedupeMutation) {
   const now = new Date().toISOString();
-  const tabs = vault.tabs.map(tab =>
+  const tabs = vault.library.tabs.map(tab =>
     tab.id === mutation.id
       ? mutation.role === "duplicate"
         ? {
             ...tab,
-            groupId: null,
-            archived: true,
-            archivedAt: now,
-            updatedAt: now,
+            placement: { ...tab.placement, groupId: null },
+            lifecycle: { ...tab.lifecycle, archived: true, archivedAt: now },
+            timestamps: { ...tab.timestamps, updatedAt: now },
           }
-        : ({ ...tab, ...mutation.updates, updatedAt: now } as VaultTab)
+        : patchTab(tab, { ...mutation.updates, timestamps: { updatedAt: now } })
       : tab
   );
   const tabOrders =
     mutation.role === "duplicate"
       ? Object.fromEntries(
-          Object.entries(vault.tabOrders).map(([groupId, ids]) => [
+          Object.entries(vault.library.tabOrders).map(([groupId, ids]) => [
             groupId,
             ids.filter(id => id !== mutation.id),
           ])
         )
-      : vault.tabOrders;
-  return { ...vault, tabs, tabOrders };
+      : vault.library.tabOrders;
+  return { ...vault, library: { ...vault.library, tabs, tabOrders } };
 }
 
 /**
@@ -305,7 +307,7 @@ export default function Deduplicator() {
 
         <div className="mt-6 space-y-3">
           {plan.clusters.map(cluster => {
-            const survivor = vault.tabs.find(
+            const survivor = vault.library.tabs.find(
               tab => tab.id === cluster.survivorId
             );
             return (
@@ -313,7 +315,9 @@ export default function Deduplicator() {
                 key={cluster.hash}
                 className="border border-[#dcd7cc] bg-[#fffdf8] p-4"
               >
-                <p className="truncate text-sm font-bold">{survivor?.url}</p>
+                <p className="truncate text-sm font-bold">
+                  {survivor?.content.url}
+                </p>
                 <p className="mt-2 font-mono text-[10px] uppercase text-[#687067]">
                   Keep {cluster.survivorId} · archive{" "}
                   {cluster.duplicateIds.join(", ")}

@@ -7,13 +7,10 @@ from fastapi.testclient import TestClient
 
 
 def create_group(
-    client: TestClient,
-    headers: dict[str, str],
-    name: str = "Research",
-    category: str = "manual",
+    client: TestClient, headers: dict[str, str], name: str = "Research", category: str = "manual"
 ) -> dict[str, object]:
     response = client.post(
-        "/api/v1/groups", headers=headers, json={"name": name, "category": category}
+        "/api/v1/groups", headers=headers, json={"details": {"name": name, "category": category}}
     )
     assert response.status_code == 201, response.text
     return response.json()["data"]
@@ -26,8 +23,11 @@ def create_tab(
     group_id: str | None = None,
     **values: object,
 ) -> dict[str, object]:
-    body: dict[str, object] = {"url": url, "title": "Example", "groupId": group_id}
-    body.update(values)
+    body: dict[str, object] = {
+        "content": {"url": url, "title": "Example"},
+        "placement": {"groupId": group_id},
+    }
+    body.setdefault("annotations", {}).update(values)
     response = client.post("/api/v1/tabs", headers=headers, json=body)
     assert response.status_code == 201, response.text
     return response.json()["data"]
@@ -40,12 +40,11 @@ def test_auth_prefix_health_and_required_group_category(
     assert client.get("/v1/tabs", headers=headers).status_code == 404
     health = client.get("/api/v1/health", headers=headers)
     assert health.status_code == 200
-    assert health.json()["schemaVersion"] == 3
-
-    invalid = client.post("/api/v1/groups", headers=headers, json={"name": "Missing"})
+    assert health.json()["schemaVersion"] == 4
+    invalid = client.post("/api/v1/groups", headers=headers, json={"details": {"name": "Missing"}})
     assert invalid.status_code == 422
     assert invalid.json()["success"] is False
-    assert invalid.json()["errors"][0]["path"] == "body.category"
+    assert invalid.json()["errors"][0]["path"] == "body.details.category"
 
 
 def test_flat_open_category_groups_and_unassigned_tabs(
@@ -55,10 +54,9 @@ def test_flat_open_category_groups_and_unassigned_tabs(
     custom = create_group(client, headers, "Custom", "anything")
     tab = create_tab(client, headers)
     session_tab = create_tab(client, headers, "https://example.com/session", str(session["id"]))
-    assert tab["groupId"] is None
-
+    assert tab["placement"]["groupId"] is None
     groups = client.get("/api/v1/groups", headers=headers).json()["data"]
-    assert {group["category"] for group in groups} == {"session", "anything"}
+    assert {group["details"]["category"] for group in groups} == {"session", "anything"}
     assert all("parentId" not in group and "archived" not in group for group in groups)
     assert {group["id"] for group in groups} == {session["id"], custom["id"]}
     assert [
@@ -73,7 +71,7 @@ def test_flat_open_category_groups_and_unassigned_tabs(
         client.post(
             "/api/v1/groups",
             headers=headers,
-            json={"name": "Nested", "category": "manual", "parentId": session["id"]},
+            json={"parentId": session["id"], "details": {"name": "Nested", "category": "manual"}},
         ).status_code
         == 422
     )
@@ -86,9 +84,9 @@ def test_each_create_is_a_distinct_occurrence_and_url_is_exact(
     first = create_tab(client, headers, url)
     second = create_tab(client, headers, url)
     assert first["id"] != second["id"]
-    assert first["url"] == second["url"] == url
+    assert first["content"]["url"] == second["content"]["url"] == url
     listed = client.get("/api/v1/tabs", headers=headers).json()["data"]
-    assert len([tab for tab in listed if tab["url"] == url]) == 2
+    assert len([tab for tab in listed if tab["content"]["url"] == url]) == 2
 
 
 def test_batch_create_is_atomic_and_preserves_distinct_occurrences(
@@ -99,34 +97,34 @@ def test_batch_create_is_atomic_and_preserves_distinct_occurrences(
     request_headers = {**headers, "Idempotency-Key": str(uuid.uuid4())}
     body = {
         "tabs": [
-            {"id": "batch-one", "url": url, "title": "First", "groupId": group["id"]},
-            {"id": "batch-two", "url": url, "title": "Second", "groupId": group["id"]},
+            {
+                "id": "batch-one",
+                "content": {"url": url, "title": "First"},
+                "placement": {"groupId": group["id"]},
+            },
+            {
+                "id": "batch-two",
+                "content": {"url": url, "title": "Second"},
+                "placement": {"groupId": group["id"]},
+            },
         ]
     }
-    response = client.post(
-        "/api/v1/tabs/batch",
-        headers=request_headers,
-        json=body,
-    )
+    response = client.post("/api/v1/tabs/batch", headers=request_headers, json=body)
     assert response.status_code == 201, response.text
     payload = response.json()
     assert [tab["id"] for tab in payload["data"]] == ["batch-one", "batch-two"]
-    assert [tab["position"] for tab in payload["data"]] == [0.0, 1.0]
-    assert [job["tabId"] for job in payload["meta"]["jobs"]] == [
-        "batch-one",
-        "batch-two",
-    ]
+    assert [tab["placement"]["position"] for tab in payload["data"]] == [0.0, 1.0]
+    assert [job["tabId"] for job in payload["meta"]["jobs"]] == ["batch-one", "batch-two"]
     replay = client.post("/api/v1/tabs/batch", headers=request_headers, json=body)
     assert replay.status_code == 201
     assert replay.json() == payload
-
     rejected = client.post(
         "/api/v1/tabs/batch",
         headers=headers,
         json={
             "tabs": [
-                {"id": "batch-rollback", "url": "https://example.com/valid"},
-                {"id": "batch-rollback", "url": "https://example.com/duplicate"},
+                {"id": "batch-rollback", "content": {"url": "https://example.com/valid"}},
+                {"id": "batch-rollback", "content": {"url": "https://example.com/duplicate"}},
             ]
         },
     )
@@ -139,20 +137,19 @@ def test_tab_create_idempotency_is_memory_scoped_to_post_tabs(
 ) -> None:
     key = str(uuid.uuid4())
     request_headers = {**headers, "Idempotency-Key": key}
-    body = {"url": "https://example.com/idempotent", "title": "One"}
+    body = {"content": {"url": "https://example.com/idempotent", "title": "One"}}
     first = client.post("/api/v1/tabs", headers=request_headers, json=body)
     replay = client.post("/api/v1/tabs", headers=request_headers, json=body)
     conflict = client.post(
         "/api/v1/tabs",
         headers=request_headers,
-        json={"url": "https://example.com/different"},
+        json={"content": {"url": "https://example.com/different"}},
     )
     assert first.status_code == replay.status_code == 201
     assert replay.json() == first.json()
     assert conflict.status_code == 409
     assert conflict.json()["errors"][0]["code"] == "E_IDEMPOTENCY_CONFLICT"
-
-    group_body = {"name": "Not cached", "category": "manual"}
+    group_body = {"details": {"name": "Not cached", "category": "manual"}}
     first_group = client.post("/api/v1/groups", headers=request_headers, json=group_body)
     second_group = client.post("/api/v1/groups", headers=request_headers, json=group_body)
     assert first_group.json()["data"]["id"] != second_group.json()["data"]["id"]
@@ -163,12 +160,11 @@ def test_concurrent_matching_idempotent_creates_coalesce(
 ) -> None:
     key = str(uuid.uuid4())
     request_headers = {**headers, "Idempotency-Key": key}
-    body = {"url": "https://example.com/concurrent", "title": "Concurrent"}
+    body = {"content": {"url": "https://example.com/concurrent", "title": "Concurrent"}}
     with ThreadPoolExecutor(max_workers=6) as pool:
         responses = list(
             pool.map(
-                lambda _: client.post("/api/v1/tabs", headers=request_headers, json=body),
-                range(6),
+                lambda _: client.post("/api/v1/tabs", headers=request_headers, json=body), range(6)
             )
         )
     assert {response.status_code for response in responses} == {201}
@@ -184,38 +180,36 @@ def test_patch_is_the_only_move_restore_and_metadata_update(
         f"/api/v1/tabs/{tab['id']}",
         headers=headers,
         json={
-            "groupId": group["id"],
-            "note": "Human note",
-            "agentReview": "Agent note",
-            "customProperties": {"viewed": True},
-            "hiddenUntil": "2030-01-01T00:00:00Z",
+            "placement": {"groupId": group["id"]},
+            "annotations": {
+                "note": "Human note",
+                "agentReview": "Agent note",
+                "customProperties": {"viewed": True},
+            },
+            "lifecycle": {"hiddenUntil": "2030-01-01T00:00:00Z"},
         },
     ).json()["data"]
-    assert changed["groupId"] == group["id"]
-    assert changed["note"] == "Human note"
-    assert changed["agentReview"] == "Agent note"
-    assert changed["customProperties"]["viewed"] is True
-    assert changed["hiddenUntil"].startswith("2030-01-01")
-
+    assert changed["placement"]["groupId"] == group["id"]
+    assert changed["annotations"]["note"] == "Human note"
+    assert changed["annotations"]["agentReview"] == "Agent note"
+    assert changed["annotations"]["customProperties"]["viewed"] is True
+    assert changed["lifecycle"]["hiddenUntil"].startswith("2030-01-01")
     archived = client.patch(
-        f"/api/v1/tabs/{tab['id']}", headers=headers, json={"archived": True}
+        f"/api/v1/tabs/{tab['id']}", headers=headers, json={"lifecycle": {"archived": True}}
     ).json()["data"]
-    assert archived["archived"] is True
-    assert archived["groupId"] is None
+    assert archived["lifecycle"]["archived"] is True
+    assert archived["placement"]["groupId"] is None
     blocked = client.patch(
-        f"/api/v1/tabs/{tab['id']}", headers=headers, json={"groupId": group["id"]}
+        f"/api/v1/tabs/{tab['id']}", headers=headers, json={"placement": {"groupId": group["id"]}}
     )
     assert blocked.status_code == 409
     restored = client.patch(
-        f"/api/v1/tabs/{tab['id']}", headers=headers, json={"archived": False}
+        f"/api/v1/tabs/{tab['id']}", headers=headers, json={"lifecycle": {"archived": False}}
     ).json()["data"]
-    assert restored["archived"] is False and restored["groupId"] is None
-
+    assert restored["lifecycle"]["archived"] is False and restored["placement"]["groupId"] is None
     assert client.post("/api/v1/tabs/restore", headers=headers, json=[]).status_code == 405
     assert client.post(
-        f"/api/v1/tabs/{tab['id']}/move",
-        headers=headers,
-        json={"targetGroupId": group["id"]},
+        f"/api/v1/tabs/{tab['id']}/move", headers=headers, json={"targetGroupId": group["id"]}
     ).status_code in {404, 405}
 
 
@@ -229,7 +223,7 @@ def test_deleting_group_archives_and_unassigns_members_atomically(
     assert deleted.json()["data"]["archivedTabCount"] == 1
     assert client.get(f"/api/v1/groups/{group['id']}", headers=headers).status_code == 404
     saved = client.get(f"/api/v1/tabs/{member['id']}", headers=headers).json()["data"]
-    assert saved["archived"] is True and saved["groupId"] is None
+    assert saved["lifecycle"]["archived"] is True and saved["placement"]["groupId"] is None
 
 
 def test_archiving_last_member_does_not_delete_empty_group(
@@ -240,7 +234,7 @@ def test_archiving_last_member_does_not_delete_empty_group(
     client.delete(f"/api/v1/tabs/{tab['id']}", headers=headers)
     loaded = client.get(f"/api/v1/groups/{group['id']}", headers=headers)
     assert loaded.status_code == 200
-    assert loaded.json()["data"]["tabCount"] == 0
+    assert loaded.json()["data"]["counts"]["tabCount"] == 0
 
 
 def test_tags_archive_and_hard_delete(client: TestClient, headers: dict[str, str]) -> None:
@@ -248,7 +242,7 @@ def test_tags_archive_and_hard_delete(client: TestClient, headers: dict[str, str
     tagged = client.post(
         f"/api/v1/tabs/{tab['id']}/tags", headers=headers, json={"tagName": "Python"}
     )
-    assert tagged.json()["data"]["tags"] == ["Python"]
+    assert tagged.json()["data"]["annotations"]["tags"] == ["Python"]
     assert client.delete(f"/api/v1/tabs/{tab['id']}?hard=true", headers=headers).status_code == 409
     assert client.delete(f"/api/v1/tabs/{tab['id']}", headers=headers).status_code == 200
     assert client.delete(f"/api/v1/tabs/{tab['id']}?hard=true", headers=headers).status_code == 200
@@ -268,8 +262,7 @@ def test_offset_pagination_projection_and_single_resource_contract(
     assert first["hasNext"] is True
     assert "note" not in first["data"][0]
     second = client.get(
-        "/api/v1/tabs?limit=2&offset=2&sortBy=createdAt&fields=minimal",
-        headers=headers,
+        "/api/v1/tabs?limit=2&offset=2&sortBy=createdAt&fields=minimal", headers=headers
     ).json()
     assert second["size"] == 2
     assert second["hasNext"] is False
@@ -278,7 +271,9 @@ def test_offset_pagination_projection_and_single_resource_contract(
     assert client.get("/api/v1/tabs?offset=-1", headers=headers).status_code == 422
     assert (
         client.post(
-            "/api/v1/tabs", headers=headers, json={"tabs": [{"url": "https://example.com"}]}
+            "/api/v1/tabs",
+            headers=headers,
+            json={"tabs": [{"content": {"url": "https://example.com"}}]},
         ).status_code
         == 422
     )
@@ -292,7 +287,6 @@ def test_group_tab_reorder_is_atomic_and_preserves_omitted_members(
     first = create_tab(client, headers, "https://example.com/first", str(group["id"]))
     second = create_tab(client, headers, "https://example.com/second", str(group["id"]))
     third = create_tab(client, headers, "https://example.com/third", str(group["id"]))
-
     reordered = client.put(
         "/api/v1/tabs/order",
         headers=headers,
@@ -302,15 +296,13 @@ def test_group_tab_reorder_is_atomic_and_preserves_omitted_members(
     assert reordered.json()["data"]["tabIds"] == [third["id"], first["id"]]
     listed = client.get(f"/api/v1/groups/{group['id']}/tabs", headers=headers).json()["data"]
     assert [tab["id"] for tab in listed] == [third["id"], first["id"], second["id"]]
-    assert [tab["position"] for tab in listed] == [0, 1, 2]
-
+    assert [tab["placement"]["position"] for tab in listed] == [0, 1, 2]
     duplicate = client.put(
         "/api/v1/tabs/order",
         headers=headers,
         json={"groupId": group["id"], "tabIds": [first["id"], first["id"]]},
     )
     assert duplicate.status_code == 422
-
     outsider = create_tab(client, headers, "https://example.com/outsider")
     rejected = client.put(
         "/api/v1/tabs/order",
@@ -320,11 +312,8 @@ def test_group_tab_reorder_is_atomic_and_preserves_omitted_members(
     assert rejected.status_code == 409
     unchanged = client.get(f"/api/v1/groups/{group['id']}/tabs", headers=headers).json()["data"]
     assert [tab["id"] for tab in unchanged] == [third["id"], first["id"], second["id"]]
-
     unassigned = client.put(
-        "/api/v1/tabs/order",
-        headers=headers,
-        json={"groupId": None, "tabIds": [outsider["id"]]},
+        "/api/v1/tabs/order", headers=headers, json={"groupId": None, "tabIds": [outsider["id"]]}
     )
     assert unassigned.status_code == 200
 
@@ -336,7 +325,6 @@ def test_all_collection_endpoints_paginate_with_the_shared_shape(
         create_group(client, headers, f"Group {index}")
         create_tab(client, headers, f"https://example.com/page/{index}")
         client.put(f"/api/v1/tags/tag-{index}", headers=headers, json={})
-
     for path in ("/api/v1/groups", "/api/v1/tabs", "/api/v1/tags"):
         first = client.get(f"{path}?limit=2", headers=headers)
         second = client.get(f"{path}?limit=2&offset=2", headers=headers)
@@ -350,7 +338,6 @@ def test_all_collection_endpoints_paginate_with_the_shared_shape(
         assert {item.get("id", item.get("name")) for item in first.json()["data"]}.isdisjoint(
             item.get("id", item.get("name")) for item in second.json()["data"]
         )
-
     for path in ("/api/v1/groups", "/api/v1/tags"):
         assert client.get(f"{path}?limit=101", headers=headers).status_code == 422
         assert client.get(f"{path}?offset=-1", headers=headers).status_code == 422
@@ -364,21 +351,28 @@ def test_tab_filters_errors_and_group_scoped_listing(
     second = create_tab(client, headers, "https://example.com/two")
     assert client.patch(f"/api/v1/tabs/{first['id']}", headers=headers, json={}).status_code == 422
     assert (
-        client.patch("/api/v1/tabs/missing", headers=headers, json={"title": "X"}).status_code
+        client.patch(
+            "/api/v1/tabs/missing", headers=headers, json={"content": {"title": "X"}}
+        ).status_code
         == 404
     )
     assert (
         client.patch(
-            f"/api/v1/tabs/{first['id']}", headers=headers, json={"groupId": "missing"}
+            f"/api/v1/tabs/{first['id']}",
+            headers=headers,
+            json={"placement": {"groupId": "missing"}},
         ).status_code
         == 409
     )
     updated = client.patch(
         f"/api/v1/tabs/{first['id']}",
         headers=headers,
-        json={"title": "Changed", "note": None, "tags": ["alpha", "beta"]},
+        json={
+            "content": {"title": "Changed"},
+            "annotations": {"note": None, "tags": ["alpha", "beta"]},
+        },
     ).json()["data"]
-    assert updated["note"] == ""
+    assert updated["annotations"]["note"] == ""
     filtered = client.get(
         "/api/v1/tabs?tags=beta&tagsAll=beta&search=changed&sortBy=title&sortDir=desc",
         headers=headers,
@@ -403,16 +397,20 @@ def test_group_update_and_missing_resource_errors(
     updated = client.patch(
         f"/api/v1/groups/{group['id']}",
         headers=headers,
-        json={"name": "Renamed", "description": "Filing context", "category": "manual"},
+        json={
+            "details": {"name": "Renamed", "description": "Filing context", "category": "manual"}
+        },
     ).json()["data"]
-    assert updated["name"] == "Renamed"
-    assert updated["description"] == "Filing context"
-    assert updated["category"] == "manual"
+    assert updated["details"]["name"] == "Renamed"
+    assert updated["details"]["description"] == "Filing context"
+    assert updated["details"]["category"] == "manual"
     assert (
         client.patch(f"/api/v1/groups/{group['id']}", headers=headers, json={}).status_code == 422
     )
     assert (
-        client.patch("/api/v1/groups/missing", headers=headers, json={"name": "X"}).status_code
+        client.patch(
+            "/api/v1/groups/missing", headers=headers, json={"details": {"name": "X"}}
+        ).status_code
         == 404
     )
     assert client.delete("/api/v1/groups/missing", headers=headers).status_code == 404
@@ -450,7 +448,9 @@ def test_search_jobs_preview_fallback_and_meta_routes(
     client.patch(
         f"/api/v1/tabs/{tab['id']}",
         headers=headers,
-        json={"note": "async python guide", "agentReview": "quantum filing summary"},
+        json={
+            "annotations": {"note": "async python guide", "agentReview": "quantum filing summary"}
+        },
     )
     keyword = client.get("/api/v1/search?q=python&mode=keyword", headers=headers).json()
     assert keyword["data"]["results"][0]["matchType"] == "keyword"
@@ -467,7 +467,9 @@ def test_search_jobs_preview_fallback_and_meta_routes(
     )
     assert client.get("/api/v1/jobs/missing", headers=headers).status_code == 404
     assert (
-        client.get(f"/api/v1/tabs/{tab['id']}/preview", headers=headers).json()["data"]["status"]
+        client.get(f"/api/v1/tabs/{tab['id']}/preview", headers=headers).json()["data"]["capture"][
+            "status"
+        ]
         == "pending"
     )
     assert (
@@ -511,7 +513,7 @@ def test_markdown_import_scoped_export_replace_and_restore_job(
     exported = client.get(
         "/api/v1/export?format=json&scope=tag:note&fields=minimal", headers=headers
     ).json()
-    assert exported["schemaVersion"] == 3 and len(exported["tabs"]) == 1
+    assert exported["schemaVersion"] == 4 and len(exported["library"]["tabs"]) == 1
     document = client.get("/api/v1/export?format=json", headers=headers).json()
     replaced = client.post(
         "/api/v1/import",
@@ -552,31 +554,28 @@ def test_visibility_policy_is_shared_by_lists_groups_search_counts_and_export(
         tags=["visibility"],
     )
     elapsed = create_tab(
-        client,
-        headers,
-        "https://example.com/elapsed-keyword",
-        tags=["visibility"],
+        client, headers, "https://example.com/elapsed-keyword", tags=["visibility"]
     )
     archived = create_tab(
-        client,
-        headers,
-        "https://example.com/archived-keyword",
-        tags=["visibility"],
+        client, headers, "https://example.com/archived-keyword", tags=["visibility"]
     )
     future = "2999-01-01T00:00:00+03:00"
     for tab in (hidden_mixed, hidden_only, archived):
         response = client.patch(
-            f"/api/v1/tabs/{tab['id']}", headers=headers, json={"hiddenUntil": future}
+            f"/api/v1/tabs/{tab['id']}",
+            headers=headers,
+            json={"lifecycle": {"hiddenUntil": future}},
         )
         assert response.status_code == 200
-        assert response.json()["data"]["hiddenUntil"].endswith("Z")
+        assert response.json()["data"]["lifecycle"]["hiddenUntil"].endswith("Z")
     client.patch(
         f"/api/v1/tabs/{elapsed['id']}",
         headers=headers,
-        json={"hiddenUntil": "2020-01-01T00:00:00Z"},
+        json={"lifecycle": {"hiddenUntil": "2020-01-01T00:00:00Z"}},
     )
-    client.patch(f"/api/v1/tabs/{archived['id']}", headers=headers, json={"archived": True})
-
+    client.patch(
+        f"/api/v1/tabs/{archived['id']}", headers=headers, json={"lifecycle": {"archived": True}}
+    )
     visible_ids = {tab["id"] for tab in client.get("/api/v1/tabs", headers=headers).json()["data"]}
     hidden_ids = {
         tab["id"]
@@ -589,7 +588,6 @@ def test_visibility_policy_is_shared_by_lists_groups_search_counts_and_export(
     assert {visible["id"], elapsed["id"]} <= visible_ids
     assert {hidden_mixed["id"], hidden_only["id"]} == hidden_ids
     assert archived["id"] in archived_ids and archived["id"] not in hidden_ids
-
     visible_groups = {
         group["id"] for group in client.get("/api/v1/groups", headers=headers).json()["data"]
     }
@@ -608,7 +606,6 @@ def test_visibility_policy_is_shared_by_lists_groups_search_counts_and_export(
         == hidden_mixed["id"]
     )
     assert client.get("/api/v1/groups?visibility=archived", headers=headers).json()["data"] == []
-
     search = client.get("/api/v1/search?q=keyword&mode=keyword", headers=headers).json()
     assert {item["tab"]["id"] for item in search["data"]["results"]} == {
         visible["id"],
@@ -617,14 +614,13 @@ def test_visibility_policy_is_shared_by_lists_groups_search_counts_and_export(
     tags = client.get("/api/v1/tags", headers=headers).json()["data"]
     assert next(tag for tag in tags if tag["name"] == "visibility")["tabCount"] == 2
     assert client.get("/api/v1/health", headers=headers).json()["storage"]["tabs"] == 2
-
-    exported = client.get("/api/v1/export?format=json", headers=headers).json()["tabs"]
+    exported = client.get("/api/v1/export?format=json", headers=headers).json()["library"]["tabs"]
     exported_ids = {tab["id"] for tab in exported}
     assert {visible["id"], elapsed["id"], archived["id"]} <= exported_ids
     assert {hidden_mixed["id"], hidden_only["id"]}.isdisjoint(exported_ids)
     synced = client.get("/api/v1/sync", headers=headers).json()
-    synced_ids = {tab["id"] for tab in synced["tabs"]}
-    assert synced["schemaVersion"] == 3
+    synced_ids = {tab["id"] for tab in synced["library"]["tabs"]}
+    assert synced["schemaVersion"] == 4
     assert {
         visible["id"],
         elapsed["id"],
@@ -635,8 +631,51 @@ def test_visibility_policy_is_shared_by_lists_groups_search_counts_and_export(
     naive_hidden = client.patch(
         f"/api/v1/tabs/{visible['id']}",
         headers=headers,
-        json={"hiddenUntil": "2030-01-01T00:00:00"},
+        json={"lifecycle": {"hiddenUntil": "2030-01-01T00:00:00"}},
     )
     assert naive_hidden.status_code == 200
-    assert naive_hidden.json()["data"]["hiddenUntil"] == "2030-01-01T00:00:00Z"
+    assert naive_hidden.json()["data"]["lifecycle"]["hiddenUntil"] == "2030-01-01T00:00:00Z"
     assert client.get("/api/v1/tabs?visibility=invalid", headers=headers).status_code == 422
+
+
+def test_flat_writes_and_previous_transfer_versions_are_rejected(client, headers) -> None:
+    assert (
+        client.post(
+            "/api/v1/tabs", headers=headers, json={"url": "https://example.com", "title": "Flat"}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/v1/groups", headers=headers, json={"name": "Flat", "category": "manual"}
+        ).status_code
+        == 422
+    )
+    for version in (2, 3):
+        response = client.post(
+            "/api/v1/import/validate",
+            headers=headers,
+            json={"schemaVersion": version, "library": {"tabs": [], "groups": [], "tags": []}},
+        )
+        assert response.status_code == 422
+        assert response.json()["errors"][0]["code"] == "E_UNKNOWN_SCHEMA_VERSION"
+    assert client.get("/api/v1/tabs", headers=headers).json()["data"] == []
+
+
+def test_nested_patch_preserves_unspecified_fields(client, headers) -> None:
+    tab_id = client.post(
+        "/api/v1/tabs",
+        headers=headers,
+        json={
+            "content": {"url": "https://example.com", "title": "Original"},
+            "annotations": {"note": "Keep", "tags": ["docs"]},
+        },
+    ).json()["data"]["id"]
+    changed = client.patch(
+        f"/api/v1/tabs/{tab_id}",
+        headers=headers,
+        json={"content": {"title": "Changed"}, "annotations": {"tags": []}},
+    ).json()["data"]
+    assert changed["content"] == {"url": "https://example.com", "title": "Changed", "favicon": None}
+    assert changed["annotations"]["note"] == "Keep"
+    assert changed["annotations"]["tags"] == []

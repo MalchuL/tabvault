@@ -21,6 +21,7 @@ from mcp_tabvault.server import DESTRUCTIVE, IDEMPOTENT_WRITE, READ, WRITE, mcp
 from . import mapper, utils
 from .dto import (
     SearchResponseViewDTO,
+    TabChangesDTO,
     TabDeleteResponseViewDTO,
     TabDeleteViewDTO,
     TabListViewDTO,
@@ -28,29 +29,26 @@ from .dto import (
 )
 
 
-def _update_dto(
-    *,
-    new_url: str | None = None,
-    title: str | None = None,
-    note: str | None = None,
-    agent_review: str | None = None,
-    viewed: bool | None = None,
-    tags: list[str] | None = None,
-    hidden_until: str | None = None,
-) -> TabUpdateDTO:
-    """Build a private update DTO containing only explicitly supplied fields."""
-    values: dict[str, object | None] = {
-        "url": new_url,
-        "title": title,
-        "note": note,
-        "agent_review": agent_review,
-        "viewed": viewed,
-        "tags": tags,
-        "hidden_until": hidden_until,
-    }
-    return TabUpdateDTO.model_validate(
-        {key: value for key, value in values.items() if value is not None}
-    )
+def _update_dto(changes: TabChangesDTO) -> TabUpdateDTO:
+    """Convert supplied MCP changes to the nested HTTP patch contract.
+
+    Args:
+        changes (TabChangesDTO): Editable values; null values are omitted.
+
+    Returns:
+        TabUpdateDTO: Patch preserving empty strings, false, and empty tag lists.
+    """
+    values = changes.model_dump(exclude_none=True)
+    groups: dict[str, dict[str, object]] = {}
+    for field, value in values.items():
+        if field in {"new_url", "title"}:
+            group = "content"
+        elif field == "hidden_until":
+            group = "lifecycle"
+        else:
+            group = "annotations"
+        groups.setdefault(group, {})["url" if field == "new_url" else field] = value
+    return TabUpdateDTO.model_validate(groups)
 
 
 @mcp.tool(title="List Saved Tabs", annotations=READ, structured_output=True)
@@ -112,15 +110,18 @@ async def list_tabs(
     groups = await group_utils.visible_groups()
     group_id = group_utils.resolve_scope(groups, group, unassignedOnly)
     response = await get_client().list_tabs(
-        TabListQueryDTO(
-            group_id=group_id,
-            category=category,
-            tags=tags,
-            search=search,
-            limit=limit,
-            offset=offset,
-            fields="full",
-            visibility="visible",
+        TabListQueryDTO.model_validate(
+            {
+                "fields": "full",
+                "filters": {
+                    "group_id": group_id,
+                    "category": category,
+                    "tags": tags,
+                    "search": search,
+                    "visibility": "visible",
+                },
+                "pagination": {"limit": limit, "offset": offset},
+            }
         )
     )
     return mapper.to_page(response, groups)
@@ -191,9 +192,11 @@ async def search_tabs(
         response = response.model_copy(
             update={
                 "data": SearchDataDTO(
-                    results=[item for item in response.data.results if item.tab.group_id is None][
-                        :limit
-                    ]
+                    results=[
+                        item
+                        for item in response.data.results
+                        if item.tab.placement.group_id is None
+                    ][:limit]
                 )
             }
         )
@@ -301,14 +304,17 @@ async def save_tab(
     groups = await group_utils.visible_groups()
     group_id = None if group is None else group_utils.group_named(groups, group).id
     response = await get_client().create_tab(
-        TabCreateDTO(
-            url=url,
-            title=title,
-            note=note,
-            agent_review=agentReview,
-            viewed=viewed,
-            tags=tags or [],
-            group_id=group_id,
+        TabCreateDTO.model_validate(
+            {
+                "content": {"url": url, "title": title},
+                "annotations": {
+                    "note": note,
+                    "agent_review": agentReview,
+                    "viewed": viewed,
+                    "tags": tags or [],
+                },
+                "placement": {"group_id": group_id},
+            }
         )
     )
     return TabResponseViewDTO(data=mapper.to_view(response.data, groups))
@@ -324,94 +330,29 @@ async def update_tab(
             description="Exact original Saved Tab URL; selects the oldest active visible match.",
         ),
     ],
-    newUrl: Annotated[
-        str | None,
-        Field(
-            min_length=1,
-            max_length=4096,
-            description="Replacement absolute HTTP or HTTPS URL; omitted or null leaves it unchanged.",
-        ),
-    ] = None,
-    title: Annotated[
-        str | None,
-        Field(
-            min_length=1,
-            max_length=1024,
-            description="Replacement nonempty title; omitted or null leaves it unchanged.",
-        ),
-    ] = None,
-    note: Annotated[
-        str | None,
-        Field(
-            max_length=20000,
-            description="Replacement note; empty string clears it; null leaves it unchanged.",
-        ),
-    ] = None,
-    agentReview: Annotated[
-        str | None,
-        Field(
-            max_length=20000,
-            description="Replacement agent review; empty string clears it; null leaves it unchanged.",
-        ),
-    ] = None,
-    viewed: Annotated[
-        bool | None,
-        Field(description="Replacement viewed state; omitted or null leaves it unchanged."),
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        Field(
-            max_length=64,
-            description="Replace all tags with up to 64 names; [] clears tags; null leaves them unchanged.",
-        ),
-    ] = None,
-    hiddenUntil: Annotated[
-        str | None,
-        Field(
-            description="ISO 8601 datetime visibility deadline; future dates hide the tab. Null leaves it unchanged."
-        ),
-    ] = None,
+    changes: Annotated[
+        TabChangesDTO,
+        Field(description="Fields to update; omitted or null values remain unchanged."),
+    ],
 ) -> TabResponseViewDTO:
-    """Update supplied fields on the oldest active visible exact-URL match.
+    """Update the oldest active visible exact-URL match using grouped changes.
 
-    Omitted or null fields stay unchanged. Empty note or review clears it; an empty tag list
-    removes all tags. Changing URL or hiding the tab can make retries select a different
-    duplicate.
+    Empty note or review clears it; [] removes tags. Changing URL or hiding the
+    record can make a repeated call select another duplicate occurrence.
 
     Args:
-        url (str): Exact original Saved Tab URL; selects the oldest active visible match.
-        newUrl (str | None): Replacement absolute HTTP or HTTPS URL; omitted or null leaves it
-            unchanged.
-        title (str | None): Replacement nonempty title; omitted or null leaves it unchanged.
-        note (str | None): Replacement note; empty string clears it; null leaves it unchanged.
-        agentReview (str | None): Replacement agent review; empty string clears it; null leaves
-            it unchanged.
-        viewed (bool | None): Replacement viewed state; omitted or null leaves it unchanged.
-        tags (list[str] | None): Replace all tags with up to 64 names; [] clears tags; null
-            leaves them unchanged.
-        hiddenUntil (str | None): ISO 8601 datetime visibility deadline; future dates hide the
-            tab. Null leaves it unchanged.
+        url (str): Original Saved Tab URL selecting the oldest accessible match.
+        changes (TabChangesDTO): Replacement fields; omitted or null values stay unchanged.
 
     Returns:
-        TabResponseViewDTO: ID-free library result with applicable metadata.
+        TabResponseViewDTO: ID-free updated Saved Tab.
 
     Raises:
-        MCPClientError: API access fails or a selected record is inaccessible.
-        ValueError: Supplied fields fail request validation.
+        MCPClientError: API access fails or the selected record is inaccessible.
+        ValueError: Supplied fields fail validation.
     """
     tab = await utils.first_visible_tab(url)
-    response = await get_client().update_tab(
-        tab.id,
-        _update_dto(
-            new_url=newUrl,
-            title=title,
-            note=note,
-            agent_review=agentReview,
-            viewed=viewed,
-            tags=tags,
-            hidden_until=hiddenUntil,
-        ),
-    )
+    response = await get_client().update_tab(tab.id, _update_dto(changes))
     groups = await group_utils.visible_groups()
     return TabResponseViewDTO(data=mapper.to_view(response.data, groups))
 
@@ -446,7 +387,7 @@ async def delete_tab(
     response = await get_client().delete_tab(tab.id)
     return TabDeleteResponseViewDTO(
         data=TabDeleteViewDTO(
-            url=tab.url,
+            url=tab.content.url,
             deleted_at=response.data.deleted_at,
             hard=response.data.hard,
         )
@@ -490,6 +431,6 @@ async def move_tab(
     groups = await group_utils.visible_groups()
     group_id = None if targetGroup is None else group_utils.group_named(groups, targetGroup).id
     response = await get_client().update_tab(
-        tab.id, TabUpdateDTO.model_validate({"group_id": group_id})
+        tab.id, TabUpdateDTO.model_validate({"placement": {"group_id": group_id}})
     )
     return TabResponseViewDTO(data=mapper.to_view(response.data, groups))

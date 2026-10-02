@@ -9,16 +9,16 @@ are neither read nor modified.
 
 ```bash
 uv sync --group dev
-TABVAULT_API_KEY=change-me uv run tabvault-server
+TABVAULT_HTTP__API_KEY=change-me uv run tabvault-server
 ```
 
-The server listens on `127.0.0.1:47821` and upgrades SQLite with Alembic at startup. All public
-routes use `/api/v1`. If `TABVAULT_API_KEY` is configured, send it as `X-API-Key`; binding to a
+The server listens on `127.0.0.1:47821` and creates the current SQLite tables at startup. All public
+routes use `/api/v1`. If `TABVAULT_HTTP__API_KEY` is configured, send it as `X-API-Key`; binding to a
 non-loopback host is rejected unless a key is configured. Wildcard CORS remains the local default
 and emits a startup warning.
 
 Each request is logged at `INFO` with method, path, status, duration, and a short JSON or text
-preview so you can see what came back. 4xx and 5xx lines are `WARNING`. Set `TABVAULT_LOG_LEVEL`
+preview so you can see what came back. 4xx and 5xx lines are `WARNING`. Set `TABVAULT_LOGGING__LEVEL`
 to change verbosity.
 
 Useful settings are shown in [`.env.example`](.env.example). Install the production embedding
@@ -43,24 +43,23 @@ uv sync --extra semantic
 ```
 
 Restart `tabvault-server`, then choose **Rebuild index** on Dashboard. The first rebuild downloads
-the embedding model into `TABVAULT_DATA_DIR/models` and can take several minutes. If the extra is
+the embedding model into `TABVAULT_STORAGE__DATA_DIR/models` and can take several minutes. If the extra is
 installed but the index is empty, capabilities returns “The semantic index has not been built yet”
 and the same rebuild action.
 
 ```bash
 curl -H 'X-API-Key: change-me' http://127.0.0.1:47821/api/v1/health
 curl -H 'X-API-Key: change-me' http://127.0.0.1:47821/api/v1/capabilities
-uv run alembic upgrade head
 uv run pytest
 ```
 
 `uv run pytest` enforces 90% branch coverage. `make check` also runs Ruff formatting/linting and
-mypy.
+mypy. Database and document migrations are removed; older schemas and payloads are unsupported.
 
 ```bash
 docker build -t tabvault-local-server local-server
 docker run --rm -p 47821:47821 \
-  -e TABVAULT_API_KEY=change-me \
+  -e TABVAULT_HTTP__API_KEY=change-me \
   -v tabvault-data:/data \
   tabvault-local-server
 ```

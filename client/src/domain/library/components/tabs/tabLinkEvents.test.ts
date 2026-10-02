@@ -6,7 +6,14 @@ import {
 } from "@/domain/library/components/tabs/tabLinkEvents";
 import type { TabListItem } from "@/domain/library/components/tabs/TabList";
 
-const tab = { id: "saved" } as TabListItem;
+const tab = {
+  id: "saved",
+  placement: {},
+  content: {},
+  annotations: {},
+  timestamps: {},
+  lifecycle: {},
+} as TabListItem;
 
 it("routes primary and middle clicks through the saved-tab opener", () => {
   const onOpen = vi.fn();

@@ -5,49 +5,20 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
-class Settings(BaseSettings):
-    """Load validated TabVault settings from environment variables.
-
-    Attributes:
-        api_prefix (str): URL prefix for API routes.
-        host (str): Network interface on which the API listens.
-        port (int): TCP port on which the API listens.
-        api_key (str | None): Bearer key required for non-loopback access.
-        data_dir (Path): Directory containing the local database and assets.
-        database_url (str | None): URL used for database.
-        cors_origins (list[str]): Allowed cross-origin request origins.
-        log_level (str): Minimum log severity emitted by the server.
-        preview_timeout_seconds (float): Timeout for fetching remote preview content.
-        preview_max_html_bytes (int): Maximum HTML response size accepted for previews.
-        preview_max_image_bytes (int): Maximum image response size accepted for previews.
-        preview_max_total_bytes (int): Maximum aggregate response size accepted for previews.
-        preview_allow_private_hosts (bool): Whether preview capture may access private network hosts.
-        embedding_model (str): Sentence-transformer model used for semantic search.
-        embedding_batch_size (int): Maximum number of tabs embedded per batch.
-    """
-
-    model_config = SettingsConfigDict(env_prefix="TABVAULT_", env_file=".env", extra="ignore")
+class SettingsHttp(BaseModel):
+    """Http fields for Settings."""
 
     api_prefix: str = "/api/v1"
     host: str = "127.0.0.1"
     port: int = 47821
     api_key: str | None = None
-    data_dir: Path = Field(default_factory=lambda: Path.home() / ".local/share/tabvault")
-    database_url: str | None = None
-    cors_origins: list[str] = ["*"]
-    log_level: str = "INFO"
-    preview_timeout_seconds: float = 12.0
-    preview_max_html_bytes: int = 2_000_000
-    preview_max_image_bytes: int = 5_000_000
-    preview_max_total_bytes: int = 20_000_000
-    preview_allow_private_hosts: bool = False
-    embedding_model: str = "deepvk/USER-bge-m3"
-    embedding_batch_size: int = 16
+    cors_origins: Annotated[list[str], NoDecode] = ["*"]
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -64,19 +35,15 @@ class Settings(BaseSettings):
             return [part.strip() for part in value.split(",") if part.strip()] or ["*"]
         return value
 
-    @model_validator(mode="after")
-    def validate_remote_auth(self) -> Settings:
-        """Require authentication when listening beyond loopback.
+    model_config = SettingsConfigDict(extra="forbid")
 
-        Returns:
-            Settings: The validated settings instance for continued model validation.
 
-        Raises:
-            ValueError: The server binds beyond loopback without an API key.
-        """
-        if self.host not in {"127.0.0.1", "localhost", "::1"} and not self.api_key:
-            raise ValueError("TABVAULT_API_KEY is required when binding beyond loopback")
-        return self
+class SettingsStorage(BaseModel):
+    """Storage fields for Settings."""
+
+    data_dir: Path = Field(default_factory=lambda: Path.home() / ".local/share/tabvault")
+    database_url: str | None = None
+    model_config = SettingsConfigDict(extra="forbid")
 
     @property
     def effective_database_url(self) -> str:
@@ -108,6 +75,60 @@ class Settings(BaseSettings):
         return self.data_dir / "models"
 
 
+class SettingsLogging(BaseModel):
+    """Logging fields for Settings."""
+
+    level: str = "INFO"
+    model_config = SettingsConfigDict(extra="forbid")
+
+
+class SettingsPreview(BaseModel):
+    """Preview fields for Settings."""
+
+    timeout_seconds: float = 12.0
+    max_html_bytes: int = 2_000_000
+    max_image_bytes: int = 5_000_000
+    max_total_bytes: int = 20_000_000
+    allow_private_hosts: bool = False
+    model_config = SettingsConfigDict(extra="forbid")
+
+
+class SettingsEmbedding(BaseModel):
+    """Embedding fields for Settings."""
+
+    model: str = "deepvk/USER-bge-m3"
+    batch_size: int = 16
+    model_config = SettingsConfigDict(extra="forbid")
+
+
+class Settings(BaseSettings):
+    """Load validated TabVault settings from environment variables. Fields are grouped by responsibility."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="TABVAULT_", env_nested_delimiter="__", env_file=".env", extra="ignore"
+    )
+
+    @model_validator(mode="after")
+    def validate_remote_auth(self) -> Settings:
+        """Require authentication when listening beyond loopback.
+
+        Returns:
+            Settings: The validated settings instance for continued model validation.
+
+        Raises:
+            ValueError: The server binds beyond loopback without an API key.
+        """
+        if self.http.host not in {"127.0.0.1", "localhost", "::1"} and not self.http.api_key:
+            raise ValueError("TABVAULT_HTTP__API_KEY is required when binding beyond loopback")
+        return self
+
+    http: SettingsHttp = Field(default_factory=SettingsHttp)
+    storage: SettingsStorage = Field(default_factory=SettingsStorage)
+    logging: SettingsLogging = Field(default_factory=SettingsLogging)
+    preview: SettingsPreview = Field(default_factory=SettingsPreview)
+    embedding: SettingsEmbedding = Field(default_factory=SettingsEmbedding)
+
+
 @lru_cache
 def get_settings() -> Settings:
     """Return the process-cached runtime settings.
@@ -125,18 +146,14 @@ LOG_DATE_FORMAT = "%H:%M:%S"
 def configure_logging(settings: Settings) -> None:
     """Configure process-wide logging from validated settings.
 
-    Applies ``TABVAULT_LOG_LEVEL`` to the root logger and uses one readable line format
-    for application, uvicorn, and Alembic messages. Existing handlers keep their sinks
-    (including pytest's ``caplog``) and only receive the shared formatter. Call this
-    again after Alembic migrations; Alembic's ini ``fileConfig`` can reset the root
-    logger to WARNING and hide request access lines. Uvicorn's own access logger is
-    quieted because ``RequestLoggingMiddleware`` already records every request and a
-    response preview.
+    Applies ``TABVAULT_LOGGING__LEVEL`` to the root logger and keeps existing
+    handler sinks, including pytest's caplog. Uvicorn's access logger is quieted
+    because RequestLoggingMiddleware records each request and response preview.
 
     Args:
         settings (Settings): Validated process settings that control this component.
     """
-    level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    level = getattr(logging, settings.logging.level.upper(), logging.INFO)
     formatter = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
     root = logging.getLogger()
     root.setLevel(level)

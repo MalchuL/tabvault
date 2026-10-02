@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.tabs.visibility import visible_tabs
 from lib.base_repository import BaseRepository
+from lib.model_changes import apply_model_changes
 from lib.pagination import ListOptions, Page
 from models import Tab, Tag, tab_tags
 
@@ -107,8 +108,7 @@ class TagRepository(BaseRepository[Tag]):
             self.session.add(tag)
             await self.session.flush()
             return tag
-        for key, value in changes.items():
-            setattr(tag, key, value)
+        apply_model_changes(tag, changes)
         return tag
 
     async def count_tabs(self, name: str) -> int:

@@ -16,23 +16,53 @@ from mcp_tabvault.client.dto import (
 )
 
 
-class TabViewDTO(DTO):
-    """Represent one Saved Tab without persistence identity or display position."""
+class TabViewContentDTO(DTO):
+    """Content fields for TabViewDTO."""
 
     url: str
     title: str
     favicon: str | None
+
+
+class TabViewAnnotationsDTO(DTO):
+    """Annotations fields for TabViewDTO."""
+
     note: str
     agent_review: str
     viewed: bool = False
     custom_properties: dict[str, Any]
     tags: list[str]
+
+
+class TabViewPlacementDTO(DTO):
+    """Placement fields for TabViewDTO."""
+
     group: str | None
+
+
+class TabViewLifecycleDTO(DTO):
+    """Lifecycle fields for TabViewDTO."""
+
     archived: bool
     archived_at: datetime | None
     hidden_until: datetime | None
+
+
+class TabViewTimestampsDTO(DTO):
+    """Timestamps fields for TabViewDTO."""
+
     created_at: datetime
     updated_at: datetime
+
+
+class TabViewDTO(DTO):
+    """Represent one Saved Tab without persistence identity or display position. Fields are grouped by responsibility."""
+
+    content: TabViewContentDTO
+    annotations: TabViewAnnotationsDTO
+    placement: TabViewPlacementDTO
+    lifecycle: TabViewLifecycleDTO
+    timestamps: TabViewTimestampsDTO
 
 
 class TabDeleteViewDTO(DTO):
@@ -83,3 +113,41 @@ class SearchResponseViewDTO(DTO):
 
 
 TabListViewDTO = PaginatedResponseDTO[TabViewDTO]
+
+
+class TabChangesDTO(DTO):
+    """Editable Saved Tab fields; omitted or null values leave the record unchanged."""
+
+    new_url: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=4096,
+        description="Replacement absolute HTTP(S) URL; null leaves it unchanged.",
+    )
+    title: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=1024,
+        description="Replacement nonempty title; null leaves it unchanged.",
+    )
+    note: str | None = Field(
+        default=None,
+        max_length=20000,
+        description="Replacement note; empty string clears it; null leaves it unchanged.",
+    )
+    agent_review: str | None = Field(
+        default=None,
+        max_length=20000,
+        description="Replacement agent review; empty string clears it; null leaves it unchanged.",
+    )
+    viewed: bool | None = Field(
+        default=None, description="Replacement viewed state; null leaves it unchanged."
+    )
+    tags: list[str] | None = Field(
+        default=None,
+        max_length=64,
+        description="Replace tags; [] clears them; null leaves them unchanged.",
+    )
+    hidden_until: str | None = Field(
+        default=None, description="ISO 8601 hide deadline; null leaves it unchanged."
+    )

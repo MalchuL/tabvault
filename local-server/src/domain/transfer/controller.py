@@ -120,7 +120,7 @@ async def export_data(
 async def sync_document(
     transfer: Annotated[TransferService, Depends(get_transfer_service)],
 ) -> JSONResponse:
-    """Return the complete schema-v3 synchronization document.
+    """Return the complete schema-v4 synchronization document.
 
     Args:
         transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped

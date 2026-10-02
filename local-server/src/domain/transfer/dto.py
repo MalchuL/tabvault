@@ -55,71 +55,154 @@ class TransferTagDTO(DTO):
     updated_at: datetime | None = None
 
 
-class TransferGroupDTO(DTO):
-    """Group in a portable library document."""
+class TransferGroupDetailsDTO(DTO):
+    """Details fields for TransferGroupDTO."""
 
-    id: str
     name: str
     category: str
     description: str | None = ""
     color: str | None = None
+
+
+class TransferGroupPlacementDTO(DTO):
+    """Placement fields for TransferGroupDTO."""
+
     position: float = 0
+
+
+class TransferGroupTimestampsDTO(DTO):
+    """Timestamps fields for TransferGroupDTO."""
+
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class TransferGroupDTO(DTO):
+    """Group in a portable library document. Fields are grouped by responsibility."""
+
+    id: str
+    details: TransferGroupDetailsDTO
+    placement: TransferGroupPlacementDTO = Field(default_factory=TransferGroupPlacementDTO)
+    timestamps: TransferGroupTimestampsDTO = Field(default_factory=TransferGroupTimestampsDTO)
+
+
+class TransferTabContentDTO(DTO):
+    """Content fields for TransferTabDTO."""
+
+    url: str
+    title: str
+    favicon: str | None = None
+
+
+class TransferTabAnnotationsDTO(DTO):
+    """Annotations fields for TransferTabDTO."""
+
+    note: str | None = None
+    agent_review: str | None = ""
+    custom_properties: dict[str, Any] = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+
+
+class TransferTabPlacementDTO(DTO):
+    """Placement fields for TransferTabDTO."""
+
+    group_id: str | None = None
+    position: float = 0
+
+
+class TransferTabLifecycleDTO(DTO):
+    """Lifecycle fields for TransferTabDTO."""
+
+    archived: bool = False
+    archived_at: datetime | None = None
+    hidden_until: datetime | None = None
+
+
+class TransferTabTimestampsDTO(DTO):
+    """Timestamps fields for TransferTabDTO."""
+
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
 
 class TransferTabDTO(DTO):
-    """Tab in a portable library document."""
+    """Tab in a portable library document. Fields are grouped by responsibility."""
 
     id: str
-    url: str
-    title: str
-    favicon: str | None = None
-    note: str | None = None
-    agent_review: str | None = ""
-    custom_properties: dict[str, Any] = Field(default_factory=dict)
-    tags: list[str] = Field(default_factory=list)
-    group_id: str | None = None
-    position: float = 0
-    archived: bool = False
-    archived_at: datetime | None = None
-    hidden_until: datetime | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    content: TransferTabContentDTO
+    annotations: TransferTabAnnotationsDTO = Field(default_factory=TransferTabAnnotationsDTO)
+    placement: TransferTabPlacementDTO = Field(default_factory=TransferTabPlacementDTO)
+    lifecycle: TransferTabLifecycleDTO = Field(default_factory=TransferTabLifecycleDTO)
+    timestamps: TransferTabTimestampsDTO = Field(default_factory=TransferTabTimestampsDTO)
 
 
-class TransferDocumentDTO(DTO):
-    """Complete schema-v3 portable library document."""
+class TransferDocumentLibraryDTO(DTO):
+    """Library fields for TransferDocumentDTO."""
 
-    schema_version: Literal[3] = 3
-    exported_at: datetime | None = None
-    property_schema: dict[str, Any] = Field(default_factory=dict)
     tags: list[TransferTagDTO] = Field(default_factory=list)
     groups: list[TransferGroupDTO] = Field(default_factory=list)
     tabs: list[TransferTabDTO] = Field(default_factory=list)
 
 
-class MinimalTransferTabDTO(BaseModel):
-    """Minimal portable tab projection."""
+class TransferDocumentDTO(DTO):
+    """Complete schema-v4 portable library document. Fields are grouped by responsibility."""
 
-    id: str
+    schema_version: Literal[4] = 4
+    exported_at: datetime | None = None
+    property_schema: dict[str, Any] = Field(default_factory=dict)
+    library: TransferDocumentLibraryDTO = Field(default_factory=TransferDocumentLibraryDTO)
+
+
+class MinimalTransferTabContentDTO(BaseModel):
+    """Content fields for MinimalTransferTabDTO."""
+
     url: str
     title: str
     favicon: str | None = None
-    group_id: str | None = None
+    model_config = model_config()
+
+
+class MinimalTransferTabAnnotationsDTO(BaseModel):
+    """Annotations fields for MinimalTransferTabDTO."""
+
     tags: list[str]
     model_config = model_config()
 
 
-class MinimalTransferDocumentDTO(DTO):
-    """Portable document with minimal tab fields."""
+class MinimalTransferTabPlacementDTO(BaseModel):
+    """Placement fields for MinimalTransferTabDTO."""
 
-    schema_version: Literal[3] = 3
-    exported_at: datetime | None = None
-    property_schema: dict[str, Any] = Field(default_factory=dict)
+    group_id: str | None = None
+    model_config = model_config()
+
+
+class MinimalTransferTabDTO(BaseModel):
+    """Minimal portable tab projection. Fields are grouped by responsibility."""
+
+    id: str
+    model_config = model_config()
+    content: MinimalTransferTabContentDTO
+    annotations: MinimalTransferTabAnnotationsDTO
+    placement: MinimalTransferTabPlacementDTO = Field(
+        default_factory=MinimalTransferTabPlacementDTO
+    )
+
+
+class MinimalTransferDocumentLibraryDTO(DTO):
+    """Library fields for MinimalTransferDocumentDTO."""
+
     tags: list[TransferTagDTO]
     groups: list[TransferGroupDTO]
     tabs: list[MinimalTransferTabDTO]
+
+
+class MinimalTransferDocumentDTO(DTO):
+    """Portable document with minimal tab fields. Fields are grouped by responsibility."""
+
+    schema_version: Literal[4] = 4
+    exported_at: datetime | None = None
+    property_schema: dict[str, Any] = Field(default_factory=dict)
+    library: MinimalTransferDocumentLibraryDTO
 
 
 class TransferExportDTO(BaseModel):

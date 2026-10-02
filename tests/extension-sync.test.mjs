@@ -99,20 +99,24 @@ test("capture creates one Session and distinct exact-URL occurrences", async () 
   assert.deepEqual(harness.closed, [41, 42]);
 
   const vault = harness.storage["tabvault-v3"];
-  assert.equal(vault.schemaVersion, 3);
+  assert.equal(vault.schemaVersion, 4);
   assert.equal(vault.propertySchema.viewed.default, false);
-  assert.equal(vault.vaultGroups.length, 1);
-  assert.equal(vault.vaultGroups[0].category, "session");
+  assert.equal(vault.library.vaultGroups.length, 1);
+  assert.equal(vault.library.vaultGroups[0].details.category, "session");
   assert.match(
-    vault.vaultGroups[0].name,
+    vault.library.vaultGroups[0].details.name,
     /^Session [A-Z][a-z]{2} \d{2} \d{2}:\d{2}$/
   );
-  assert.equal(vault.tabs.length, 2);
-  assert.equal(new Set(vault.tabs.map(tab => tab.id)).size, 2);
-  assert.ok(vault.tabs.every(tab => tab.url === exactUrl));
-  assert.ok(vault.tabs.every(tab => tab.groupId === vault.vaultGroups[0].id));
-  assert.ok(vault.tabs.every(tab => tab.tags.length === 0));
-  assert.equal("quick save" in vault.tagCatalog, false);
+  assert.equal(vault.library.tabs.length, 2);
+  assert.equal(new Set(vault.library.tabs.map(tab => tab.id)).size, 2);
+  assert.ok(vault.library.tabs.every(tab => tab.content.url === exactUrl));
+  assert.ok(
+    vault.library.tabs.every(
+      tab => tab.placement.groupId === vault.library.vaultGroups[0].id
+    )
+  );
+  assert.ok(vault.library.tabs.every(tab => tab.annotations.tags.length === 0));
+  assert.equal("quick save" in vault.library.tagCatalog, false);
 
   assert.equal(harness.vaultWrites(), 1);
   assert.equal(harness.fetches.length, 4);
@@ -127,10 +131,10 @@ test("capture creates one Session and distinct exact-URL occurrences", async () 
   assert.match(batchRequest.url, /\/api\/v1\/tabs\/batch$/);
   const batch = JSON.parse(batchRequest.options.body);
   assert.equal(batch.tabs.length, 2);
-  assert.ok(batch.tabs.every(tab => tab.url === exactUrl));
+  assert.ok(batch.tabs.every(tab => tab.content.url === exactUrl));
   assert.equal(
     batchRequest.options.headers["Idempotency-Key"],
-    vault.vaultGroups[0].id
+    vault.library.vaultGroups[0].id
   );
   assert.equal(harness.storage["tabvault-sync-status"].state, "synced");
 });
@@ -158,8 +162,8 @@ test("a capture with no eligible tabs still keeps its empty Session", async () =
 
   assert.equal(response.savedCount, 0);
   assert.equal(response.skippedCount, 1);
-  assert.equal(harness.storage["tabvault-v3"].vaultGroups.length, 1);
-  assert.equal(harness.storage["tabvault-v3"].tabs.length, 0);
+  assert.equal(harness.storage["tabvault-v3"].library.vaultGroups.length, 1);
+  assert.equal(harness.storage["tabvault-v3"].library.tabs.length, 0);
   assert.equal(harness.fetches.length, 3);
   assert.ok(
     harness.fetches.some(request => /\/api\/v1\/groups$/.test(request.url))

@@ -110,9 +110,9 @@ class SearchService:
                 for row in rows
                 if all(
                     operators[item.operator](
-                        self.custom_properties.resolve_values(row.custom_properties, definitions)[
-                            item.name
-                        ],
+                        self.custom_properties.resolve_values(
+                            row.annotations.custom_properties, definitions
+                        )[item.name],
                         item.value,
                     )
                     for item in filters
@@ -123,12 +123,14 @@ class SearchService:
         keyword: dict[str, tuple[float, SearchMatchedOn]] = {}
         for row in rows:
             fields: dict[SearchMatchedOn, str] = {
-                "title": row.title.lower(),
-                "url": row.url.lower(),
-                "note": (row.note or "").lower(),
-                "agentReview": row.agent_review.lower(),
+                "title": row.content.title.lower(),
+                "url": row.content.url.lower(),
+                "note": (row.annotations.note or "").lower(),
+                "agentReview": row.annotations.agent_review.lower(),
                 "customProperties": json.dumps(
-                    self.custom_properties.resolve_values(row.custom_properties, definitions),
+                    self.custom_properties.resolve_values(
+                        row.annotations.custom_properties, definitions
+                    ),
                     ensure_ascii=False,
                     sort_keys=True,
                 ).lower(),
@@ -190,7 +192,7 @@ class SearchService:
                     tab=self.mapper.to_dto(
                         by_id[tab_id],
                         self.custom_properties.resolve_values(
-                            by_id[tab_id].custom_properties, definitions
+                            by_id[tab_id].annotations.custom_properties, definitions
                         ),
                     ),
                     score=round(score, 4),

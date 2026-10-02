@@ -16,7 +16,8 @@
     "test:unit": "vitest run --coverage",
     "test:extension": "pnpm build && node --test tests/deduplication.test.mjs tests/extension-sync.test.mjs tests/library-sync.test.mjs tests/popup-selection.test.mjs",
     "test:e2e": "playwright test",
-    "validate": "pnpm format:check && pnpm lint && pnpm check && pnpm build"
+    "validate": "pnpm format:check && pnpm lint && pnpm check && pnpm check:shapes && pnpm build",
+    "check:shapes": "node scripts/check-source-shapes.mjs && python3 scripts/check_python_shapes.py"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

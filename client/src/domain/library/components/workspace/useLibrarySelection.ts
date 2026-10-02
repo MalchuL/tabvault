@@ -7,42 +7,66 @@ import {
 import type { StorageMode } from "@/domain/server/browserStorage";
 import type { GroupId, UndoSnapshot, VaultTab } from "@/domain/library/types";
 
-type LibrarySelectionOptions = {
+/** Library records and mutation handlers for LibrarySelectionOptions. */
+type LibrarySelectionLibrary = {
   tabs: VaultTab[];
   tabOrders: Record<string, string[]>;
   tagCatalog: Record<string, string>;
-  visibleTabs: VaultTab[];
-  query: string;
-  isArchivePage: boolean;
   setTabs: (value: SetStateAction<VaultTab[]>) => void;
   setTabOrders: (value: SetStateAction<Record<string, string[]>>) => void;
   setTagCatalog: (value: SetStateAction<Record<string, string>>) => void;
   recordTombstones: (ids: Set<string>) => void;
+};
+/** View for LibrarySelectionOptions. */
+type LibrarySelectionView = {
+  visibleTabs: VaultTab[];
+  query: string;
+  isArchivePage: boolean;
+};
+/** Storage and server connection state for LibrarySelectionOptions. */
+type LibrarySelectionConnection = {
   storageMode: StorageMode;
   serverOnline: boolean;
   setServerOnline: (online: boolean) => void;
   localServerUrl: string;
   serverApiKey: string;
 };
+type LibrarySelectionOptions = {
+  library: LibrarySelectionLibrary;
+  view: LibrarySelectionView;
+  connection: LibrarySelectionConnection;
+};
 
-type LibrarySelectionController = {
+/** Selection state and handlers for LibrarySelectionController. */
+type LibrarySelectionSelection = {
   selectedResultIds: Set<string>;
   setSelectedResultIds: Dispatch<SetStateAction<Set<string>>>;
   selectionMode: boolean;
   setSelectionMode: Dispatch<SetStateAction<boolean>>;
-  bulkTag: string;
-  setBulkTag: Dispatch<SetStateAction<string>>;
-  undoSnapshot: UndoSnapshot | null;
   selectionActive: boolean;
   toggleResultSelection: (id: string) => void;
-  createUndoSnapshot: (label: string) => UndoSnapshot;
-  undoLastBulkAction: () => Promise<void>;
+  toggleSelectionMode: () => void;
+};
+/** Bulk mutation state and handlers for LibrarySelectionController. */
+type LibrarySelectionBulk = {
+  bulkTag: string;
+  setBulkTag: Dispatch<SetStateAction<string>>;
   bulkMoveSelected: (groupId: GroupId) => Promise<void>;
   bulkTagSelected: () => Promise<void>;
   permanentlyDeleteTabs: (items: VaultTab[]) => Promise<void>;
-  toggleSelectionMode: () => void;
   toggleSelectAll: () => void;
   removeSelected: () => Promise<void>;
+};
+/** Undo state and handlers for LibrarySelectionController. */
+type LibrarySelectionUndo = {
+  undoSnapshot: UndoSnapshot | null;
+  createUndoSnapshot: (label: string) => UndoSnapshot;
+  undoLastBulkAction: () => Promise<void>;
+};
+type LibrarySelectionController = {
+  selection: LibrarySelectionSelection;
+  bulk: LibrarySelectionBulk;
+  undo: LibrarySelectionUndo;
 };
 
 /**
@@ -52,21 +76,23 @@ type LibrarySelectionController = {
  * @returns {LibrarySelectionController} Selected IDs, bulk actions, and undo state.
  */
 export function useLibrarySelection({
-  tabs,
-  tabOrders,
-  tagCatalog,
-  visibleTabs,
-  query,
-  isArchivePage,
-  setTabs,
-  setTabOrders,
-  setTagCatalog,
-  recordTombstones,
-  storageMode,
-  serverOnline,
-  setServerOnline,
-  localServerUrl,
-  serverApiKey,
+  library: {
+    tabs,
+    tabOrders,
+    tagCatalog,
+    setTabs,
+    setTabOrders,
+    setTagCatalog,
+    recordTombstones,
+  },
+  view: { visibleTabs, query, isArchivePage },
+  connection: {
+    storageMode,
+    serverOnline,
+    setServerOnline,
+    localServerUrl,
+    serverApiKey,
+  },
 }: LibrarySelectionOptions): LibrarySelectionController {
   const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(
     new Set()
@@ -97,7 +123,10 @@ export function useLibrarySelection({
     const snapshot: UndoSnapshot = {
       id: crypto.randomUUID(),
       label,
-      tabs: tabs.map(tab => ({ ...tab, tags: [...tab.tags] })),
+      tabs: tabs.map(tab => ({
+        ...tab,
+        annotations: { ...tab.annotations, tags: [...tab.annotations.tags] },
+      })),
       tabOrders: Object.fromEntries(
         Object.entries(tabOrders).map(([groupId, ids]) => [groupId, [...ids]])
       ) as Record<GroupId, string[]>,
@@ -132,14 +161,15 @@ export function useLibrarySelection({
             localServerUrl,
             tab.id,
             {
-              url: tab.url,
-              title: tab.title,
-              note: tab.note,
-              agentReview: tab.agentReview,
-              viewed: tab.viewed,
-              tags: tab.tags,
-              groupId: tab.groupId,
-              archived: Boolean(tab.archived),
+              content: { url: tab.content.url, title: tab.content.title },
+              annotations: {
+                note: tab.annotations.note,
+                agentReview: tab.annotations.agentReview,
+                viewed: tab.annotations.viewed,
+                tags: tab.annotations.tags,
+              },
+              placement: { groupId: tab.placement.groupId },
+              lifecycle: { archived: Boolean(tab.lifecycle.archived) },
             },
             serverApiKey
           )
@@ -170,7 +200,14 @@ export function useLibrarySelection({
     setTabs(current =>
       current.map(tab =>
         selectedIds.has(tab.id)
-          ? { ...tab, groupId, updatedAt: new Date().toISOString() }
+          ? {
+              ...tab,
+              placement: { ...tab.placement, groupId },
+              timestamps: {
+                ...tab.timestamps,
+                updatedAt: new Date().toISOString(),
+              },
+            }
           : tab
       )
     );
@@ -195,7 +232,7 @@ export function useLibrarySelection({
           updateTabOnLocalServer(
             localServerUrl,
             tab.id,
-            { groupId },
+            { placement: { groupId } },
             serverApiKey
           )
         )
@@ -222,8 +259,14 @@ export function useLibrarySelection({
         selectedResultIds.has(tab.id)
           ? {
               ...tab,
-              tags: Array.from(new Set([...tab.tags, tag])),
-              updatedAt: new Date().toISOString(),
+              annotations: {
+                ...tab.annotations,
+                tags: Array.from(new Set([...tab.annotations.tags, tag])),
+              },
+              timestamps: {
+                ...tab.timestamps,
+                updatedAt: new Date().toISOString(),
+              },
             }
           : tab
       )
@@ -238,7 +281,11 @@ export function useLibrarySelection({
           updateTabOnLocalServer(
             localServerUrl,
             tab.id,
-            { tags: Array.from(new Set([...tab.tags, tag])) },
+            {
+              annotations: {
+                tags: Array.from(new Set([...tab.annotations.tags, tag])),
+              },
+            },
             serverApiKey
           )
         )
@@ -330,10 +377,12 @@ export function useLibrarySelection({
         removedIds.has(tab.id)
           ? {
               ...tab,
-              groupId: null,
-              archived: true,
-              archivedAt,
-              updatedAt: new Date().toISOString(),
+              placement: { ...tab.placement, groupId: null },
+              lifecycle: { ...tab.lifecycle, archived: true, archivedAt },
+              timestamps: {
+                ...tab.timestamps,
+                updatedAt: new Date().toISOString(),
+              },
             }
           : tab
       )
@@ -353,7 +402,7 @@ export function useLibrarySelection({
           updateTabOnLocalServer(
             localServerUrl,
             tab.id,
-            { archived: true, groupId: null },
+            { lifecycle: { archived: true }, placement: { groupId: null } },
             serverApiKey
           )
         )
@@ -365,22 +414,24 @@ export function useLibrarySelection({
   };
 
   return {
-    selectedResultIds,
-    setSelectedResultIds,
-    selectionMode,
-    setSelectionMode,
-    bulkTag,
-    setBulkTag,
-    undoSnapshot,
-    selectionActive,
-    toggleResultSelection,
-    createUndoSnapshot,
-    undoLastBulkAction,
-    bulkMoveSelected,
-    bulkTagSelected,
-    permanentlyDeleteTabs,
-    toggleSelectionMode,
-    toggleSelectAll,
-    removeSelected,
+    selection: {
+      selectedResultIds,
+      setSelectedResultIds,
+      selectionMode,
+      setSelectionMode,
+      selectionActive,
+      toggleResultSelection,
+      toggleSelectionMode,
+    },
+    bulk: {
+      bulkTag,
+      setBulkTag,
+      bulkMoveSelected,
+      bulkTagSelected,
+      permanentlyDeleteTabs,
+      toggleSelectAll,
+      removeSelected,
+    },
+    undo: { undoSnapshot, createUndoSnapshot, undoLastBulkAction },
   };
 }

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.tabs.visibility import visible_tabs
+from lib.model_changes import apply_model_changes
 from models import HealthSchedule, Tab
 
 
@@ -45,8 +46,7 @@ class IndexingRepository:
             schedule (HealthSchedule): Current persisted health-check schedule.
             **changes (object): Schedule fields and values to stage.
         """
-        for key, value in changes.items():
-            setattr(schedule, key, value)
+        apply_model_changes(schedule, changes)
 
     async def active_tabs(self, now: datetime) -> list[Tab]:
         """Load visible tabs for vector indexing.

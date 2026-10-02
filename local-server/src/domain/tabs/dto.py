@@ -38,37 +38,41 @@ def _validate_saved_url(value: str) -> str:
     return value
 
 
-class TabCreateDTO(BaseModel):
-    """Describe one Saved Tab occurrence to create.
-
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
-
-    Attributes:
-        url (str): Original saved URL, preserved without canonicalization.
-        title (str | None): Human-readable title.
-        note (str | None): User-authored note stored with the Saved Tab.
-        agent_review (str | None): Agent-authored review text stored with the Saved Tab.
-        custom_properties (dict[str, Any]): Explicit schema-defined values supplied on creation.
-        tags (list[str]): Tags names associated with the Saved Tab.
-        group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
-        position (float | None): Stable display position within the current Group or Unassigned
-            section.
-        id (str | None): Stable identifier for this record.
-    """
+class TabCreateContentDTO(BaseModel):
+    """Content fields for TabCreateDTO."""
 
     url: str = Field(min_length=1, max_length=4096)
     title: str | None = Field(default=None, max_length=1024)
+    _url_is_http = field_validator("url")(_validate_saved_url)
+    model_config = model_config()
+
+
+class TabCreateAnnotationsDTO(BaseModel):
+    """Annotations fields for TabCreateDTO."""
+
     note: str | None = Field(default="", max_length=20_000)
     agent_review: str | None = Field(default="", max_length=20_000)
     custom_properties: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list, max_length=64)
-    group_id: str | None = Field(default=None, max_length=128)
-    position: float | None = Field(default=None, ge=0)
-    id: str | None = Field(default=None, max_length=128)
     model_config = model_config()
 
-    _url_is_http = field_validator("url")(_validate_saved_url)
+
+class TabCreatePlacementDTO(BaseModel):
+    """Placement fields for TabCreateDTO."""
+
+    group_id: str | None = Field(default=None, max_length=128)
+    position: float | None = Field(default=None, ge=0)
+    model_config = model_config()
+
+
+class TabCreateDTO(BaseModel):
+    """Describe one Saved Tab occurrence to create. Fields are grouped by responsibility."""
+
+    id: str | None = Field(default=None, max_length=128)
+    model_config = model_config()
+    content: TabCreateContentDTO
+    annotations: TabCreateAnnotationsDTO = Field(default_factory=TabCreateAnnotationsDTO)
+    placement: TabCreatePlacementDTO = Field(default_factory=TabCreatePlacementDTO)
 
 
 class TabBatchCreateDTO(BaseModel):
@@ -87,70 +91,75 @@ class TabBatchCreateDTO(BaseModel):
     model_config = model_config()
 
 
-class TabListOptionsDTO(BaseModel):
-    """Collect filters and projection options for a Saved Tab list.
-
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
-
-    Attributes:
-        group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
-        category (str | None): Free-form Group category, such as ``session`` or ``manual``.
-        tags_any (list[str]): Tag names of which matching tabs need at least one.
-        tags_all (list[str]): Tag names all matching tabs must have.
-        search (str | None): Optional text filter for saved tabs.
-        sort_by (TabSortBy): Saved-tab field used for sorting.
-        sort_dir (SortDirection): Ascending or descending sort direction.
-        fields (str): Comma-separated projection fields requested by the caller.
-        visibility (TabVisibility): Visible, hidden, or archived tab scope.
-    """
+class TabListOptionsFiltersDTO(BaseModel):
+    """Filters fields for TabListOptionsDTO."""
 
     group_id: str | None = "all"
     category: str | None = None
     tags_any: list[str] = Field(default_factory=list)
     tags_all: list[str] = Field(default_factory=list)
     search: str | None = None
-    sort_by: TabSortBy = "position"
-    sort_dir: SortDirection = "asc"
-    fields: str = "full"
     visibility: TabVisibility = "visible"
     model_config = model_config()
 
 
-class TabUpdateDTO(DTO):
-    """Describe explicitly supplied Saved Tab fields.
+class TabListOptionsOrderingDTO(BaseModel):
+    """Ordering fields for TabListOptionsDTO."""
 
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+    sort_by: TabSortBy = "position"
+    sort_dir: SortDirection = "asc"
+    model_config = model_config()
 
-    Attributes:
-        url (str | None): Original saved URL, preserved without canonicalization.
-        title (str | None): Human-readable title.
-        note (str | None): User-authored note stored with the Saved Tab.
-        agent_review (str | None): Agent-authored review text stored with the Saved Tab.
-        custom_properties (dict[str, Any] | None): Explicit values to merge atomically.
-        tags (list[str] | None): Tags names associated with the Saved Tab.
-        group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
-        position (float | None): Stable display position within the current Group or Unassigned
-            section.
-        archived (bool | None): Whether the record is outside the active library.
-        hidden_until (datetime | None): Absolute UTC deadline before which the tab stays hidden.
-    """
+
+class TabListOptionsDTO(BaseModel):
+    """Collect filters and projection options for a Saved Tab list. Fields are grouped by responsibility."""
+
+    fields: str = "full"
+    model_config = model_config()
+    filters: TabListOptionsFiltersDTO = Field(default_factory=TabListOptionsFiltersDTO)
+    ordering: TabListOptionsOrderingDTO = Field(default_factory=TabListOptionsOrderingDTO)
+
+
+class TabUpdateContentDTO(DTO):
+    """Content fields for TabUpdateDTO."""
 
     url: str | None = Field(default=None, min_length=1, max_length=4096)
     title: str | None = Field(default=None, min_length=1, max_length=1024)
+    _url_is_http = field_validator("url")(
+        lambda value: _validate_saved_url(value) if value is not None else value
+    )
+
+
+class TabUpdateAnnotationsDTO(DTO):
+    """Annotations fields for TabUpdateDTO."""
+
     note: str | None = Field(default=None, max_length=20_000)
     agent_review: str | None = Field(default=None, max_length=20_000)
     custom_properties: dict[str, Any] | None = None
     tags: list[str] | None = Field(default=None, max_length=64)
+
+
+class TabUpdatePlacementDTO(DTO):
+    """Placement fields for TabUpdateDTO."""
+
     group_id: str | None = Field(default=None, max_length=128)
     position: float | None = Field(default=None, ge=0)
+
+
+class TabUpdateLifecycleDTO(DTO):
+    """Lifecycle fields for TabUpdateDTO."""
+
     archived: bool | None = None
     hidden_until: datetime | None = None
 
-    _url_is_http = field_validator("url")(
-        lambda value: _validate_saved_url(value) if value is not None else value
-    )
+
+class TabUpdateDTO(DTO):
+    """Describe explicitly supplied Saved Tab fields. Fields are grouped by responsibility."""
+
+    content: TabUpdateContentDTO = Field(default_factory=TabUpdateContentDTO)
+    annotations: TabUpdateAnnotationsDTO = Field(default_factory=TabUpdateAnnotationsDTO)
+    placement: TabUpdatePlacementDTO = Field(default_factory=TabUpdatePlacementDTO)
+    lifecycle: TabUpdateLifecycleDTO = Field(default_factory=TabUpdateLifecycleDTO)
 
 
 class TabReorderDTO(BaseModel):
@@ -215,87 +224,104 @@ class TabTagDTO(BaseModel):
     model_config = model_config()
 
 
-class TabDTO(DTO):
-    """Represent one complete Saved Tab.
+class TabContentDTO(DTO):
+    """Content fields for TabDTO."""
 
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
-
-    Attributes:
-        id (str): Stable identifier for this record.
-        url (str): Original saved URL, preserved without canonicalization.
-        title (str): Human-readable title.
-        favicon (str | None): Favicon URL or asset reference when available.
-        note (str): User-authored note stored with the Saved Tab.
-        agent_review (str): Agent-authored review text stored with the Saved Tab.
-        custom_properties (dict[str, Any]): Resolved declared values, including defaults.
-        tags (list[str]): Tags associated with the Saved Tab.
-        group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
-        position (float): Stable display position within the current Group or Unassigned section.
-        archived (bool): Whether the record is outside the active library.
-        archived_at (datetime | None): UTC instant at which the record entered the archive.
-        hidden_until (datetime | None): Absolute UTC deadline before which the tab stays hidden.
-        created_at (datetime): UTC instant at which the record was created.
-        updated_at (datetime): UTC instant at which the record was last changed.
-    """
-
-    id: str
     url: str
     title: str
     favicon: str | None
+
+
+class TabAnnotationsDTO(DTO):
+    """Annotations fields for TabDTO."""
+
     note: str
     agent_review: str
     custom_properties: dict[str, Any]
     tags: list[str]
+
+
+class TabPlacementDTO(DTO):
+    """Placement fields for TabDTO."""
+
     group_id: str | None
     position: float
+
+
+class TabLifecycleDTO(DTO):
+    """Lifecycle fields for TabDTO."""
+
     archived: bool
     archived_at: datetime | None
     hidden_until: datetime | None
+
+
+class TabTimestampsDTO(DTO):
+    """Timestamps fields for TabDTO."""
+
     created_at: datetime
     updated_at: datetime
 
 
-class TabProjectionDTO(DTO):
-    """Represent a caller-selected subset of Saved Tab fields.
+class TabDTO(DTO):
+    """Represent one complete Saved Tab. Fields are grouped by responsibility."""
 
-    This type is part of a validated boundary: Pydantic enforces its declared shape while the shared
-    DTO configuration serializes public field names in camelCase and rejects unknown input fields.
+    id: str
+    content: TabContentDTO
+    annotations: TabAnnotationsDTO
+    placement: TabPlacementDTO
+    lifecycle: TabLifecycleDTO
+    timestamps: TabTimestampsDTO
 
-    Attributes:
-        id (str | None): Stable identifier for this record.
-        url (str | None): Original saved URL, preserved without canonicalization.
-        title (str | None): Human-readable title.
-        favicon (str | None): Favicon URL or asset reference when available.
-        note (str | None): User-authored note stored with the Saved Tab.
-        agent_review (str | None): Agent-authored review text stored with the Saved Tab.
-        custom_properties (dict[str, Any] | None): Resolved declared property values.
-        tags (list[str] | None): Tags associated with the Saved Tab.
-        group_id (str | None): Identifier of the containing Group, or ``None`` for Unassigned.
-        position (float | None): Stable display position within the current Group or Unassigned
-            section.
-        archived (bool | None): Whether the record is outside the active library.
-        archived_at (datetime | None): UTC instant at which the record entered the archive.
-        hidden_until (datetime | None): Absolute UTC deadline before which the tab stays hidden.
-        created_at (datetime | None): UTC instant at which the record was created.
-        updated_at (datetime | None): UTC instant at which the record was last changed.
-    """
 
-    id: str | None = None
+class TabProjectionContentDTO(DTO):
+    """Content fields for TabProjectionDTO."""
+
     url: str | None = None
     title: str | None = None
     favicon: str | None = None
+
+
+class TabProjectionAnnotationsDTO(DTO):
+    """Annotations fields for TabProjectionDTO."""
+
     note: str | None = None
     agent_review: str | None = None
     custom_properties: dict[str, Any] | None = None
     tags: list[str] | None = None
+
+
+class TabProjectionPlacementDTO(DTO):
+    """Placement fields for TabProjectionDTO."""
+
     group_id: str | None = None
     position: float | None = None
+
+
+class TabProjectionLifecycleDTO(DTO):
+    """Lifecycle fields for TabProjectionDTO."""
+
     archived: bool | None = None
     archived_at: datetime | None = None
     hidden_until: datetime | None = None
+
+
+class TabProjectionTimestampsDTO(DTO):
+    """Timestamps fields for TabProjectionDTO."""
+
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class TabProjectionDTO(DTO):
+    """Represent a caller-selected subset of Saved Tab fields. Fields are grouped by responsibility."""
+
+    id: str | None = None
+    content: TabProjectionContentDTO = Field(default_factory=TabProjectionContentDTO)
+    annotations: TabProjectionAnnotationsDTO = Field(default_factory=TabProjectionAnnotationsDTO)
+    placement: TabProjectionPlacementDTO = Field(default_factory=TabProjectionPlacementDTO)
+    lifecycle: TabProjectionLifecycleDTO = Field(default_factory=TabProjectionLifecycleDTO)
+    timestamps: TabProjectionTimestampsDTO = Field(default_factory=TabProjectionTimestampsDTO)
 
 
 class TabJobDTO(BaseModel):

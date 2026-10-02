@@ -40,7 +40,7 @@ class SystemService:
         return HealthDTO(
             status="ok",
             version="0.2.0",
-            schema_version=3,
+            schema_version=4,
             storage=StorageCountsDTO(tabs=tabs, groups=groups, tags=tags),
             vector_index=self.vectors.status(),
         )
@@ -53,7 +53,9 @@ class SystemService:
         """
         vector = self.vectors.status()
         semantic_error = (
-            probe_module("sentence_transformers") or probe_module("zvec") or vector.last_error
+            probe_module("sentence_transformers")
+            or probe_module("zvec")
+            or vector.diagnostics.last_error
         )
         return build_capabilities(
             semantic_error=semantic_error,
@@ -67,7 +69,7 @@ class SystemService:
         Returns:
             dict[str, Any]: Serialized fields keyed for the caller.
         """
-        path = Path(__file__).parents[3] / "schema" / "v3.tabvault.schema.json"
+        path = Path(__file__).parents[3] / "schema" / "v4.tabvault.schema.json"
         return cast(dict[str, Any], json.loads(path.read_text(encoding="utf-8")))
 
     @staticmethod

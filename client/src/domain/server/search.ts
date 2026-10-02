@@ -18,21 +18,29 @@ export type LocalSearchResponse = {
   };
 };
 
-export type SemanticIndexStatus = {
-  status: "ready" | "not_ready" | "indexing" | "unavailable";
-  indexedTabs: number;
+/** Index configuration for SemanticIndexStatus. */
+type SemanticIndexStatusConfiguration = {
   provider: string;
   model: string;
   baseUrl: string;
   batchSize?: number;
+};
+/** Index diagnostics for SemanticIndexStatus. */
+type SemanticIndexStatusDiagnostics = {
+  lastError?: string | null;
+  healthCheck?: IndexHealthCheck;
+};
+export type SemanticIndexStatus = {
+  status: "ready" | "not_ready" | "indexing" | "unavailable";
+  indexedTabs: number;
   progress?: {
     state: string;
     total: number;
     processed: number;
     batches: number;
   };
-  lastError?: string | null;
-  healthCheck?: IndexHealthCheck;
+  configuration: SemanticIndexStatusConfiguration;
+  diagnostics: SemanticIndexStatusDiagnostics;
 };
 
 export type ServerCapability = {
@@ -54,8 +62,11 @@ export type BackgroundJob = {
   error?: string | null;
 };
 
-type SemanticIndexStatusWire = Partial<SemanticIndexStatus> & {
-  indexedCount?: number;
+type SemanticIndexStatusWire = {
+  status: SemanticIndexStatus["status"];
+  indexedCount: number;
+  configuration: SemanticIndexStatusConfiguration;
+  diagnostics: SemanticIndexStatusDiagnostics;
 };
 
 export type IndexHealthCheck = {
@@ -70,8 +81,8 @@ export type IndexHealthCheck = {
 /**
  * Normalize health or index-status payloads onto the UI field names.
  *
- * The local server reports `vectorIndex` and `indexedCount`; older clients and
- * copy still use `semanticIndex` and `indexedTabs`.
+ * The local server reports `vectorIndex` and `indexedCount`; the UI displays
+ * the count as `indexedTabs`.
  *
  * @param {SemanticIndexStatusWire | null} raw - Health or `/index/status` fragment from the local server.
  * @returns {SemanticIndexStatus | null} A UI-ready index status, or `null` when the payload is missing.
@@ -82,14 +93,17 @@ export function normalizeSemanticIndexStatus(
   if (!raw) return null;
   return {
     status: raw.status ?? "not_ready",
-    indexedTabs: raw.indexedTabs ?? raw.indexedCount ?? 0,
-    provider: raw.provider ?? "sentence-transformers",
-    model: raw.model ?? "",
-    baseUrl: raw.baseUrl ?? "",
-    batchSize: raw.batchSize,
-    progress: raw.progress,
-    lastError: raw.lastError,
-    healthCheck: raw.healthCheck,
+    indexedTabs: raw.indexedCount,
+    configuration: {
+      provider: raw.configuration?.provider ?? "sentence-transformers",
+      model: raw.configuration?.model ?? "",
+      baseUrl: raw.configuration?.baseUrl ?? "",
+      batchSize: raw.configuration?.batchSize,
+    },
+    diagnostics: {
+      lastError: raw.diagnostics?.lastError,
+      healthCheck: raw.diagnostics?.healthCheck,
+    },
   };
 }
 
@@ -133,14 +147,11 @@ export async function checkLocalServer(
   const payload = (await response.json()) as {
     status: string;
     schemaVersion: number;
-    semanticIndex?: SemanticIndexStatusWire;
     vectorIndex?: SemanticIndexStatusWire;
   };
   return {
     ...payload,
-    semanticIndex: normalizeSemanticIndexStatus(
-      payload.semanticIndex ?? payload.vectorIndex
-    ),
+    semanticIndex: normalizeSemanticIndexStatus(payload.vectorIndex),
   };
 }
 

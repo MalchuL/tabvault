@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openSchemaV2Library } from "./schema-v2-fixture";
+import { openSchemaV4Library } from "./schema-v4-fixture";
 
 const serverOrigin = "http://127.0.0.1:47821";
 
@@ -97,7 +97,7 @@ test("dashboard and settings show semantic capability error and fix", async ({
   page,
 }) => {
   await mockUnavailableSemanticSearch(page);
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   await page.evaluate(() => {
     localStorage.setItem("tabvault-storage-mode", "backend");
   });

@@ -102,7 +102,9 @@ class GroupService:
             GroupDTO: Current group name, category, color, and timestamps.
         """
         position = (
-            dto.position if dto.position is not None else await self.repository.next_position()
+            dto.placement.position
+            if dto.placement.position is not None
+            else await self.repository.next_position()
         )
         group = self.mapper.from_create_dto(dto, position)
         try:

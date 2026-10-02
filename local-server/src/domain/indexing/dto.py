@@ -5,7 +5,7 @@ from typing import Literal, TypeAlias
 
 from pydantic import BaseModel, Field
 
-from domain.system.dto import VectorStatusDTO
+from domain.system.dto import VectorDiagnosticsDTO, VectorStatusDTO
 from lib.dto_config import DTO, model_config
 
 HealthResult: TypeAlias = Literal["ready", "needs_attention"]
@@ -30,7 +30,13 @@ class HealthScheduleDTO(DTO):
     last_alert: datetime | None
 
 
-class IndexStatusDTO(VectorStatusDTO):
-    """Vector status with health scheduling state."""
+class IndexDiagnosticsDTO(VectorDiagnosticsDTO):
+    """Index failures and recurring health scheduling state."""
 
     health_check: HealthScheduleDTO
+
+
+class IndexStatusDTO(VectorStatusDTO):
+    """Vector status with grouped health scheduling diagnostics."""
+
+    diagnostics: IndexDiagnosticsDTO

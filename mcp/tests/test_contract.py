@@ -109,7 +109,7 @@ async def test_tools_have_id_free_typed_contracts_and_safety_annotations() -> No
         ("search_tabs", {"query": ""}),
         ("get_tab", {"url": ""}),
         ("save_tab", {"url": "https://exact", "tags": ["docs"] * 65}),
-        ("update_tab", {"url": "https://exact", "newUrl": ""}),
+        ("update_tab", {"url": "https://exact", "changes": {"newUrl": ""}}),
         ("create_group", {"name": ""}),
         ("tag_tab", {"url": "https://exact", "tagName": ""}),
         ("untag_tab", {"url": "https://exact", "tagName": "x" * 257}),
@@ -136,7 +136,9 @@ async def test_tool_constraints_reject_input_before_api_access(
 async def test_get_tab_structured_output_replaces_ids_with_group_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assigned = tab().model_copy(update={"group_id": "group"})
+    assigned = tab().model_copy(
+        update={"placement": tab().placement.model_copy(update={"group_id": "group"})}
+    )
 
     async def first(_url: str) -> TabDTO:
         return assigned
@@ -148,7 +150,7 @@ async def test_get_tab_structured_output_replaces_ids_with_group_name(
     monkeypatch.setattr(tab_tools.group_utils, "visible_groups", visible)
     response = await main.mcp.call_tool("get_tab", {"url": "https://exact"})
     assert response.structured_content is not None
-    assert response.structured_content["data"]["group"] == "Group"
+    assert response.structured_content["data"]["placement"]["group"] == "Group"
     assert not (set(response.structured_content["data"]) & FORBIDDEN)
 
 
@@ -157,8 +159,8 @@ async def test_structured_output_keeps_rfc3339_timestamps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     naive = tab().model_dump(mode="json", by_alias=True)
-    naive["createdAt"] = "2026-08-24T16:38:22.557000"
-    naive["updatedAt"] = "2026-08-24T16:38:22.557000"
+    naive["timestamps"]["createdAt"] = "2026-08-24T16:38:22.557000"
+    naive["timestamps"]["updatedAt"] = "2026-08-24T16:38:22.557000"
     parsed = TabDTO.model_validate(naive)
 
     async def search(*_args: object, **_kwargs: object) -> SearchResponseDTO:
@@ -179,8 +181,8 @@ async def test_structured_output_keeps_rfc3339_timestamps(
     response = await main.mcp.call_tool("search_tabs", {"query": "docs"})
     assert response.structured_content is not None
     result = response.structured_content["data"]["results"][0]["tab"]
-    assert result["createdAt"] == "2026-08-24T16:38:22.557000Z"
-    assert result["updatedAt"] == "2026-08-24T16:38:22.557000Z"
+    assert result["timestamps"]["createdAt"] == "2026-08-24T16:38:22.557000Z"
+    assert result["timestamps"]["updatedAt"] == "2026-08-24T16:38:22.557000Z"
 
 
 def contains_dict(annotation: object) -> bool:
@@ -244,3 +246,23 @@ def test_main_runs_shared_server(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main.mcp, "run", lambda: called.append(True))
     main.main()
     assert called == [True]
+
+
+@pytest.mark.anyio
+async def test_update_contract_groups_changes_and_caps_every_object_at_seven_fields() -> None:
+    def check(schema: object) -> None:
+        if isinstance(schema, list):
+            for item in schema:
+                check(item)
+        elif isinstance(schema, dict):
+            assert len(schema.get("properties", {})) <= 7
+            for value in schema.values():
+                check(value)
+
+    registered = await main.mcp.list_tools()
+    for tool in registered:
+        check(tool.input_schema)
+        check(tool.output_schema)
+    update = next(tool for tool in registered if tool.name == "update_tab")
+    assert set(update.input_schema["properties"]) == {"url", "changes"}
+    assert "changes" in update.input_schema["required"]

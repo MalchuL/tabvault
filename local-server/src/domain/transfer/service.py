@@ -16,7 +16,7 @@ from domain.jobs.repository import JobRepository
 from lib.responses import IssueDTO, WarningDTO, issue
 from lib.time import stored_utc, utc_now
 
-from .document import markdown_import, migrate_v2_document, validate_document
+from .document import markdown_import, validate_document
 from .dto import (
     BackupDTO,
     ExportFields,
@@ -78,19 +78,23 @@ class TransferService:
             include_hidden (bool): Whether hidden active tabs belong in the result.
 
         Returns:
-            TransferDocumentDTO: Portable library document in schema v3.
+            TransferDocumentDTO: Portable library document in schema v4.
         """
         tags, groups, tabs = await self.repository.transfer_rows(
             include_hidden=include_hidden,
             now=utc_now() if not include_hidden else None,
         )
         schema = await self.repository.get_property_schema()
-        return TransferDocumentDTO(
-            exported_at=utc_now(),
-            property_schema=dict(schema.properties or {}) if schema is not None else {},
-            tags=[self.mapper.tag_to_dto(tag) for tag in tags],
-            groups=[self.mapper.group_to_dto(group) for group in groups],
-            tabs=[self.mapper.tab_to_dto(tab) for tab in tabs],
+        return TransferDocumentDTO.model_validate(
+            {
+                "exported_at": utc_now(),
+                "property_schema": dict(schema.properties or {}) if schema is not None else {},
+                "library": {
+                    "tags": [self.mapper.tag_to_dto(tag) for tag in tags],
+                    "groups": [self.mapper.group_to_dto(group) for group in groups],
+                    "tabs": [self.mapper.tab_to_dto(tab) for tab in tabs],
+                },
+            }
         )
 
     async def create_backup(self, reason: str) -> BackupDTO:
@@ -102,7 +106,7 @@ class TransferService:
         Returns:
             BackupDTO: Metadata for the newly created backup.
         """
-        directory = self.settings.data_dir / "backups"
+        directory = self.settings.storage.data_dir / "backups"
         directory.mkdir(parents=True, exist_ok=True)
         backup_id = str(uuid.uuid4())
         path = directory / f"{backup_id}.json"
@@ -136,29 +140,43 @@ class TransferService:
         document = await self.document(include_hidden=False)
         if scope.startswith("group:"):
             group_id = scope.split(":", 1)[1]
-            document.groups = [group for group in document.groups if group.id == group_id]
-            document.tabs = [tab for tab in document.tabs if tab.group_id == group_id]
+            document.library.groups = [
+                group for group in document.library.groups if group.id == group_id
+            ]
+            document.library.tabs = [
+                tab for tab in document.library.tabs if tab.placement.group_id == group_id
+            ]
         elif scope.startswith("tag:"):
             name = scope.split(":", 1)[1]
-            document.tabs = [tab for tab in document.tabs if name in tab.tags]
+            document.library.tabs = [
+                tab for tab in document.library.tabs if name in tab.annotations.tags
+            ]
         content: TransferDocumentDTO | MinimalTransferDocumentDTO = document
         if fields == "minimal":
-            content = MinimalTransferDocumentDTO(
-                exported_at=document.exported_at,
-                property_schema=document.property_schema,
-                tags=document.tags,
-                groups=document.groups,
-                tabs=[
-                    MinimalTransferTabDTO(
-                        id=tab.id,
-                        url=tab.url,
-                        title=tab.title,
-                        favicon=tab.favicon,
-                        group_id=tab.group_id,
-                        tags=tab.tags,
-                    )
-                    for tab in document.tabs
-                ],
+            content = MinimalTransferDocumentDTO.model_validate(
+                {
+                    "exported_at": document.exported_at,
+                    "property_schema": document.property_schema,
+                    "library": {
+                        "tags": document.library.tags,
+                        "groups": document.library.groups,
+                        "tabs": [
+                            MinimalTransferTabDTO.model_validate(
+                                {
+                                    "id": tab.id,
+                                    "content": {
+                                        "url": tab.content.url,
+                                        "title": tab.content.title,
+                                        "favicon": tab.content.favicon,
+                                    },
+                                    "placement": {"group_id": tab.placement.group_id},
+                                    "annotations": {"tags": tab.annotations.tags},
+                                }
+                            )
+                            for tab in document.library.tabs
+                        ],
+                    },
+                }
             )
         if format == "json":
             return TransferExportDTO(content=content, media_type="application/json")
@@ -170,24 +188,28 @@ class TransferService:
             Args:
                 group_id (str | None): Collection ID or null for Unassigned.
             """
-            for tab in document.tabs:
-                if tab.group_id == group_id and not tab.archived:
-                    lines.append(f"- [{tab.title}]({tab.url})")
+            for tab in document.library.tabs:
+                if tab.placement.group_id == group_id and not tab.lifecycle.archived:
+                    lines.append(f"- [{tab.content.title}]({tab.content.url})")
                     lines.append(f"  id: {tab.id}")
-                    lines.append(f"  tags: {', '.join(tab.tags)}")
+                    lines.append(f"  tags: {', '.join(tab.annotations.tags)}")
                     if fields != "minimal":
-                        lines.append(f"  note: {tab.note or ''}")
-                        lines.append(f"  agentReview: {tab.agent_review or ''}")
+                        lines.append(f"  note: {tab.annotations.note or ''}")
+                        lines.append(f"  agentReview: {tab.annotations.agent_review or ''}")
                         lines.append(
                             "  customProperties: "
-                            + json.dumps(tab.custom_properties, ensure_ascii=False, sort_keys=True)
+                            + json.dumps(
+                                tab.annotations.custom_properties,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                            )
                         )
                     lines.append("")
 
-        for group in document.groups:
-            lines.append(f"## {group.name}")
+        for group in document.library.groups:
+            lines.append(f"## {group.details.name}")
             if fields != "minimal":
-                lines.append(f"  description: {group.description or ''}")
+                lines.append(f"  description: {group.details.description or ''}")
             lines.append("")
             write_tabs(group.id)
         lines.extend(["## [Unassigned]", ""])
@@ -200,7 +222,7 @@ class TransferService:
     def parse(
         self, content: Any, format: TransferFormat
     ) -> tuple[dict[str, Any] | None, list[IssueDTO]]:
-        """Parse JSON or Markdown, migrating older portable documents in memory.
+        """Parse the current JSON or Markdown interchange format.
 
         Args:
             content (Any): Uploaded or generated document content.
@@ -213,10 +235,10 @@ class TransferService:
         if format == "markdown":
             return markdown_import(str(content))
         if isinstance(content, dict):
-            return migrate_v2_document(content), []
+            return content, []
         try:
             value = json.loads(str(content))
-            return migrate_v2_document(value) if isinstance(value, dict) else None, []
+            return value if isinstance(value, dict) else None, []
         except json.JSONDecodeError as error:
             return None, [
                 issue(
@@ -276,13 +298,13 @@ class TransferService:
             errors=[],
             warnings=warnings,
             would_create=ImportCountsDTO(
-                tabs=sum(tab.id not in current_tabs for tab in dto.tabs),
-                groups=sum(group.id not in current_groups for group in dto.groups),
-                tags=sum(tag.name.lower() not in current_tags for tag in dto.tags),
+                tabs=sum(tab.id not in current_tabs for tab in dto.library.tabs),
+                groups=sum(group.id not in current_groups for group in dto.library.groups),
+                tags=sum(tag.name.lower() not in current_tags for tag in dto.library.tags),
             ),
             would_update=ImportCountsDTO(
-                tabs=sum(tab.id in current_tabs for tab in dto.tabs),
-                groups=sum(group.id in current_groups for group in dto.groups),
+                tabs=sum(tab.id in current_tabs for tab in dto.library.tabs),
+                groups=sum(group.id in current_groups for group in dto.library.groups),
             ),
             would_skip=ImportCountsDTO(),
         )
@@ -320,7 +342,7 @@ class TransferService:
                 await self.repository.replace_group(group_id)
         created = ImportCountsDTO()
         updated = ImportCountsDTO()
-        for tag_dto in dto.tags:
+        for tag_dto in dto.library.tags:
             tag = await self.repository.get_tag(tag_dto.name)
             incoming_updated = stored_utc(tag_dto.updated_at)
             existing_updated = stored_utc(tag.updated_at) if tag is not None else None
@@ -330,12 +352,14 @@ class TransferService:
             elif incoming_updated and existing_updated and incoming_updated > existing_updated:
                 await self.repository.apply_changes(tag, self.mapper.tag_changes(tag_dto))
                 updated.tags += 1
-        for group_dto in dto.groups:
+        for group_dto in dto.library.groups:
             if await self.repository.tombstone_exists("group", group_dto.id):
                 continue
             group = await self.repository.get_group(group_dto.id)
-            incoming_updated = stored_utc(group_dto.updated_at)
-            existing_updated = stored_utc(group.updated_at) if group is not None else None
+            incoming_updated = stored_utc(group_dto.timestamps.updated_at)
+            existing_updated = (
+                stored_utc(group.timestamps.updated_at) if group is not None else None
+            )
             if group is None:
                 await self.repository.save_model(self.mapper.group_from_dto(group_dto))
                 created.groups += 1
@@ -343,22 +367,22 @@ class TransferService:
                 await self.repository.apply_changes(group, self.mapper.group_changes(group_dto))
                 updated.groups += 1
         skipped = 0
-        for tab_dto in dto.tabs:
+        for tab_dto in dto.library.tabs:
             if await self.repository.tombstone_exists("tab", tab_dto.id):
                 skipped += 1
                 continue
             tab = await self.repository.get_transfer_tab(tab_dto.id)
-            incoming_updated = stored_utc(tab_dto.updated_at)
-            existing_updated = stored_utc(tab.updated_at) if tab is not None else None
+            incoming_updated = stored_utc(tab_dto.timestamps.updated_at)
+            existing_updated = stored_utc(tab.timestamps.updated_at) if tab is not None else None
             if tab is None:
-                tags = await self.repository.resolve_tags(tab_dto.tags)
+                tags = await self.repository.resolve_tags(tab_dto.annotations.tags)
                 await self.repository.save_model(self.mapper.tab_from_dto(tab_dto, tags))
                 created.tabs += 1
             elif incoming_updated and existing_updated and incoming_updated > existing_updated:
                 await self.repository.apply_changes(
                     tab,
                     self.mapper.tab_changes(
-                        tab_dto, await self.repository.resolve_tags(tab_dto.tags)
+                        tab_dto, await self.repository.resolve_tags(tab_dto.annotations.tags)
                     ),
                 )
                 updated.tabs += 1

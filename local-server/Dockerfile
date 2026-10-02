@@ -10,9 +10,9 @@ RUN uv sync --frozen --no-dev --extra semantic
 FROM python:3.13-slim-bookworm AS runtime
 
 ENV PATH=/app/.venv/bin:$PATH \
-    TABVAULT_HOST=0.0.0.0 \
-    TABVAULT_PORT=47821 \
-    TABVAULT_DATA_DIR=/data \
+    TABVAULT_HTTP__HOST=0.0.0.0 \
+    TABVAULT_HTTP__PORT=47821 \
+    TABVAULT_STORAGE__DATA_DIR=/data \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 WORKDIR /app

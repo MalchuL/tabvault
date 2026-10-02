@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from models import Asset, Preview
+from models import Asset, AssetFile, AssetKind, AssetSource, Preview
 
 from .dto import AssetFileDTO, PreviewDTO
 
@@ -22,24 +22,34 @@ class PreviewMapper:
             PreviewDTO: Preview status and captured content for the tab.
         """
         if preview is None:
-            return PreviewDTO(
-                tab_id=tab_id,
-                status="pending",
-                fallback_asset="/api/v1/assets/fallback-preview",
+            return PreviewDTO.model_validate(
+                {
+                    "tab_id": tab_id,
+                    "capture": {
+                        "status": "pending",
+                        "fallback_asset": "/api/v1/assets/fallback-preview",
+                    },
+                }
             )
-        return PreviewDTO(
-            tab_id=tab_id,
-            status=preview.status,
-            title=preview.title,
-            byline=preview.byline,
-            site_name=preview.site_name,
-            excerpt=preview.excerpt,
-            content_html=preview.content_html,
-            length=preview.length,
-            source_url=preview.source_url,
-            error=preview.error,
-            fetched_at=preview.fetched_at,
-            fallback_asset="/api/v1/assets/fallback-preview",
+        return PreviewDTO.model_validate(
+            {
+                "tab_id": tab_id,
+                "capture": {
+                    "status": preview.capture.status,
+                    "source_url": preview.capture.source_url,
+                    "error": preview.capture.error,
+                    "fetched_at": preview.capture.fetched_at,
+                    "fallback_asset": "/api/v1/assets/fallback-preview",
+                },
+                "article": {
+                    "title": preview.article.title,
+                    "byline": preview.article.byline,
+                    "site_name": preview.article.site_name,
+                    "excerpt": preview.article.excerpt,
+                    "content_html": preview.article.content_html,
+                    "length": preview.article.length,
+                },
+            }
         )
 
     @staticmethod
@@ -58,7 +68,7 @@ class PreviewMapper:
     @staticmethod
     def asset(
         *,
-        kind: str,
+        kind: AssetKind,
         path: Path,
         content_type: str,
         size_bytes: int,
@@ -79,12 +89,14 @@ class PreviewMapper:
             Asset: Asset row read or staged by this operation.
         """
         return Asset(
-            kind=kind,
-            path=str(path),
-            content_type=content_type,
-            size_bytes=size_bytes,
-            checksum=checksum,
-            source_url=source_url,
+            file=AssetFile(
+                kind=kind,
+                path=str(path),
+                content_type=content_type,
+                size_bytes=size_bytes,
+                checksum=checksum,
+            ),
+            source=AssetSource(source_url=source_url),
         )
 
     @staticmethod

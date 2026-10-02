@@ -50,7 +50,7 @@ export function ReadableArticlePreview({
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<ReadabilityState>({
     status: "loading",
-    url: tab.url,
+    url: tab.content.url,
   });
   const backendUrl = backend?.url;
   const backendApiKey = backend?.apiKey;
@@ -65,10 +65,10 @@ export function ReadableArticlePreview({
             apiKey: backendApiKey,
           }).previews.loadArticle({
             id: tab.id,
-            title: tab.title,
-            url: tab.url,
+            title: tab.content.title,
+            url: tab.content.url,
           })
-        : parseReadableArticle(tab.url).then(article => ({
+        : parseReadableArticle(tab.content.url).then(article => ({
             article,
             objectUrls: [],
           }));
@@ -76,14 +76,19 @@ export function ReadableArticlePreview({
       .then(({ article, objectUrls }) => {
         loadedObjectUrls = objectUrls;
         if (!cancelled)
-          setState({ status: "ready", url: tab.url, article, objectUrls });
+          setState({
+            status: "ready",
+            url: tab.content.url,
+            article,
+            objectUrls,
+          });
         else objectUrls.forEach(value => URL.revokeObjectURL(value));
       })
       .catch(error => {
         if (!cancelled)
           setState({
             status: "unavailable",
-            url: tab.url,
+            url: tab.content.url,
             reason:
               error instanceof Error
                 ? error.message
@@ -94,15 +99,22 @@ export function ReadableArticlePreview({
       cancelled = true;
       loadedObjectUrls.forEach(value => URL.revokeObjectURL(value));
     };
-  }, [tab.id, tab.title, tab.url, backendUrl, backendApiKey, attempt]);
+  }, [
+    tab.id,
+    tab.content.title,
+    tab.content.url,
+    backendUrl,
+    backendApiKey,
+    attempt,
+  ]);
 
-  if (state.status === "loading" || state.url !== tab.url) {
+  if (state.status === "loading" || state.url !== tab.content.url) {
     return (
       <section className="overflow-hidden border border-[#d7d1c4] bg-[#fffdf8]">
         <ReaderHeader tab={tab} label="Preparing reader preview" />
         <PreviewTitle
           tab={tab}
-          title={tab.title}
+          title={tab.content.title}
           hidden={hidden}
           onViewedChange={onViewedChange}
         />
@@ -120,7 +132,7 @@ export function ReadableArticlePreview({
         <ReaderHeader tab={tab} label="Saved link" />
         <PreviewTitle
           tab={tab}
-          title={tab.title}
+          title={tab.content.title}
           hidden={hidden}
           onViewedChange={onViewedChange}
         />
@@ -130,7 +142,7 @@ export function ReadableArticlePreview({
             <p className="text-[12px] font-bold">Reader preview unavailable</p>
           </div>
           <p className="mt-2 max-w-2xl text-[11px] leading-5 text-[#667068]">
-            {tab.note ||
+            {tab.annotations.note ||
               "This site did not provide readable article HTML to the current TabVault context."}
           </p>
           <p className="mt-2 font-mono text-[8px] uppercase tracking-[0.08em] text-[#9a7a5f]">
@@ -146,7 +158,7 @@ export function ReadableArticlePreview({
               <RefreshCw className="h-3.5 w-3.5" /> Retry reader
             </Button>
             <a
-              href={tab.url}
+              href={tab.content.url}
               target="_blank"
               rel="noreferrer"
               onClick={event => openSavedLink(event, tab, onOpen)}
@@ -168,7 +180,7 @@ export function ReadableArticlePreview({
       <div className="px-4 pt-4 pb-2">
         <PreviewTitle
           tab={tab}
-          title={article.title || tab.title}
+          title={article.title || tab.content.title}
           hidden={hidden}
           onViewedChange={onViewedChange}
           flush
@@ -191,7 +203,7 @@ export function ReadableArticlePreview({
         dangerouslySetInnerHTML={{ __html: article.content }}
       />
       <div className="flex flex-wrap items-center gap-1.5 bg-[#fffdf8] px-4 py-3">
-        {tab.tags.map(tag => (
+        {tab.annotations.tags.map(tag => (
           <span
             key={tag}
             className="rounded border border-[#ded9cd] bg-[#f9f7f1] px-1.5 py-[3px] font-mono text-[8px] text-[#747a72]"
@@ -255,16 +267,16 @@ function ReaderHeader({ tab, label }: { tab: TabListItem; label: string }) {
   return (
     <div
       className="relative flex items-center justify-between gap-3 border-b border-[#e5dfd4] px-4 py-2.5"
-      style={{ backgroundColor: `${tab.color}18` }}
+      style={{ backgroundColor: `${tab.content.color}18` }}
     >
       <div
         className="absolute inset-y-0 left-0 w-1"
-        style={{ backgroundColor: tab.color }}
+        style={{ backgroundColor: tab.content.color }}
       />
       <div className="flex min-w-0 items-center gap-2">
         <TabFavicon tab={tab} size="compact" />
         <span className="truncate font-mono text-[9px] uppercase tracking-[0.11em] text-[#617066]">
-          {tab.domain}
+          {tab.content.domain}
         </span>
       </div>
       <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#758077]">

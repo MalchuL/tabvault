@@ -19,18 +19,26 @@ import {
   Field,
 } from "@/domain/library/components/shared/DialogParts";
 
-type EditTabDialogProps = {
-  tab: VaultTab;
-  groups: VaultGroup[];
+/** Tags for EditTabDialogProps. */
+type EditTabDialogTags = {
   tagDraft: string;
   tagSuggestions: string[];
   tagCatalog: Record<string, string>;
-  propertySchema: CustomPropertySchema;
-  onChange: (tab: VaultTab) => void;
   onTagDraftChange: (tag: string) => void;
   onAddTag: () => void;
+};
+/** Interaction handlers for EditTabDialogProps. */
+type EditTabDialogActions = {
+  onChange: (tab: VaultTab) => void;
   onClose: () => void;
   onSave: () => void;
+};
+type EditTabDialogProps = {
+  tab: VaultTab;
+  groups: VaultGroup[];
+  propertySchema: CustomPropertySchema;
+  tags: EditTabDialogTags;
+  actions: EditTabDialogActions;
 };
 
 /**
@@ -42,21 +50,16 @@ type EditTabDialogProps = {
 export function EditTabDialog({
   tab,
   groups,
-  tagDraft,
-  tagSuggestions,
-  tagCatalog,
   propertySchema,
-  onChange,
-  onTagDraftChange,
-  onAddTag,
-  onClose,
-  onSave,
+  tags: { tagDraft, tagSuggestions, tagCatalog, onTagDraftChange, onAddTag },
+  actions: { onChange, onClose, onSave },
 }: EditTabDialogProps) {
   const destinationGroups = groups.filter(
-    group => group.category !== "session"
+    group => group.details.category !== "session"
   );
   const currentGroupIsSession = groups.some(
-    group => group.id === tab.groupId && group.category === "session"
+    group =>
+      group.id === tab.placement.groupId && group.details.category === "session"
   );
   return (
     <Dialog open onOpenChange={open => !open && onClose()}>
@@ -74,33 +77,52 @@ export function EditTabDialog({
         <div className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6">
           <Field label="Title" className="sm:col-span-2">
             <Input
-              value={tab.title}
+              value={tab.content.title}
               onChange={event =>
-                onChange({ ...tab, title: event.target.value })
+                onChange({
+                  ...tab,
+                  content: { ...tab.content, title: event.target.value },
+                })
               }
               className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[13px] font-semibold outline-none focus:border-[#e95224]"
             />
           </Field>
           <Field label="URL" className="sm:col-span-2">
             <Input
-              value={tab.url}
-              onChange={event => onChange({ ...tab, url: event.target.value })}
+              value={tab.content.url}
+              onChange={event =>
+                onChange({
+                  ...tab,
+                  content: { ...tab.content, url: event.target.value },
+                })
+              }
               className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 font-mono text-[11px] outline-none focus:border-[#e95224]"
             />
           </Field>
           <Field label="Note" className="sm:col-span-2">
             <Textarea
-              value={tab.note}
-              onChange={event => onChange({ ...tab, note: event.target.value })}
+              value={tab.annotations.note}
+              onChange={event =>
+                onChange({
+                  ...tab,
+                  annotations: { ...tab.annotations, note: event.target.value },
+                })
+              }
               rows={4}
               className="mt-2 w-full resize-none border border-[#ded9cd] bg-[#f9f7f1] px-3 py-3 text-[12px] leading-5 outline-none focus:border-[#e95224]"
             />
           </Field>
           <Field label="Agent review" className="sm:col-span-2">
             <Textarea
-              value={tab.agentReview}
+              value={tab.annotations.agentReview}
               onChange={event =>
-                onChange({ ...tab, agentReview: event.target.value })
+                onChange({
+                  ...tab,
+                  annotations: {
+                    ...tab.annotations,
+                    agentReview: event.target.value,
+                  },
+                })
               }
               rows={4}
               placeholder="Summary or additional context written by an AI agent"
@@ -113,9 +135,15 @@ export function EditTabDialog({
             </span>
             <label className="mt-2 flex items-center gap-2 py-3 text-[12px] font-semibold text-[#3f4e44]">
               <Checkbox
-                checked={tab.viewed}
+                checked={tab.annotations.viewed}
                 onCheckedChange={checked =>
-                  onChange({ ...tab, viewed: checked === true })
+                  onChange({
+                    ...tab,
+                    annotations: {
+                      ...tab.annotations,
+                      viewed: checked === true,
+                    },
+                  })
                 }
                 className="h-4 w-4 accent-[#e95224]"
               />
@@ -125,7 +153,8 @@ export function EditTabDialog({
           {Object.entries(propertySchema)
             .filter(([name]) => name !== "viewed")
             .map(([name, definition]) => {
-              const value = tab.customProperties[name] ?? definition.default;
+              const value =
+                tab.annotations.customProperties[name] ?? definition.default;
               /**
                * Update an edited tab's custom property.
                *
@@ -135,9 +164,12 @@ export function EditTabDialog({
               const update = (next: unknown) =>
                 onChange({
                   ...tab,
-                  customProperties: {
-                    ...tab.customProperties,
-                    [name]: next,
+                  annotations: {
+                    ...tab.annotations,
+                    customProperties: {
+                      ...tab.annotations.customProperties,
+                      [name]: next,
+                    },
                   },
                 });
               return (
@@ -191,12 +223,17 @@ export function EditTabDialog({
           <Field label="Collection">
             <NativeSelect
               value={
-                currentGroupIsSession ? "current-session" : (tab.groupId ?? "")
+                currentGroupIsSession
+                  ? "current-session"
+                  : (tab.placement.groupId ?? "")
               }
               onChange={event =>
                 onChange({
                   ...tab,
-                  groupId: event.target.value || null,
+                  placement: {
+                    ...tab.placement,
+                    groupId: event.target.value || null,
+                  },
                 })
               }
               className="mt-2 w-full border-b border-[#bcb6a8] bg-[#f9f7f1] px-3 py-3 text-[12px] font-semibold outline-none focus:border-[#e95224]"
@@ -209,7 +246,7 @@ export function EditTabDialog({
               <option value="">[Unassigned]</option>
               {destinationGroups.map(group => (
                 <option key={group.id} value={group.id}>
-                  {group.name}
+                  {group.details.name}
                 </option>
               ))}
             </NativeSelect>
@@ -219,7 +256,7 @@ export function EditTabDialog({
               Tags
             </span>
             <div className="mt-2 flex flex-wrap gap-1.5">
-              {tab.tags.map(tag => (
+              {tab.annotations.tags.map(tag => (
                 <span
                   key={tag}
                   className="inline-flex items-center gap-1 rounded border border-[#ded9cd] bg-[#f9f7f1] px-2 py-1 font-mono text-[9px] text-[#667067]"
@@ -231,7 +268,12 @@ export function EditTabDialog({
                     onClick={() =>
                       onChange({
                         ...tab,
-                        tags: tab.tags.filter(item => item !== tag),
+                        annotations: {
+                          ...tab.annotations,
+                          tags: tab.annotations.tags.filter(
+                            item => item !== tag
+                          ),
+                        },
                       })
                     }
                     className="text-[#989990] hover:text-[#e95224]"

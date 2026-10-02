@@ -43,8 +43,12 @@ def page(*items: TabDTO, has_next: bool = False, size: int | None = None) -> Tab
 async def test_group_name_resolution_uses_oldest_case_insensitive_match_across_pages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    newest = group("new").model_copy(update={"name": "Research"})
-    oldest = group("old").model_copy(update={"name": "research"})
+    newest = group("new").model_copy(
+        update={"details": group().details.model_copy(update={"name": "Research"})}
+    )
+    oldest = group("old").model_copy(
+        update={"details": group().details.model_copy(update={"name": "research"})}
+    )
     client = QueueClient(
         [
             GroupListResponseDTO(data=[newest], has_next=True, size=7),
@@ -92,9 +96,9 @@ async def test_first_tab_uses_oldest_exact_visible_url_and_validates_pages(
     monkeypatch.setattr(tabs, "get_client", lambda: client)
     result = await tabs.first_visible_tab("https://exact")
     assert result.id == "oldest"
-    assert client.calls[0][1].sort_by == "createdAt"
-    assert client.calls[0][1].sort_dir == "asc"
-    assert client.calls[1][1].offset == 9
+    assert client.calls[0][1].ordering.sort_by == "createdAt"
+    assert client.calls[0][1].ordering.sort_dir == "asc"
+    assert client.calls[1][1].pagination.offset == 9
 
     monkeypatch.setattr(tabs, "get_client", lambda: QueueClient([page()]))
     with pytest.raises(MCPClientError, match="https://missing"):
@@ -107,16 +111,18 @@ async def test_first_tab_uses_oldest_exact_visible_url_and_validates_pages(
 
 
 def test_tab_mapper_replaces_group_identity_and_rejects_incomplete_data() -> None:
-    assigned = tab().model_copy(update={"group_id": "group"})
+    assigned = tab().model_copy(
+        update={"placement": tab().placement.model_copy(update={"group_id": "group"})}
+    )
     view = mapper.to_view(assigned, [group()])
-    assert view.group == "Group"
+    assert view.placement.group == "Group"
     assert "id" not in view.model_dump(mode="json", by_alias=True)
     assert "position" not in view.model_dump(mode="json", by_alias=True)
 
     with pytest.raises(MCPClientError, match="Group"):
         mapper.to_view(assigned, [])
 
-    incomplete = TabProjectionDTO(url="https://exact")
+    incomplete = TabProjectionDTO.model_validate({"content": {"url": "https://exact"}})
     response = PaginatedResponseDTO[TabDTO | TabProjectionDTO](data=[incomplete])
     with pytest.raises(MCPClientError, match="incomplete"):
         mapper.to_page(response, [])

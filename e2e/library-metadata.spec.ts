@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { openSchemaV2Library } from "./schema-v2-fixture";
+import { openSchemaV4Library } from "./schema-v4-fixture";
 
 const TAB_TITLE = "Agents can organize the web better than we can";
 
 test("tracks viewed state and preserves editable agent review", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   const viewed = page.getByTestId("tab-row-t-1001").getByRole("checkbox", {
     name: `Mark ${TAB_TITLE} as viewed`,
   });
@@ -56,7 +56,7 @@ test("tracks viewed state and preserves editable agent review", async ({
 test("editing a Session group explicitly reclassifies it as manual", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   await page.getByLabel("Edit Session Aug 23 13:00").click();
   await page.getByLabel("Description").fill("Curated by a human");
   await expect(page.getByLabel("Category")).toHaveValue("manual");
@@ -66,15 +66,16 @@ test("editing a Session group explicitly reclassifies it as manual", async ({
     JSON.parse(localStorage.getItem("tabvault-v3") || "{}")
   );
   expect(
-    saved.vaultGroups.find((group: { id: string }) => group.id === "session")
-      .category
+    saved.library.vaultGroups.find(
+      (group: { id: string }) => group.id === "session"
+    ).details.category
   ).toBe("manual");
 });
 
 test("group edit category dropdown can explicitly override manual", async ({
   page,
 }) => {
-  await openSchemaV2Library(page);
+  await openSchemaV4Library(page);
   await page.getByLabel("Edit Empty shelf").click();
   await page.getByLabel("Description").fill("A new session bucket");
   await page.getByLabel("Category").selectOption("session");
@@ -84,9 +85,9 @@ test("group edit category dropdown can explicitly override manual", async ({
     .poll(() =>
       page.evaluate(() => {
         const vault = JSON.parse(localStorage.getItem("tabvault-v3") || "{}");
-        return vault.vaultGroups?.find(
+        return vault.library.vaultGroups?.find(
           (group: { id: string }) => group.id === "empty"
-        )?.category;
+        )?.details.category;
       })
     )
     .toBe("session");
@@ -99,7 +100,7 @@ test("incompatible browser data offers adjacent raw download and clear actions",
   await page.evaluate(() => {
     localStorage.clear();
     localStorage.setItem(
-      "tabvault-v1",
+      "tabvault-v3",
       JSON.stringify({ schemaVersion: 1, tabs: [{ url: "legacy" }] })
     );
   });

@@ -66,7 +66,11 @@ async def test_resources_return_id_free_views(monkeypatch: pytest.MonkeyPatch) -
 
     assert group_view.name == "Group"
     assert tag_view.name == "docs"
-    assert recent.group is None and unassigned.group is None and single.url == "https://exact"
+    assert (
+        recent.placement.group is None
+        and unassigned.placement.group is None
+        and single.content.url == "https://exact"
+    )
     assert "id" not in group_view.model_dump(mode="json", by_alias=True)
     for view in (recent, unassigned, single):
         payload = view.model_dump(mode="json", by_alias=True)

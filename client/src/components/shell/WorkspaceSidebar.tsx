@@ -83,8 +83,8 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
     []
   );
 
-  const stats = bridge ?? libraryStats(vault);
-  const isRefreshing = bridge?.isRefreshing ?? isRefreshingFallback;
+  const stats = bridge?.counts ?? libraryStats(vault);
+  const isRefreshing = bridge?.connection.isRefreshing ?? isRefreshingFallback;
   const isAllTabsPage =
     location === "/" ||
     location === "/all-tabs" ||
@@ -105,7 +105,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
   const openTags = () => {
     setOpen(false);
     if (bridge) {
-      bridge.onOpenTags();
+      bridge.actions.onOpenTags();
       return;
     }
     sessionStorage.setItem(LIBRARY_OPEN_TAGS_FLAG, "1");
@@ -120,13 +120,16 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
    */
   const refreshLibrary = async () => {
     if (bridge) {
-      if (bridge.storageMode !== "backend" || !bridge.serverOnline) {
+      if (
+        bridge.connection.storageMode !== "backend" ||
+        !bridge.connection.serverOnline
+      ) {
         toast.error(
           "Connect the TabVault server before refreshing the library"
         );
         return;
       }
-      bridge.onRefreshLibrary();
+      bridge.actions.onRefreshLibrary();
       return;
     }
     setIsRefreshingFallback(true);
@@ -153,7 +156,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
       const { vault } = await refreshLibraryFromServer(url, key, current);
       dispatch({ type: "replace", vault });
       toast.success("Library refreshed", {
-        description: `${vault.tabs.length} tabs merged with the server.`,
+        description: `${vault.library.tabs.length} tabs merged with the server.`,
       });
     } catch {
       toast.error("Could not refresh tabs and collections");
@@ -219,8 +222,8 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
                 type="button"
                 onClick={() => {
                   setOpen(false);
-                  if (bridge?.onCaptureTab) {
-                    void bridge.onCaptureTab();
+                  if (bridge?.actions.onCaptureTab) {
+                    void bridge.actions.onCaptureTab();
                     return;
                   }
                   setLocation("/");

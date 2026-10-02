@@ -112,4 +112,4 @@ History uses short imperative subjects such as `Fix bugs`; make new subjects mor
 
 ## Security & Configuration
 
-Never commit bearer keys or local data. The development API key is `admin` only for trusted local use; set `TABVAULT_API_KEY` and restrictive `TABVAULT_CORS_ORIGINS` before network exposure. Preserve the archive-first lifecycle and browser-local fallback when changing storage flows.
+Never commit bearer keys or local data. The development API key is `admin` only for trusted local use; set `TABVAULT_HTTP__API_KEY` and restrictive `TABVAULT_HTTP__CORS_ORIGINS` before network exposure. Preserve the archive-first lifecycle and browser-local fallback when changing storage flows.

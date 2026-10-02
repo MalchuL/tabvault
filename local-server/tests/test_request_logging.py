@@ -22,7 +22,7 @@ from config.settings import Settings, configure_logging
 
 def test_configure_logging_restores_info_after_warning_reset() -> None:
     logging.getLogger().setLevel(logging.WARNING)
-    configure_logging(Settings(log_level="INFO"))
+    configure_logging(Settings.model_validate({"logging": {"level": "INFO"}}))
     assert logging.getLogger().level == logging.INFO
     assert logging.getLogger("api.request").getEffectiveLevel() == logging.INFO
     assert logging.getLogger("uvicorn.access").level == logging.WARNING
@@ -43,7 +43,6 @@ def test_preview_body_compacts_json_and_truncates() -> None:
     )
     assert preview_body(b"not-json", "application/json") == "not-json"
     assert preview_body(b"plain", "text/plain") == "plain"
-
     oversized = b"x" * (MAX_LOGGED_BODY_CHARS + 20)
     preview = preview_body(oversized, "text/plain")
     assert preview.startswith("x" * MAX_LOGGED_BODY_CHARS)
@@ -53,7 +52,6 @@ def test_preview_body_compacts_json_and_truncates() -> None:
 def test_describe_non_textual_response_uses_headers() -> None:
     empty = Response(status_code=200)
     assert describe_non_textual_response(empty) == ""
-
     image = Response(status_code=200)
     image.headers["content-type"] = "image/png"
     image.headers["content-length"] = "128"

@@ -24,16 +24,16 @@ export function TabFavicon({
     return (
       <span
         className={`flex ${dimensions} shrink-0 items-center justify-center rounded-[7px] text-[9px] font-bold text-white shadow-sm`}
-        style={{ backgroundColor: tab.color }}
+        style={{ backgroundColor: tab.content.color }}
         aria-hidden="true"
       >
-        {tab.icon}
+        {tab.content.icon}
       </span>
     );
   }
   return (
     <img
-      src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(tab.url)}&sz=64`}
+      src={`https://www.google.com/s2/favicons?domain_url=${encodeURIComponent(tab.content.url)}&sz=64`}
       alt=""
       className={`${dimensions} shrink-0 rounded-[7px] bg-[#ece7dc] object-cover`}
       onError={() => setFailed(true)}
@@ -41,65 +41,71 @@ export function TabFavicon({
   );
 }
 
+/** Search state and handlers for StandardTabContentProps. */
+type StandardTabContentSearch = {
+  query: string;
+  score?: number;
+  fallbackMode?: "text_fallback" | "semantic";
+};
+/** Interaction handlers for StandardTabContentProps. */
+type StandardTabContentActions = {
+  onOpenTagManager: () => void;
+  onOpen: (tab: TabListItem, url?: string) => void;
+  onViewedChange: (id: string, viewed: boolean) => void;
+};
+/** Properties supplied to StandardTabContent. */
+type StandardTabContentProps = {
+  tab: TabListItem;
+  hidden: boolean;
+  search: StandardTabContentSearch;
+  actions: StandardTabContentActions;
+};
 /**
  * Render title, metadata, tags, and search evidence for a tab.
  * Opening links and changing viewed state remain delegated to the workspace.
- * @param {{ tab: TabListItem; query: string; score?: number; fallbackMode?: "text_fallback" | "semantic"; hidden: boolean; onOpenTagManager: () => void; onOpen: (tab: TabListItem, url?: string) => void; onViewedChange: (id: string, viewed: boolean) => void; }} props - Tab metadata, search context, and open/viewed handlers.
+ * @param {StandardTabContentProps} props - Tab metadata, search context, and open/viewed handlers.
  * @returns {React.ReactElement} Standard tab content and search evidence.
  */
 export function StandardTabContent({
   tab,
-  query,
-  score,
-  fallbackMode,
   hidden,
-  onOpenTagManager,
-  onOpen,
-  onViewedChange,
-}: {
-  tab: TabListItem;
-  query: string;
-  score?: number;
-  fallbackMode?: "text_fallback" | "semantic";
-  hidden: boolean;
-  onOpenTagManager: () => void;
-  onOpen: (tab: TabListItem, url?: string) => void;
-  onViewedChange: (id: string, viewed: boolean) => void;
-}) {
+  search: { query, score, fallbackMode },
+  actions: { onOpenTagManager, onOpen, onViewedChange },
+}: StandardTabContentProps) {
   return (
     <>
       <TabFavicon tab={tab} size="standard" />
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 items-start gap-2">
           <a
-            href={tab.url}
+            href={tab.content.url}
             target="_blank"
             rel="noreferrer"
             onClick={event => openSavedLink(event, tab, onOpen)}
             onAuxClick={event => openSavedLink(event, tab, onOpen)}
             className="block min-w-0 truncate text-[13px] font-bold leading-5 tracking-[-0.015em] text-[#26342c] hover:text-[#e95224] hover:underline"
-            title={tab.title}
+            title={tab.content.title}
           >
-            {tab.title}
+            {tab.content.title}
           </a>
           <ViewedCheckbox tab={tab} hidden={hidden} onChange={onViewedChange} />
           <ArrowUpRight className="mt-1 hidden h-3.5 w-3.5 shrink-0 text-[#9a9c95] group-hover:block" />
         </div>
         <p
           className="mt-1 truncate text-[10px] font-medium text-[#84877f]"
-          title={`${tab.domain} · updated ${tab.updatedAt}`}
+          title={`${tab.content.domain} · updated ${tab.timestamps.updatedAt}`}
         >
-          {tab.domain} <span className="mx-1.5 text-[#c4c1b9]">·</span> updated{" "}
-          {tab.updatedAt}
+          {tab.content.domain} <span className="mx-1.5 text-[#c4c1b9]">·</span>{" "}
+          updated {tab.timestamps.updatedAt}
         </p>
         <p
           className="mt-1.5 max-w-2xl truncate text-[11px] leading-5 text-[#666d65]"
-          title={tab.note}
+          title={tab.annotations.note}
         >
-          {tab.note}
+          {tab.annotations.note}
         </p>
         <div className="mt-2 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
-          {tab.tags.slice(0, 3).map(tag => (
+          {tab.annotations.tags.slice(0, 3).map(tag => (
             <Button
               variant="ghost"
               key={tag}
@@ -110,14 +116,14 @@ export function StandardTabContent({
               {tag}
             </Button>
           ))}
-          {tab.tags.length > 3 && (
+          {tab.annotations.tags.length > 3 && (
             <Button
               variant="ghost"
               onClick={onOpenTagManager}
-              title={tab.tags.slice(3).join(", ")}
+              title={tab.annotations.tags.slice(3).join(", ")}
               className="shrink-0 rounded border border-[#ded9cd] bg-[#f9f7f1] px-1.5 py-[3px] font-mono text-[9px] text-[#747a72] transition hover:border-[#e95224] hover:text-[#e95224]"
             >
-              +{tab.tags.length - 3}
+              +{tab.annotations.tags.length - 3}
             </Button>
           )}
           {query && score === undefined && (
@@ -146,16 +152,18 @@ export function ViewedCheckbox({
   hidden?: boolean;
   onChange: (id: string, viewed: boolean) => void;
 }) {
-  const hiddenUntil = tab.hiddenUntil ? new Date(tab.hiddenUntil) : null;
+  const hiddenUntil = tab.lifecycle.hiddenUntil
+    ? new Date(tab.lifecycle.hiddenUntil)
+    : null;
   return (
     <>
       <Checkbox
-        checked={tab.viewed}
+        checked={tab.annotations.viewed}
         onCheckedChange={checked => onChange(tab.id, checked === true)}
         onClick={event => event.stopPropagation()}
         onPointerDown={event => event.stopPropagation()}
         className="mt-1 h-3.5 w-3.5 shrink-0 accent-[#e95224]"
-        aria-label={`Mark ${tab.title} as viewed`}
+        aria-label={`Mark ${tab.content.title} as viewed`}
         title="Viewed"
       />
       {hidden && hiddenUntil && !Number.isNaN(hiddenUntil.getTime()) && (

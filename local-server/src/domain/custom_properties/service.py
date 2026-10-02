@@ -220,7 +220,7 @@ class CustomPropertyService:
         tabs = await self.repository.list_tabs()
         issues: list[PropertyValidationIssueDTO] = []
         for tab in tabs:
-            for name, value in (tab.custom_properties or {}).items():
+            for name, value in (tab.annotations.custom_properties or {}).items():
                 definition = definitions.get(name)
                 if definition is None:
                     issues.append(
@@ -266,7 +266,7 @@ class CustomPropertyService:
             for tab in tabs:
                 repaired: dict[str, Any] = {}
                 changed = False
-                for name, value in (tab.custom_properties or {}).items():
+                for name, value in (tab.annotations.custom_properties or {}).items():
                     definition = definitions.get(name)
                     if definition is None:
                         removed += 1
@@ -284,8 +284,8 @@ class CustomPropertyService:
                         removed += 1
                     changed = True
                 if changed:
-                    tab.custom_properties = repaired
-                    tab.updated_at = utc_now()
+                    tab.annotations.custom_properties = repaired
+                    tab.timestamps.updated_at = utc_now()
             await self.db.commit()
         except Exception:
             await self.db.rollback()
@@ -306,8 +306,8 @@ class CustomPropertyService:
         """
         definitions = await self.definitions()
         self.validate_patch(values, definitions)
-        tab.custom_properties = {**(tab.custom_properties or {}), **values}
-        tab.updated_at = utc_now()
+        tab.annotations.custom_properties = {**(tab.annotations.custom_properties or {}), **values}
+        tab.timestamps.updated_at = utc_now()
 
     async def unset_tab(self, tab: Tab, names: list[str]) -> None:
         """Stage removal of selected explicit overrides from one Saved Tab.
@@ -316,8 +316,8 @@ class CustomPropertyService:
             tab (Tab): Persistent Saved Tab being updated.
             names (list[str]): Stored keys to remove; absent keys are idempotent no-ops.
         """
-        values = dict(tab.custom_properties or {})
+        values = dict(tab.annotations.custom_properties or {})
         for name in names:
             values.pop(name, None)
-        tab.custom_properties = values
-        tab.updated_at = utc_now()
+        tab.annotations.custom_properties = values
+        tab.timestamps.updated_at = utc_now()

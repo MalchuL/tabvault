@@ -2045,7 +2045,6 @@ source = { editable = "." }
 dependencies = [
     { name = "advanced-alchemy" },
     { name = "aiosqlite" },
-    { name = "alembic" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "nh3" },
@@ -2076,7 +2075,6 @@ dev = [
 requires-dist = [
     { name = "advanced-alchemy", specifier = ">=1.6" },
     { name = "aiosqlite", specifier = ">=0.21" },
-    { name = "alembic", specifier = ">=1.16" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "nh3", specifier = ">=0.3" },

@@ -11,9 +11,9 @@ import type { GroupId, PersistedVault, VaultGroup, VaultTab } from "./types";
  */
 export function isCurrentlyHidden(tab: VaultTab, now = Date.now()): boolean {
   return (
-    !tab.archived &&
-    Boolean(tab.hiddenUntil) &&
-    Date.parse(tab.hiddenUntil ?? "") > now
+    !tab.lifecycle.archived &&
+    Boolean(tab.lifecycle.hiddenUntil) &&
+    Date.parse(tab.lifecycle.hiddenUntil ?? "") > now
   );
 }
 
@@ -26,12 +26,14 @@ export function isCurrentlyHidden(tab: VaultTab, now = Date.now()): boolean {
  */
 export function libraryStats(vault: PersistedVault, now = Date.now()) {
   return {
-    activeCount: vault.tabs.filter(
-      tab => !tab.archived && !isCurrentlyHidden(tab, now)
+    activeCount: vault.library.tabs.filter(
+      tab => !tab.lifecycle.archived && !isCurrentlyHidden(tab, now)
     ).length,
-    archivedCount: vault.tabs.filter(tab => tab.archived).length,
-    hiddenCount: vault.tabs.filter(tab => isCurrentlyHidden(tab, now)).length,
-    tagCount: Object.keys(vault.tagCatalog).length,
+    archivedCount: vault.library.tabs.filter(tab => tab.lifecycle.archived)
+      .length,
+    hiddenCount: vault.library.tabs.filter(tab => isCurrentlyHidden(tab, now))
+      .length,
+    tagCount: Object.keys(vault.library.tagCatalog).length,
   };
 }
 
@@ -44,17 +46,27 @@ export function libraryStats(vault: PersistedVault, now = Date.now()) {
  */
 export function sortTabs(
   tabs: VaultTab[],
-  vault: Pick<PersistedVault, "vaultGroups" | "tabOrders">
+  vault: {
+    library: Pick<PersistedVault["library"], "vaultGroups" | "tabOrders">;
+  }
 ): VaultTab[] {
   return [...tabs].sort((left, right) => {
-    if (left.groupId !== right.groupId)
+    if (left.placement.groupId !== right.placement.groupId)
       return (
-        vault.vaultGroups.findIndex(group => group.id === left.groupId) -
-        vault.vaultGroups.findIndex(group => group.id === right.groupId)
+        vault.library.vaultGroups.findIndex(
+          group => group.id === left.placement.groupId
+        ) -
+        vault.library.vaultGroups.findIndex(
+          group => group.id === right.placement.groupId
+        )
       );
     return (
-      (vault.tabOrders[orderKey(left.groupId)] ?? []).indexOf(left.id) -
-      (vault.tabOrders[orderKey(right.groupId)] ?? []).indexOf(right.id)
+      (vault.library.tabOrders[orderKey(left.placement.groupId)] ?? []).indexOf(
+        left.id
+      ) -
+      (
+        vault.library.tabOrders[orderKey(right.placement.groupId)] ?? []
+      ).indexOf(right.id)
     );
   });
 }
@@ -104,19 +116,31 @@ export function searchResultTabs(
     if (local) return local;
     return {
       id: tab.id,
-      groupId: tab.groupId && groupIds.has(tab.groupId) ? tab.groupId : null,
-      title: tab.title,
-      url: tab.url,
-      domain: domainFromUrl(tab.url),
-      note: tab.note ?? "",
-      agentReview: tab.agentReview ?? "",
-      customProperties: tab.customProperties ?? {},
-      viewed: Boolean(tab.customProperties?.viewed),
-      tags: tab.tags ?? [],
-      color: "#6b8c7e",
-      icon: tab.title.slice(0, 1).toUpperCase() || "T",
-      createdAt: tab.updatedAt ?? now,
-      updatedAt: tab.updatedAt ?? now,
+      placement: {
+        groupId:
+          tab.placement.groupId && groupIds.has(tab.placement.groupId)
+            ? tab.placement.groupId
+            : null,
+      },
+      content: {
+        title: tab.content.title,
+        url: tab.content.url,
+        domain: domainFromUrl(tab.content.url),
+        color: "#6b8c7e",
+        icon: tab.content.title.slice(0, 1).toUpperCase() || "T",
+      },
+      annotations: {
+        note: tab.annotations.note ?? "",
+        agentReview: tab.annotations.agentReview ?? "",
+        customProperties: tab.annotations.customProperties ?? {},
+        viewed: Boolean(tab.annotations.customProperties?.viewed),
+        tags: tab.annotations.tags ?? [],
+      },
+      timestamps: {
+        createdAt: tab.timestamps.updatedAt ?? now,
+        updatedAt: tab.timestamps.updatedAt ?? now,
+      },
+      lifecycle: {},
     };
   });
 }

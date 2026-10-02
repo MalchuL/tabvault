@@ -11,7 +11,17 @@ from config.settings import Settings
 from db.session import configure_database, dispose_database
 from domain.jobs.worker import JobWorker
 from domain.previews.service import PreviewService
-from models import Base, Job, Tab
+from models import (
+    Base,
+    Job,
+    JobExecution,
+    JobTarget,
+    Tab,
+    TabAnnotations,
+    TabContent,
+    TabLifecycle,
+    TabPlacement,
+)
 
 
 class FakeVectors:
@@ -21,32 +31,33 @@ class FakeVectors:
 
 @pytest.mark.asyncio
 async def test_job_worker_all_common_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = Settings(
-        data_dir=tmp_path, database_url=f"sqlite+aiosqlite:///{tmp_path / 'jobs.db'}"
+    settings = Settings.model_validate(
+        {
+            "storage": {
+                "data_dir": tmp_path,
+                "database_url": f"sqlite+aiosqlite:///{tmp_path / 'jobs.db'}",
+            }
+        }
     )
     engine, factory = configure_database(settings)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     worker = JobWorker(settings, FakeVectors())
     assert await worker._next() is False
-
     async with factory() as db:
         tab = Tab(
-            url="https://example.com",
-            title="Example",
-            note="",
-            group_id=None,
-            position=0,
-            archived=False,
-            archived_at=None,
+            content=TabContent(url="https://example.com", title="Example"),
+            annotations=TabAnnotations(note=""),
+            placement=TabPlacement(group_id=None, position=0),
+            lifecycle=TabLifecycle(archived=False, archived_at=None),
         )
         db.add(tab)
         await db.flush()
         db.add_all(
             [
-                Job(kind="preview_capture", target_id=tab.id),
-                Job(kind="search_reindex"),
-                Job(kind="unknown"),
+                Job(target=JobTarget(kind="preview_capture", target_id=tab.id)),
+                Job(target=JobTarget(kind="search_reindex")),
+                Job(target=JobTarget(kind="unknown")),
             ]
         )
         await db.commit()
@@ -59,12 +70,10 @@ async def test_job_worker_all_common_paths(tmp_path: Path, monkeypatch: pytest.M
     assert await worker._next() is True
     assert await worker._next() is True
     assert await worker._next() is False
-
     async with factory() as db:
         jobs = list((await db.scalars(__import__("sqlalchemy").select(Job))).all())
-        assert {job.status for job in jobs} == {"done"}
-
-    running = Job(kind="unknown", status="running")
+        assert {job.execution.status for job in jobs} == {"done"}
+    running = Job(target=JobTarget(kind="unknown"), execution=JobExecution(status="running"))
     async with factory() as db:
         db.add(running)
         await db.commit()
@@ -76,7 +85,7 @@ async def test_job_worker_all_common_paths(tmp_path: Path, monkeypatch: pytest.M
     await worker.start()
     await worker.stop()
     async with factory() as db:
-        assert (await db.get(Job, running.id)).status == "pending"
+        assert (await db.get(Job, running.id)).execution.status == "pending"
     await dispose_database()
 
 
@@ -141,30 +150,28 @@ class FakeHttpClient:
 async def test_web_capture_redirect_mime_size_and_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = Settings(
-        data_dir=tmp_path, preview_allow_private_hosts=True, preview_max_html_bytes=3
+    settings = Settings.model_validate(
+        {
+            "storage": {"data_dir": tmp_path},
+            "preview": {"allow_private_hosts": True, "max_html_bytes": 3},
+        }
     )
     capture = WebCaptureClient(settings)
     monkeypatch.setattr("clients.web_capture.client.httpx.AsyncClient", FakeHttpClient)
-
     FakeHttpClient.responses = [
         FakeResponse(status=302, location="/final"),
         FakeResponse(chunks=[b"ok"]),
     ]
     response = await capture.fetch_html("https://example.com/start")
     assert response.content == b"ok"
-
     FakeHttpClient.responses = [FakeResponse(content_type="application/json")]
     with pytest.raises(CaptureRejectedError, match="content type"):
         await capture.fetch_html("https://example.com")
-
     FakeHttpClient.responses = [FakeResponse(chunks=[b"toolarge"])]
     with pytest.raises(CaptureRejectedError, match="byte limit"):
         await capture.fetch_html("https://example.com")
-
     FakeHttpClient.responses = [FakeResponse(status=302, location="/again") for _ in range(6)]
     with pytest.raises(CaptureRejectedError, match="Too many redirects"):
         await capture.fetch_html("https://example.com")
-
     FakeHttpClient.responses = [FakeResponse(content_type="image/png", chunks=[b"img"])]
     assert (await capture.fetch_image("https://example.com/i.png")).content == b"img"

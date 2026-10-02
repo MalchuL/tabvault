@@ -77,11 +77,11 @@ class MCPClient:
         """Create a client from process-level server and authentication settings.
 
         Returns:
-            MCPClient: Client configured from ``TABVAULT_SERVER_URL`` and ``TABVAULT_API_KEY``.
+            MCPClient: Client configured from ``TABVAULT_SERVER_URL`` and ``TABVAULT_HTTP__API_KEY``.
         """
         return cls(
             os.environ.get("TABVAULT_SERVER_URL", DEFAULT_SERVER_URL),
-            os.environ.get("TABVAULT_API_KEY") or None,
+            os.environ.get("TABVAULT_HTTP__API_KEY") or None,
         )
 
     async def aclose(self) -> None:
@@ -121,11 +121,7 @@ class MCPClient:
                     if body is not None
                     else None
                 ),
-                params=(
-                    query.model_dump(mode="json", by_alias=True, exclude_none=True)
-                    if query is not None
-                    else None
-                ),
+                params=(self._query_parameters(query) if query is not None else None),
             )
         except httpx.RequestError as error:
             raise MCPClientError(f"TabVault API is unavailable: {error}") from error
@@ -199,6 +195,25 @@ class MCPClient:
                 raise MCPClientError(f"Could not register the viewed property: {error}") from error
             self._schema_ready = True
 
+    @staticmethod
+    def _query_parameters(query: BaseModel) -> dict[str, str | int | float | bool | None]:
+        """Serialize grouped list inputs as ordinary HTTP query parameters.
+
+        Args:
+            query (BaseModel): Validated query object.
+
+        Returns:
+            dict[str, object]: Flat query values with camelCase parameter names.
+        """
+        if isinstance(query, TabListQueryDTO):
+            return {
+                **query.filters.model_dump(mode="json", by_alias=True, exclude_none=True),
+                **query.ordering.model_dump(mode="json", by_alias=True),
+                **query.pagination.model_dump(mode="json", by_alias=True),
+                "fields": query.fields,
+            }
+        return query.model_dump(mode="json", by_alias=True, exclude_none=True)
+
     async def list_tabs(self, query: TabListQueryDTO) -> TabListResponseDTO:
         """List Saved Tabs using typed filters and pagination."""
         return await self._request("GET", "/tabs", TabListResponseDTO, query=query)
@@ -223,7 +238,7 @@ class MCPClient:
         Raises:
             MCPClientError: Schema registration or creation fails, or viewed is incompatible.
         """
-        if "viewed" in body.custom_properties:
+        if "viewed" in body.annotations.custom_properties:
             await self._ensure_property_schema()
         return await self._request("POST", "/tabs", TabCreateResponseDTO, body=body)
 
@@ -240,7 +255,10 @@ class MCPClient:
         Raises:
             MCPClientError: Schema registration or update fails, or viewed is incompatible.
         """
-        if body.custom_properties is not None and "viewed" in body.custom_properties:
+        if (
+            body.annotations.custom_properties is not None
+            and "viewed" in body.annotations.custom_properties
+        ):
             await self._ensure_property_schema()
         return await self._request("PATCH", f"/tabs/{tab_id}", TabResponseDTO, body=body)
 

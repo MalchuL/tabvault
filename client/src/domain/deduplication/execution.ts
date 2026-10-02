@@ -1,8 +1,9 @@
+import type { TabPatch } from "@/domain/library/types";
 import type { DedupePlan } from "./model";
 
 export type DedupeMutation = {
   id: string;
-  updates: Record<string, unknown>;
+  updates: TabPatch;
   role: "survivor" | "duplicate";
 };
 
@@ -23,9 +24,13 @@ export async function executeDedupePlan(
   let succeeded = 0;
   let failed = 0;
   for (const cluster of plan.clusters) {
+    const { title, ...annotations } = cluster.survivorPatch;
     const survivor: DedupeMutation = {
       id: cluster.survivorId,
-      updates: cluster.survivorPatch,
+      updates: {
+        content: title === undefined ? undefined : { title },
+        annotations,
+      },
       role: "survivor",
     };
     try {
@@ -40,7 +45,10 @@ export async function executeDedupePlan(
     for (const id of cluster.duplicateIds) {
       const duplicate: DedupeMutation = {
         id,
-        updates: { archived: true, groupId: null },
+        updates: {
+          lifecycle: { archived: true },
+          placement: { groupId: null },
+        },
         role: "duplicate",
       };
       try {

@@ -101,7 +101,7 @@ class PreviewService:
             "image/x-icon": ".ico",
         }
         relative = Path(f"{kind}s") / f"{checksum}{suffixes.get(content_type, '.bin')}"
-        path = self.settings.asset_dir / relative
+        path = self.settings.storage.asset_dir / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(path.suffix + ".tmp")
         temporary.write_bytes(content)
@@ -216,19 +216,19 @@ class PreviewService:
         await self.repository.apply_changes(preview, {"status": "running"})
         await self.db.commit()
         try:
-            page = await self.capture.fetch_html(tab.url)
+            page = await self.capture.fetch_html(tab.content.url)
             article, image_urls, icon_url = await asyncio.to_thread(
                 self._extract, page.content, page.url
             )
             html = article.content_html
             total = len(page.content)
             for image_url in dict.fromkeys(image_urls):
-                if total >= self.settings.preview_max_total_bytes:
+                if total >= self.settings.preview.max_total_bytes:
                     break
                 try:
                     image = await self.capture.fetch_image(image_url)
                     total += len(image.content)
-                    if total > self.settings.preview_max_total_bytes:
+                    if total > self.settings.preview.max_total_bytes:
                         break
                     asset = await self._asset("image", image.content, image.content_type, image.url)
                     html = html.replace(image_url, f"tabvault-asset://{asset.id}")
@@ -243,7 +243,7 @@ class PreviewService:
                     await self.repository.apply_changes(tab, {"favicon_asset_id": icon_asset.id})
                 except Exception as error:
                     logger.info("Favicon was skipped: %s", error)
-            title = article.title or tab.title
+            title = article.title or tab.content.title
             await self.repository.apply_changes(
                 preview,
                 {
@@ -259,7 +259,7 @@ class PreviewService:
                     "fetched_at": utc_now(),
                 },
             )
-            if tab.title == tab.url:
+            if tab.content.title == tab.content.url:
                 await self.repository.apply_changes(tab, {"title": title})
             await self.db.commit()
             return PreviewCaptureResultDTO(tab_id=tab_id, status="ready")

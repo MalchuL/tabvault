@@ -10,7 +10,7 @@ transaction rules remain the source of truth.
 cd mcp
 uv sync
 TABVAULT_SERVER_URL=http://127.0.0.1:47821 \
-TABVAULT_API_KEY=change-me \
+TABVAULT_HTTP__API_KEY=change-me \
 uv run tabvault-mcp
 ```
 
@@ -31,14 +31,14 @@ Add a stdio server with the settings in [misc/inspector.png](misc/inspector.png)
 
 ![MCP Inspector settings for local TabVault development](misc/inspector.png)
 
-| Field             | Value                                                                         |
-| ----------------- | ----------------------------------------------------------------------------- |
-| Server ID         | `tabvault`                                                                    |
-| Transport         | `stdio (local process)`                                                       |
-| Command           | `uv`                                                                          |
-| Arguments         | `run` then `tabvault-mcp` (one argument per line)                             |
-| Environment       | `TABVAULT_SERVER_URL=http://127.0.0.1:47821` and `TABVAULT_API_KEY=change-me` |
-| Working directory | absolute path to this `mcp/` package                                          |
+| Field             | Value                                                                               |
+| ----------------- | ----------------------------------------------------------------------------------- |
+| Server ID         | `tabvault`                                                                          |
+| Transport         | `stdio (local process)`                                                             |
+| Command           | `uv`                                                                                |
+| Arguments         | `run` then `tabvault-mcp` (one argument per line)                                   |
+| Environment       | `TABVAULT_SERVER_URL=http://127.0.0.1:47821` and `TABVAULT_HTTP__API_KEY=change-me` |
+| Working directory | absolute path to this `mcp/` package                                                |
 
 ## Cursor
 
@@ -58,7 +58,7 @@ Settings → MCP → Add new MCP server uses the same fields as the Inspector sc
       ],
       "env": {
         "TABVAULT_SERVER_URL": "http://127.0.0.1:47821",
-        "TABVAULT_API_KEY": "change-me"
+        "TABVAULT_HTTP__API_KEY": "change-me"
       }
     }
   }
@@ -80,7 +80,7 @@ cwd = "/absolute/path/to/tabvault/mcp"
 
 [mcp_servers.tabvault.env]
 TABVAULT_SERVER_URL = "http://127.0.0.1:47821"
-TABVAULT_API_KEY = "change-me"
+TABVAULT_HTTP__API_KEY = "change-me"
 ```
 
 Or add the same launch from the CLI:
@@ -88,7 +88,7 @@ Or add the same launch from the CLI:
 ```bash
 codex mcp add tabvault \
   --env TABVAULT_SERVER_URL=http://127.0.0.1:47821 \
-  --env TABVAULT_API_KEY=change-me \
+  --env TABVAULT_HTTP__API_KEY=change-me \
   -- uv --directory /absolute/path/to/tabvault/mcp run tabvault-mcp
 ```
 
@@ -106,6 +106,18 @@ The service exposes 15 annotated tools with no persisted IDs in their public con
 Tab tools select the oldest visible exact-URL match. Group tools match names without case and select
 the oldest match. IDs remain private to the REST bridge; MCP cannot read or mutate hidden or archived
 content.
+
+`update_tab` accepts an exact URL and one `changes` object:
+
+```json
+{
+  "url": "https://example.com/article",
+  "changes": { "title": "Updated title", "viewed": false, "tags": [] }
+}
+```
+
+Null or omitted changes leave fields unchanged; empty strings and arrays clear them.
+Tab results group `content`, `annotations`, `placement`, `lifecycle`, and `timestamps`.
 
 ## Resources and prompts
 

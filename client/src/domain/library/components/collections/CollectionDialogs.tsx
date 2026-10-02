@@ -51,12 +51,15 @@ export function EditCollectionDialog({
             Name
           </span>
           <Input
-            value={collection.name}
+            value={collection.details.name}
             onChange={event =>
               onChange({
                 ...collection,
-                name: event.target.value,
-                category: "manual",
+                details: {
+                  ...collection.details,
+                  name: event.target.value,
+                  category: "manual",
+                },
               })
             }
             onKeyDown={event => event.key === "Enter" && onSave()}
@@ -68,12 +71,15 @@ export function EditCollectionDialog({
             Description
           </span>
           <Textarea
-            value={collection.description}
+            value={collection.details.description}
             onChange={event =>
               onChange({
                 ...collection,
-                description: event.target.value,
-                category: "manual",
+                details: {
+                  ...collection.details,
+                  description: event.target.value,
+                  category: "manual",
+                },
               })
             }
             rows={4}
@@ -86,9 +92,15 @@ export function EditCollectionDialog({
             Category
           </span>
           <NativeSelect
-            value={collection.category}
+            value={collection.details.category}
             onChange={event =>
-              onChange({ ...collection, category: event.target.value })
+              onChange({
+                ...collection,
+                details: {
+                  ...collection.details,
+                  category: event.target.value,
+                },
+              })
             }
             className="mt-2 w-full border border-[#ded9cd] bg-[#f9f7f1] px-3 py-2.5 text-[12px] outline-none focus:border-[#e95224]"
           >
@@ -127,9 +139,9 @@ export function DeleteCollectionDialog({
 }) {
   return (
     <ConfirmDeleteDialog
-      ariaLabel={`Delete ${collection.name} collection`}
+      ariaLabel={`Delete ${collection.details.name} collection`}
       eyebrow="Remove collection"
-      title={`Delete “${collection.name}”?`}
+      title={`Delete “${collection.details.name}”?`}
       description="The collection will be removed. Its saved tabs will be archived and moved to [Unassigned]."
       confirmLabel="Delete collection"
       onClose={onClose}

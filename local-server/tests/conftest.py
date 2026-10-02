@@ -12,8 +12,8 @@ from domain.jobs.worker import JobWorker
 
 @pytest.fixture
 def client(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
-    monkeypatch.setenv("TABVAULT_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("TABVAULT_API_KEY", "test-key")
+    monkeypatch.setenv("TABVAULT_STORAGE__DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("TABVAULT_HTTP__API_KEY", "test-key")
     get_settings.cache_clear()
 
     async def no_worker(_worker: JobWorker) -> None:

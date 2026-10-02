@@ -171,7 +171,10 @@ export default function Transfer() {
         const nextVault = isPersistedVault(parsedJson)
           ? parsedJson
           : fromServerDocument(parsedJson, emptyBrowserVault());
-        if (!nextVault.tabs?.length && !nextVault.vaultGroups?.length) {
+        if (
+          !nextVault.library.tabs?.length &&
+          !nextVault.library.vaultGroups?.length
+        ) {
           throw new Error(
             "This file does not contain a recognizable TabVault library."
           );

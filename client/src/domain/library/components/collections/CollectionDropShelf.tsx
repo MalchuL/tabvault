@@ -9,7 +9,9 @@ import { categoryColor } from "@/domain/library/categoryColor";
  * @returns {JSX.Element | null} Drop shelf, or null without manual groups.
  */
 export function CollectionDropShelf({ groups }: { groups: VaultGroup[] }) {
-  const manualGroups = groups.filter(group => group.category === "manual");
+  const manualGroups = groups.filter(
+    group => group.details.category === "manual"
+  );
   if (!manualGroups.length) return null;
 
   return (
@@ -44,13 +46,13 @@ function CollectionDropChip({ group }: { group: VaultGroup }) {
       data-testid={`collection-drop-${group.id}`}
       data-drop-active={isOver ? "true" : "false"}
       className={`flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.06em] transition ${isOver ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#d9d3c6] bg-[#fffdf8] text-[#7a7e76]"}`}
-      aria-label={`Drop a tab into ${group.name}`}
+      aria-label={`Drop a tab into ${group.details.name}`}
     >
       <span
         className="h-1.5 w-1.5 rounded-full"
-        style={{ backgroundColor: categoryColor(group.category) }}
+        style={{ backgroundColor: categoryColor(group.details.category) }}
       />
-      {group.name}
+      {group.details.name}
     </div>
   );
 }

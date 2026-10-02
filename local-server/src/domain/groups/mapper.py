@@ -3,7 +3,7 @@
 from typing import Any
 
 from lib.time import stored_utc, utc_now
-from models import Group
+from models import Group, GroupDetails, GroupPlacement, GroupTimestamps
 
 from .dto import GroupCreateDTO, GroupDTO, GroupUpdateDTO
 
@@ -31,16 +31,24 @@ class GroupMapper:
         Returns:
             GroupDTO: Serializable group fields for the API response.
         """
-        return GroupDTO(
-            id=group.id,
-            name=group.name,
-            category=group.category,
-            description=group.description,
-            color=group.color,
-            position=group.position,
-            created_at=stored_utc(group.created_at) or group.created_at,
-            updated_at=stored_utc(group.updated_at) or group.updated_at,
-            tab_count=tab_count,
+        return GroupDTO.model_validate(
+            {
+                "id": group.id,
+                "details": {
+                    "name": group.details.name,
+                    "category": group.details.category,
+                    "description": group.details.description,
+                    "color": group.details.color,
+                },
+                "placement": {"position": group.placement.position},
+                "timestamps": {
+                    "created_at": stored_utc(group.timestamps.created_at)
+                    or group.timestamps.created_at,
+                    "updated_at": stored_utc(group.timestamps.updated_at)
+                    or group.timestamps.updated_at,
+                },
+                "counts": {"tab_count": tab_count},
+            }
         )
 
     @staticmethod
@@ -59,13 +67,17 @@ class GroupMapper:
             Group: Unsaved Group model initialized from the request.
         """
         values: dict[str, Any] = {
-            "name": dto.name,
-            "category": dto.category,
-            "description": dto.description or "",
-            "color": dto.color,
-            "position": position,
-            "created_at": dto.created_at or utc_now(),
-            "updated_at": dto.updated_at or utc_now(),
+            "details": GroupDetails(
+                name=dto.details.name,
+                category=dto.details.category,
+                description=dto.details.description or "",
+                color=dto.details.color,
+            ),
+            "placement": GroupPlacement(position=position),
+            "timestamps": GroupTimestamps(
+                created_at=dto.timestamps.created_at or utc_now(),
+                updated_at=dto.timestamps.updated_at or utc_now(),
+            ),
         }
         if dto.id is not None:
             values["id"] = dto.id
@@ -85,7 +97,11 @@ class GroupMapper:
         Returns:
             dict[str, Any]: Explicitly supplied fields keyed by ORM attribute name.
         """
-        values = dto.model_dump(exclude_unset=True)
+        values = {
+            field: value
+            for group in dto.model_dump(exclude_unset=True).values()
+            for field, value in group.items()
+        }
         if "description" in values and values["description"] is None:
             values["description"] = ""
         return values

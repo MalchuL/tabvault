@@ -5,6 +5,7 @@ from typing import cast
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.model_changes import apply_model_changes
 from models import Job
 
 
@@ -33,12 +34,17 @@ class JobRepository:
         Returns:
             Job | None: Matching job row, or None when absent.
         """
-        filters = [Job.kind == kind, Job.status.in_(["pending", "running"])]
+        filters = [
+            Job.__table__.c._kind == kind,
+            Job.__table__.c._status.in_(["pending", "running"]),
+        ]
         if target_id is not None:
-            filters.append(Job.target_id == target_id)
+            filters.append(Job.__table__.c._target_id == target_id)
         return cast(
             Job | None,
-            await self.session.scalar(select(Job).where(*filters).order_by(Job.created_at.desc())),
+            await self.session.scalar(
+                select(Job).where(*filters).order_by(Job.__table__.c._created_at.desc())
+            ),
         )
 
     async def add(self, job: Job) -> Job:
@@ -67,9 +73,11 @@ class JobRepository:
 
     async def reset_running(self) -> None:
         """Return interrupted jobs to pending state."""
-        jobs = (await self.session.scalars(select(Job).where(Job.status == "running"))).all()
+        jobs = (
+            await self.session.scalars(select(Job).where(Job.__table__.c._status == "running"))
+        ).all()
         for job in jobs:
-            job.status = "pending"
+            job.execution.status = "pending"
 
     async def next_pending(self) -> Job | None:
         """Load the oldest pending job.
@@ -80,7 +88,9 @@ class JobRepository:
         return cast(
             Job | None,
             await self.session.scalar(
-                select(Job).where(Job.status == "pending").order_by(Job.created_at)
+                select(Job)
+                .where(Job.__table__.c._status == "pending")
+                .order_by(Job.__table__.c._created_at)
             ),
         )
 
@@ -92,5 +102,4 @@ class JobRepository:
             job (Job): Background job row being converted or persisted.
             **changes (object): Job fields and values to stage.
         """
-        for key, value in changes.items():
-            setattr(job, key, value)
+        apply_model_changes(job, changes)

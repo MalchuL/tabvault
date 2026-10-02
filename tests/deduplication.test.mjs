@@ -9,15 +9,20 @@ import { executeDedupePlan } from "../client/src/domain/deduplication/execution.
 function tab(id, overrides = {}) {
   return {
     id,
-    url: "https://example.com/path?a=1#part",
-    title: "Example",
-    note: "note",
-    agentReview: "review",
-    viewed: false,
-    tags: [],
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
-    ...overrides,
+    content: {
+      url: overrides.url ?? "https://example.com/path?a=1#part",
+      title: overrides.title ?? "Example",
+    },
+    annotations: {
+      note: overrides.note ?? "note",
+      agentReview: overrides.agentReview ?? "review",
+      viewed: overrides.viewed ?? false,
+      tags: overrides.tags ?? [],
+    },
+    timestamps: {
+      createdAt: overrides.createdAt ?? "2026-01-01T00:00:00Z",
+      updatedAt: overrides.updatedAt ?? "2026-01-01T00:00:00Z",
+    },
   };
 }
 

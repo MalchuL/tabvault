@@ -10,13 +10,13 @@ from .dto import GroupListViewDTO, GroupViewDTO
 def to_view(group: GroupDTO) -> GroupViewDTO:
     """Remove persistence-only Group fields from an MCP result."""
     return GroupViewDTO(
-        name=group.name,
-        category=group.category,
-        description=group.description,
-        color=group.color,
-        created_at=group.created_at,
-        updated_at=group.updated_at,
-        tab_count=group.tab_count,
+        name=group.details.name,
+        category=group.details.category,
+        description=group.details.description,
+        color=group.details.color,
+        created_at=group.timestamps.created_at,
+        updated_at=group.timestamps.updated_at,
+        tab_count=group.counts.tab_count,
     )
 
 

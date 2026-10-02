@@ -1,37 +1,45 @@
+import type { VaultGroup } from "@/domain/library/types";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Search, Sparkles } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
-/**
- * Show library search, collection filtering, and index state in one input row.
- * The workspace owns query state and keyboard navigation.
- * @param {object} props - Search values and callbacks owned by the workspace.
- * @returns {React.ReactElement} Search and filter controls.
- */
-export function LibrarySearchInput({
-  query,
-  activeResultId,
-  searchGroupFilter,
-  groups,
-  semanticLensTone,
-  semanticLensLabel,
-  isRemoteSearching,
-  onQueryChange,
-  onGroupFilterChange,
-  onKeyDown,
-}: {
+/** Search state and handlers for LibrarySearchInputProps. */
+type LibrarySearchInputSearch = {
   query: string;
   activeResultId?: string;
+  onQueryChange: (query: string) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
+};
+/** Collection filtering state for LibrarySearchInputProps. */
+type LibrarySearchInputFilter = {
   searchGroupFilter: string;
-  groups: Array<{ id: string; name: string }>;
+  groups: Array<Pick<VaultGroup, "id" | "details">>;
+  onGroupFilterChange: (groupId: string) => void;
+};
+/** Semantic index state for LibrarySearchInputProps. */
+type LibrarySearchInputIndex = {
   semanticLensTone: string;
   semanticLensLabel: string;
   isRemoteSearching: boolean;
-  onQueryChange: (query: string) => void;
-  onGroupFilterChange: (groupId: string) => void;
-  onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
-}) {
+};
+/** Properties supplied to LibrarySearchInput. */
+type LibrarySearchInputProps = {
+  search: LibrarySearchInputSearch;
+  filter: LibrarySearchInputFilter;
+  index: LibrarySearchInputIndex;
+};
+/**
+ * Show library search, collection filtering, and index state in one input row.
+ * The workspace owns query state and keyboard navigation.
+ * @param {LibrarySearchInputProps} props - Search values and callbacks owned by the workspace.
+ * @returns {React.ReactElement} Search and filter controls.
+ */
+export function LibrarySearchInput({
+  search: { query, activeResultId, onQueryChange, onKeyDown },
+  filter: { searchGroupFilter, groups, onGroupFilterChange },
+  index: { semanticLensTone, semanticLensLabel, isRemoteSearching },
+}: LibrarySearchInputProps) {
   return (
     <label className="flex h-10 items-center gap-3 border-b border-[#bcb6a8] bg-[#fffdf8] px-4 transition focus-within:border-[#e95224] focus-within:shadow-[0_8px_24px_rgba(24,38,31,0.04)]">
       <Search className="h-4 w-4 text-[#e95224]" />
@@ -57,7 +65,7 @@ export function LibrarySearchInput({
         <option value="all">All collections</option>
         {groups.map(group => (
           <option key={group.id} value={group.id}>
-            {group.name}
+            {group.details.name}
           </option>
         ))}
       </NativeSelect>
