@@ -1,4 +1,5 @@
-import { useDroppable } from "@dnd-kit/core";
+import { useDroppable } from "@dnd-kit/react";
+import { pointerIntersection } from "@dnd-kit/collision";
 import type { VaultGroup } from "@/domain/library/types";
 import { categoryColor } from "@/domain/library/categoryColor";
 
@@ -35,17 +36,20 @@ export function CollectionDropShelf({ groups }: { groups: VaultGroup[] }) {
  * @returns {JSX.Element} Chip with active drop feedback.
  */
 function CollectionDropChip({ group }: { group: VaultGroup }) {
-  const { isOver, setNodeRef } = useDroppable({
+  const { isDropTarget, ref } = useDroppable({
     id: `collection-drop:${group.id}`,
     data: { groupId: group.id },
+    collisionDetector: pointerIntersection,
+    // Quick-move chips take priority over nearby tab collisions.
+    collisionPriority: 4,
   });
 
   return (
     <div
-      ref={setNodeRef}
+      ref={ref}
       data-testid={`collection-drop-${group.id}`}
-      data-drop-active={isOver ? "true" : "false"}
-      className={`flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.06em] transition ${isOver ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#d9d3c6] bg-[#fffdf8] text-[#7a7e76]"}`}
+      data-drop-active={isDropTarget ? "true" : "false"}
+      className={`flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.06em] transition ${isDropTarget ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#d9d3c6] bg-[#fffdf8] text-[#7a7e76]"}`}
       aria-label={`Drop a tab into ${group.details.name}`}
     >
       <span

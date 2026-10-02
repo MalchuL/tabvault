@@ -1,14 +1,13 @@
 import type { VaultGroup } from "@/domain/library/types";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
 import { useMemo } from "react";
 import {
   DroppableGroup,
   GroupSeparator,
 } from "@/domain/library/components/tabs/TabListGroup";
-import { SortableTabRow } from "@/domain/library/components/tabs/TabRow";
+import {
+  SortableTabRow,
+  TabRow,
+} from "@/domain/library/components/tabs/TabRow";
 import type { TabViewMode } from "@/domain/library/types";
 
 export { TabDragPreview } from "@/domain/library/components/tabs/TabRow";
@@ -49,7 +48,6 @@ export type TabListItem = {
 type TabListPresentation = {
   viewMode: TabViewMode;
   previewBackend?: { url: string; apiKey: string };
-  activeDragHeight?: number;
 };
 /** Search state and handlers for TabListProps. */
 type TabListSearch = {
@@ -119,7 +117,7 @@ type Props = {
  */
 export function TabList({
   tabs,
-  presentation: { viewMode, previewBackend, activeDragHeight },
+  presentation: { viewMode, previewBackend },
   search: { query, semanticScores, fallbackMode },
   selection: {
     selectionEnabled = false,
@@ -160,6 +158,8 @@ export function TabList({
     onProlong,
   },
 }: Props) {
+  // Disabled draggables inherit aria-disabled into row actions; previews stay unregistered.
+  const Row = viewMode === "preview" ? TabRow : SortableTabRow;
   const tabIndexes = useMemo(
     () => new Map(tabs.map((tab, index) => [tab.id, index])),
     [tabs]
@@ -209,7 +209,9 @@ export function TabList({
         const dragDisabled = isCollapsed || viewMode === "preview";
         const dropGapHeight = dragDisabled
           ? 0
-          : (activeDragHeight ?? (viewMode === "compact" ? 45 : 128));
+          : viewMode === "compact"
+            ? 45
+            : 128;
         return (
           <DroppableGroup
             key={groupId}
@@ -245,58 +247,51 @@ export function TabList({
                 }}
               />
             )}
-            {!isCollapsed && (
-              <>
-                <SortableContext
-                  items={groupTabs.map(tab => tab.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  {groupTabs.map(tab => {
-                    const index = tabIndexes.get(tab.id) ?? -1;
-                    return (
-                      <SortableTabRow
-                        key={tab.id}
-                        tab={tab}
-                        groups={groups}
-                        presentation={{
-                          index: index,
-                          viewMode: viewMode,
-                          previewBackend: previewBackend,
-                        }}
-                        search={{
-                          query: query,
-                          score: semanticScores.get(tab.id),
-                          fallbackMode: fallbackMode,
-                        }}
-                        selection={{
-                          selectionEnabled: selectionEnabled,
-                          isSelected: selectedResultIds.has(tab.id),
-                          isKeyboardActive:
-                            query.length > 0 && activeResultIndex === index,
-                          onActiveIndex: onActiveIndex,
-                          onToggleSelection: onToggleSelection,
-                        }}
-                        actions={{
-                          onMove: onMove,
-                          onEdit: onEdit,
-                          onOpen: onOpen,
-                          onViewedChange: onViewedChange,
-                          onDelete: onDelete,
-                          onOpenTagManager: onOpenTagManager,
-                        }}
-                        lifecycle={{
-                          lifecycleMode: lifecycleMode,
-                          onRestore: onRestore,
-                          onHide: onHide,
-                          onUnhide: onUnhide,
-                          onProlong: onProlong,
-                        }}
-                      />
-                    );
-                  })}
-                </SortableContext>
-              </>
-            )}
+            {!isCollapsed &&
+              groupTabs.map((tab, sortableIndex) => {
+                const index = tabIndexes.get(tab.id) ?? -1;
+                return (
+                  <Row
+                    key={tab.id}
+                    tab={tab}
+                    groups={groups}
+                    presentation={{
+                      index: index,
+                      sortableIndex,
+                      viewMode: viewMode,
+                      previewBackend: previewBackend,
+                    }}
+                    search={{
+                      query: query,
+                      score: semanticScores.get(tab.id),
+                      fallbackMode: fallbackMode,
+                    }}
+                    selection={{
+                      selectionEnabled: selectionEnabled,
+                      isSelected: selectedResultIds.has(tab.id),
+                      isKeyboardActive:
+                        query.length > 0 && activeResultIndex === index,
+                      onActiveIndex: onActiveIndex,
+                      onToggleSelection: onToggleSelection,
+                    }}
+                    actions={{
+                      onMove: onMove,
+                      onEdit: onEdit,
+                      onOpen: onOpen,
+                      onViewedChange: onViewedChange,
+                      onDelete: onDelete,
+                      onOpenTagManager: onOpenTagManager,
+                    }}
+                    lifecycle={{
+                      lifecycleMode: lifecycleMode,
+                      onRestore: onRestore,
+                      onHide: onHide,
+                      onUnhide: onUnhide,
+                      onProlong: onProlong,
+                    }}
+                  />
+                );
+              })}
           </DroppableGroup>
         );
       })}

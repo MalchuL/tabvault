@@ -1,8 +1,7 @@
 import type { VaultGroup } from "@/domain/library/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { useSortable } from "@dnd-kit/react/sortable";
 import { GripVertical } from "lucide-react";
 import { TabRowActions } from "@/domain/library/components/tabs/TabRowActions";
 import { ReadableArticlePreview } from "@/domain/library/components/tabs/ReadableArticlePreview";
@@ -18,6 +17,7 @@ import type { TabViewMode } from "@/domain/library/types";
 /** Presentation settings for TabRowProps. */
 type TabRowPresentation = {
   index: number;
+  sortableIndex?: number;
   viewMode: TabViewMode;
   previewBackend?: { url: string; apiKey: string };
   sortable?: SortableBindings;
@@ -66,12 +66,7 @@ type TabRowProps = {
 
 type SortableBindings = Pick<
   ReturnType<typeof useSortable>,
-  | "attributes"
-  | "listeners"
-  | "setNodeRef"
-  | "transform"
-  | "transition"
-  | "isDragging"
+  "ref" | "handleRef" | "isDragging"
 >;
 
 /**
@@ -120,7 +115,7 @@ export function TabDragPreview({
   selection: { selectionEnabled, isSelected },
 }: TabDragPreviewProps) {
   return (
-    <TabRowPresentation
+    <TabRow
       tab={tab}
       groups={groups}
       presentation={{
@@ -153,19 +148,17 @@ export function TabDragPreview({
 /**
  * Attach sortable drag behavior to one saved-tab row.
  * The presentation remains separate so drag state does not own tab actions.
- * @param {TabRowProps} props - Tab row properties passed to the sortable wrapper.
+ * @param {TabRowProps} props - Tab row properties and position within its visible collection.
  * @returns {React.ReactElement} Sortable tab row.
  */
 export function SortableTabRow(props: TabRowProps) {
   const sortable = useSortable({
     id: props.tab.id,
-    disabled: props.presentation.viewMode === "preview",
+    index: props.presentation.sortableIndex ?? 0,
+    group: props.tab.placement.groupId ?? "unassigned",
   });
   return (
-    <TabRowPresentation
-      {...props}
-      presentation={{ ...props.presentation, sortable }}
-    />
+    <TabRow {...props} presentation={{ ...props.presentation, sortable }} />
   );
 }
 
@@ -175,7 +168,7 @@ export function SortableTabRow(props: TabRowProps) {
  * @param {TabRowProps} props - Tab, display state, search evidence, and action callbacks.
  * @returns {React.ReactElement} Saved-tab row in the selected view mode.
  */
-function TabRowPresentation({
+export function TabRow({
   tab,
   groups,
   presentation: { index, viewMode, previewBackend, sortable, overlay = false },
@@ -197,18 +190,9 @@ function TabRowPresentation({
   },
   lifecycle: { lifecycleMode, onRestore, onHide, onUnhide, onProlong },
 }: TabRowProps) {
-  const attributes = sortable?.attributes;
-  const listeners = sortable?.listeners;
-  const setNodeRef = sortable?.setNodeRef;
-  const transform = sortable?.transform;
-  const transition = sortable?.transition;
   const isDragging = sortable?.isDragging ?? false;
   const compact = viewMode === "compact";
   const instantPreview = viewMode === "preview";
-  const style = {
-    transform: CSS.Transform.toString(transform ?? null),
-    transition,
-  };
   const rowState = overlay
     ? "pointer-events-none cursor-grabbing bg-[#fffdf8] shadow-lg"
     : isDragging
@@ -221,8 +205,7 @@ function TabRowPresentation({
 
   return (
     <article
-      ref={setNodeRef}
-      style={style}
+      ref={sortable?.ref}
       id={overlay ? undefined : `search-result-${tab.id}`}
       data-testid={overlay ? "tab-drag-preview" : `tab-row-${tab.id}`}
       data-dragging={isDragging ? "true" : "false"}
@@ -249,8 +232,7 @@ function TabRowPresentation({
         <Button
           variant="ghost"
           size="icon-sm"
-          {...attributes}
-          {...listeners}
+          ref={sortable?.handleRef}
           aria-label={`Reorder ${tab.content.title}`}
           className="size-6 mt-0.5 hidden shrink-0 touch-none cursor-grab text-[#c3c3bb] transition hover:text-[#e95224] active:cursor-grabbing sm:block"
         >
@@ -263,8 +245,7 @@ function TabRowPresentation({
           <Button
             variant="ghost"
             size="icon-sm"
-            {...attributes}
-            {...listeners}
+            ref={sortable?.handleRef}
             data-testid={`tab-drag-handle-${tab.id}`}
             aria-label={`Reorder ${tab.content.title}`}
             className="size-6 shrink-0 touch-none cursor-grab p-0.5 text-[#b3b4ac] transition hover:text-[#e95224] active:cursor-grabbing focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#e95224]"
@@ -290,8 +271,7 @@ function TabRowPresentation({
             onChange={onViewedChange}
           />
           <span
-            {...attributes}
-            {...listeners}
+            data-tab-drag-space
             data-testid={`tab-drag-space-${tab.id}`}
             aria-label={`Reorder ${tab.content.title} from empty row space`}
             className="hidden h-6 min-w-5 flex-1 touch-none cursor-grab sm:block"

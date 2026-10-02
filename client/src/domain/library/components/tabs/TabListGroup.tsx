@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { useDroppable } from "@dnd-kit/core";
+import { useDroppable } from "@dnd-kit/react";
+import { pointerIntersection } from "@dnd-kit/collision";
 import {
   ChevronDown,
   ChevronRight,
@@ -32,18 +33,21 @@ export function DroppableGroup({
   disabled: boolean;
   children: ReactNode;
 }) {
-  const { isOver, setNodeRef } = useDroppable({
+  const { isDropTarget, ref } = useDroppable({
     id: `group-container:${groupId}`,
     data: { groupId },
+    collisionDetector: pointerIntersection,
+    // Pointer hits on tabs (3) take priority over this collection background.
+    collisionPriority: 2,
     disabled,
   });
 
   return (
     <section
-      ref={setNodeRef}
+      ref={ref}
       style={{ paddingBottom: dropGapHeight }}
       data-testid={`tab-group-${groupId}`}
-      data-drop-active={isOver ? "true" : "false"}
+      data-drop-active={isDropTarget ? "true" : "false"}
       data-drop-gap-height={dropGapHeight}
       aria-label={`Drop a tab into ${groupName}`}
     >

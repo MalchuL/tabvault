@@ -1,11 +1,7 @@
 import { Button } from "@/components/ui/button";
-import { useDroppable } from "@dnd-kit/core";
-import {
-  rectSortingStrategy,
-  SortableContext,
-  useSortable,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { useDroppable } from "@dnd-kit/react";
+import { pointerIntersection } from "@dnd-kit/collision";
+import { useSortable } from "@dnd-kit/react/sortable";
 import { FolderOpen, FolderPlus, Pencil, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { GroupId, VaultGroup, VaultTab } from "@/domain/library/types";
@@ -113,28 +109,24 @@ export function CollectionBoard({
                 </Button>
               </div>
             </div>
-            <SortableContext
-              items={groupTabs.map(tab => tab.id)}
-              strategy={rectSortingStrategy}
-            >
-              <div className="mt-5 flex flex-1 flex-wrap content-start gap-2">
-                {groupTabs.map(tab => (
-                  <SortableCollectionTab
-                    key={tab.id}
-                    tab={tab}
-                    groupId={group.id}
-                    onBrowse={onBrowse}
-                    searchActive={Boolean(query.trim())}
-                    matched={matchedTabIds.has(tab.id)}
-                  />
-                ))}
-                {!groupTabs.length ? (
-                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#92958d]">
-                    Empty collection
-                  </span>
-                ) : null}
-              </div>
-            </SortableContext>
+            <div className="mt-5 flex flex-1 flex-wrap content-start gap-2">
+              {groupTabs.map((tab, index) => (
+                <SortableCollectionTab
+                  key={tab.id}
+                  index={index}
+                  tab={tab}
+                  groupId={group.id}
+                  onBrowse={onBrowse}
+                  searchActive={Boolean(query.trim())}
+                  matched={matchedTabIds.has(tab.id)}
+                />
+              ))}
+              {!groupTabs.length ? (
+                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#92958d]">
+                  Empty collection
+                </span>
+              ) : null}
+            </div>
             <div className="mt-5 flex items-center justify-between border-t border-[#e8e3d8] pt-3 font-mono text-[9px] uppercase tracking-[0.08em] text-[#858980]">
               <span>{groupTabs.length} tabs</span>
               <span style={{ color: categoryColor(group.details.category) }}>
@@ -187,15 +179,18 @@ function CollectionCard({
   group: VaultGroup;
   children: React.ReactNode;
 }) {
-  const { isOver, setNodeRef } = useDroppable({
+  const { isDropTarget, ref } = useDroppable({
     id: `group-container:${group.id}`,
-    data: { groupId: group.id, layout: "grid" },
+    data: { groupId: group.id },
+    collisionDetector: pointerIntersection,
+    // Pointer hits on tabs (3) take priority over this collection background.
+    collisionPriority: 2,
   });
   return (
     <article
-      ref={setNodeRef}
+      ref={ref}
       data-testid={`group-card-${group.id}`}
-      data-drop-active={isOver ? "true" : "false"}
+      data-drop-active={isDropTarget ? "true" : "false"}
       className="group flex min-h-[210px] flex-col border border-[#dcd7cc] bg-[#fffdf8] p-5 shadow-[0_10px_24px_rgba(24,38,31,0.035)] transition hover:border-[#c7c1b4] data-[drop-active=true]:border-[#e95224]"
     >
       {children}
@@ -206,36 +201,33 @@ function CollectionCard({
 /**
  * Show one draggable tab favicon within a collection card.
  * Search dims nonmatches while preserving drag and browse actions.
- * @param {{ tab: VaultTab; groupId: GroupId; onBrowse: (groupId: GroupId) => void; searchActive: boolean; matched: boolean; }} props - Tab, containing group, search match state, and browse handler.
+ * @param {{ tab: VaultTab; index: number; groupId: GroupId; onBrowse: (groupId: GroupId) => void; searchActive: boolean; matched: boolean; }} props - Tab, containing group, search match state, and browse handler.
  * @returns {React.ReactElement} Draggable tab favicon button.
  */
 function SortableCollectionTab({
   tab,
+  index,
   groupId,
   onBrowse,
   searchActive,
   matched,
 }: {
   tab: VaultTab;
+  index: number;
   groupId: GroupId;
   onBrowse: (groupId: GroupId) => void;
   searchActive: boolean;
   matched: boolean;
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: tab.id, data: { groupId } });
+  const { ref, isDragging } = useSortable({
+    id: tab.id,
+    index,
+    group: groupId ?? "unassigned",
+  });
   return (
     <Button
       variant="ghost"
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
+      ref={ref}
       type="button"
       onClick={() => onBrowse(groupId)}
       data-testid={`grouped-tab-${tab.id}`}
@@ -249,8 +241,6 @@ function SortableCollectionTab({
           : "border-transparent bg-[#f8f5ed]/70 hover:border-[#d8d2c5]"
       }`}
       style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
         opacity: isDragging ? 0 : undefined,
       }}
       title={tab.content.title}

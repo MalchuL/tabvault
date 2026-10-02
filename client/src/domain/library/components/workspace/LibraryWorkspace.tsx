@@ -19,7 +19,8 @@ import {
   type SetStateAction,
 } from "react";
 import { useLocation } from "wouter";
-import { DndContext, DragOverlay } from "@dnd-kit/core";
+import { DragDropProvider, DragOverlay } from "@dnd-kit/react";
+import { PointerSensor, PointerActivationConstraints } from "@dnd-kit/dom";
 import {
   createGroupOnLocalServer,
   deleteGroupOnLocalServer,
@@ -225,26 +226,6 @@ export function LibraryWorkspace() {
     vault.propertySchema ?? DEFAULT_PROPERTY_SCHEMA
   );
 
-  const {
-    sensors,
-    collisionDetectionStrategy,
-    activeDragId,
-    handleLibraryDragStart,
-    handleLibraryDragOver,
-    handleLibraryDragEnd,
-    cancelLibraryDrag,
-  } = useLibraryDrag({
-    tabView,
-    library: { tabs, tabOrders, setTabs, setTabOrders, vaultGroups },
-    connection: {
-      storageMode,
-      serverOnline,
-      setServerOnline,
-      localServerUrl,
-      serverApiKey,
-    },
-  });
-
   /**
    * Assemble the current browser vault for synchronization.
    * Refs supply the latest property schema and tombstones while visible state supplies tabs and preferences.
@@ -381,6 +362,29 @@ export function LibraryWorkspace() {
     searchGroupFilter,
     sortByStoredOrder,
   ]);
+
+  const {
+    handleLibraryDragStart,
+    handleLibraryDragOver,
+    handleLibraryDragEnd,
+  } = useLibraryDrag({
+    tabView,
+    library: {
+      tabs,
+      renderedTabs: isGroupBoard ? sortByStoredOrder(activeTabs) : visibleTabs,
+      tabOrders,
+      setTabs,
+      setTabOrders,
+      vaultGroups,
+    },
+    connection: {
+      storageMode,
+      serverOnline,
+      setServerOnline,
+      localServerUrl,
+      serverApiKey,
+    },
+  });
 
   const {
     selection: {
@@ -1912,17 +1916,23 @@ export function LibraryWorkspace() {
       : syncStatus?.state === "pending"
         ? "Stored locally · sync pending"
         : "Stored locally";
-  const activeDragTab = activeDragId
-    ? tabs.find(tab => tab.id === activeDragId)
-    : undefined;
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={collisionDetectionStrategy}
+    <DragDropProvider
+      sensors={defaults => [
+        ...defaults.filter(sensor => sensor !== PointerSensor),
+        PointerSensor.configure({
+          activationConstraints: [
+            new PointerActivationConstraints.Distance({ value: 6 }),
+          ],
+          activatorElements: source => [
+            source.handle ?? source.element,
+            source.element?.querySelector("[data-tab-drag-space]") ?? undefined,
+          ],
+        }),
+      ]}
       onDragStart={handleLibraryDragStart}
       onDragOver={handleLibraryDragOver}
       onDragEnd={handleLibraryDragEnd}
-      onDragCancel={cancelLibraryDrag}
     >
       <div className="min-h-screen bg-[#f6f3ec] text-[#18261f]">
         <main className="min-h-screen">
@@ -2253,36 +2263,39 @@ export function LibraryWorkspace() {
         )}
       </div>
       <DragOverlay dropAnimation={null}>
-        {activeDragTab && tabView === "groups" ? (
-          <div
-            className="grid h-9 w-9 place-items-center rounded-md bg-[#fffdf8] shadow-lg"
-            data-testid="tab-drag-preview"
-          >
-            <CollectionTabIcon tab={activeDragTab} />
-          </div>
-        ) : activeDragTab ? (
-          <TabDragPreview
-            tab={activeDragTab}
-            groups={vaultGroups}
-            presentation={{
-              viewMode: tabView === "groups" ? "standard" : tabView,
-              previewBackend:
-                storageMode === "backend" && serverOnline
-                  ? { url: localServerUrl, apiKey: serverApiKey }
-                  : undefined,
-            }}
-            search={{
-              query: query,
-              score: semanticScores.get(activeDragTab.id),
-              fallbackMode: searchResponse?.mode,
-            }}
-            selection={{
-              selectionEnabled: selectionMode,
-              isSelected: selectedResultIds.has(activeDragTab.id),
-            }}
-          />
-        ) : null}
+        {source => {
+          const activeDragTab = tabs.find(tab => tab.id === source.id);
+          return activeDragTab && tabView === "groups" ? (
+            <div
+              className="grid h-9 w-9 place-items-center rounded-md bg-[#fffdf8] shadow-lg"
+              data-testid="tab-drag-preview"
+            >
+              <CollectionTabIcon tab={activeDragTab} />
+            </div>
+          ) : activeDragTab ? (
+            <TabDragPreview
+              tab={activeDragTab}
+              groups={vaultGroups}
+              presentation={{
+                viewMode: tabView === "groups" ? "standard" : tabView,
+                previewBackend:
+                  storageMode === "backend" && serverOnline
+                    ? { url: localServerUrl, apiKey: serverApiKey }
+                    : undefined,
+              }}
+              search={{
+                query: query,
+                score: semanticScores.get(activeDragTab.id),
+                fallbackMode: searchResponse?.mode,
+              }}
+              selection={{
+                selectionEnabled: selectionMode,
+                isSelected: selectedResultIds.has(activeDragTab.id),
+              }}
+            />
+          ) : null;
+        }}
       </DragOverlay>
-    </DndContext>
+    </DragDropProvider>
   );
 }

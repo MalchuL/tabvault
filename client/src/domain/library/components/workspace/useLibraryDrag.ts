@@ -1,17 +1,10 @@
-import { useCallback, useRef, useState, type SetStateAction } from "react";
-import {
-  closestCenter,
-  type CollisionDetection,
-  type DragEndEvent,
-  type DragOverEvent,
-  type DragStartEvent,
-  KeyboardSensor,
-  PointerSensor,
-  pointerWithin,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+import { useRef, type SetStateAction } from "react";
+import type {
+  DragEndEvent,
+  DragOverEvent,
+  DragStartEvent,
+} from "@dnd-kit/react";
+import { isSortable } from "@dnd-kit/react/sortable";
 import { toast } from "sonner";
 import { orderKey } from "@/domain/library/codec";
 import {
@@ -29,6 +22,7 @@ import type {
 /** Library records and mutation handlers for LibraryDragOptions. */
 type LibraryDragLibrary = {
   tabs: VaultTab[];
+  renderedTabs: VaultTab[];
   tabOrders: Record<string, string[]>;
   setTabs: (value: SetStateAction<VaultTab[]>) => void;
   setTabOrders: (value: SetStateAction<Record<string, string[]>>) => void;
@@ -49,24 +43,27 @@ type LibraryDragOptions = {
 };
 
 type LibraryDragBindings = {
-  sensors: ReturnType<typeof useSensors>;
-  collisionDetectionStrategy: CollisionDetection;
-  activeDragId: string | undefined;
   handleLibraryDragStart: (event: DragStartEvent) => void;
   handleLibraryDragOver: (event: DragOverEvent) => void;
   handleLibraryDragEnd: (event: DragEndEvent) => Promise<void>;
-  cancelLibraryDrag: () => void;
 };
 
 /**
- * Keep sortable collision, optimistic order, and remote ordering in one controller.
+ * Keep collection transfers, sortable order, and remote ordering in one controller.
  * The workspace owns tab state; canceled drags restore the pre-drag snapshot.
  * @param {LibraryDragOptions} options - Current library state, state setters, and server connection.
- * @returns {LibraryDragBindings} DnD handlers, sensors, collision strategy, and active overlay ID.
+ * @returns {LibraryDragBindings} DnD handlers for collection transfers and order persistence.
  */
 export function useLibraryDrag({
   tabView,
-  library: { tabs, tabOrders, setTabs, setTabOrders, vaultGroups },
+  library: {
+    tabs,
+    renderedTabs,
+    tabOrders,
+    setTabs,
+    setTabOrders,
+    vaultGroups,
+  },
   connection: {
     storageMode,
     serverOnline,
@@ -75,50 +72,6 @@ export function useLibraryDrag({
     serverApiKey,
   },
 }: LibraryDragOptions): LibraryDragBindings {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
-  const collisionDetectionStrategy: CollisionDetection = useCallback(args => {
-    const pointerCollisions = pointerWithin(args).filter(
-      ({ id }) => id !== args.active.id
-    );
-    const quickMoveTarget = pointerCollisions.find(({ id }) =>
-      String(id).startsWith("collection-drop:")
-    );
-    if (quickMoveTarget) return [quickMoveTarget];
-    const pointerItemCollisions = pointerCollisions.filter(
-      ({ id }) =>
-        !/^(collection-drop|group-drop|group-container):/.test(String(id))
-    );
-    if (pointerItemCollisions.length) return pointerItemCollisions;
-    const groupContainer = pointerCollisions.find(({ id }) =>
-      String(id).startsWith("group-container:")
-    );
-    if (groupContainer) {
-      const container = args.droppableContainers.find(
-        item => item.id === groupContainer.id
-      );
-      if (container?.data.current?.layout === "grid") {
-        const items = args.droppableContainers.filter(
-          item =>
-            item.id !== args.active.id &&
-            item.data.current?.sortable &&
-            item.data.current?.groupId === container.data.current?.groupId
-        );
-        const nearest = closestCenter({ ...args, droppableContainers: items });
-        if (nearest.length) return nearest;
-      }
-      return [groupContainer];
-    }
-    const itemCollisions = closestCenter(args).filter(
-      ({ id }) =>
-        !/^(collection-drop|group-drop|group-container):/.test(String(id))
-    );
-    if (itemCollisions.length) return [itemCollisions[0]];
-    return pointerCollisions.length ? pointerCollisions : closestCenter(args);
-  }, []);
-  const [activeDragId, setActiveDragId] = useState<string>();
   const dragSnapshotRef = useRef<
     | {
         tabs: VaultTab[];
@@ -126,120 +79,74 @@ export function useLibraryDrag({
       }
     | undefined
   >(undefined);
-  const lastCrossOverRef = useRef<
-    { groupId: GroupId; entryOverId: string; overId: string } | undefined
-  >(undefined);
   /**
    * Capture the state before a library drag.
    *
    * The snapshot lets cancellation restore both membership and order after optimistic drag updates.
-   * @param {DragStartEvent} event - Drag-start event containing the active tab ID.
    */
-  const handleLibraryDragStart = ({ active }: DragStartEvent) => {
+  const handleLibraryDragStart = () => {
     dragSnapshotRef.current = { tabs, tabOrders };
-    lastCrossOverRef.current = undefined;
-    setActiveDragId(String(active.id));
   };
 
   /**
-   * Preview a tab's drag destination and position.
+   * Transfer tabs between collections while native sorting handles each list.
    *
-   * Move the tab optimistically across collections, using pointer position to choose insertion order.
-   * @param {DragOverEvent} event - Drag-over event with the active item, target, pointer origin, and displacement.
+   * React owns cross-collection moves; insertion uses the pointer so wrapped favicons
+   * land on the requested side. Collection backgrounds and quick-move chips append.
+   * @param {DragOverEvent} event - Source, destination, and current drag position.
    */
-  const handleLibraryDragOver = ({
-    active,
-    over,
-    activatorEvent,
-    delta,
-  }: DragOverEvent) => {
-    if (!over || active.id === over.id) return;
-    const source = tabs.find(tab => tab.id === active.id);
-    const target = tabs.find(tab => tab.id === over.id);
-    const dropGroupId = target
-      ? target.placement.groupId
-      : over.data.current?.groupId;
+  const handleLibraryDragOver = (event: DragOverEvent) => {
+    const { source, target } = event.operation;
+    if (!isSortable(source) || !target) return;
+    const tab = tabs.find(tab => tab.id === source.id);
+    const targetTab = tabs.find(tab => tab.id === target.id);
+    const dropGroupId = targetTab
+      ? targetTab.placement.groupId
+      : target.data.groupId;
     const groupId = dropGroupId === "unassigned" ? null : dropGroupId;
-    if (!source || (groupId !== null && typeof groupId !== "string")) return;
+    if (!tab || (groupId !== null && typeof groupId !== "string")) return;
+    if (targetTab && tab.placement.groupId === groupId) return;
+
+    // Prevent DOM reparenting: React renders the tab under its new collection.
+    event.preventDefault();
     const destinationKey = orderKey(groupId);
-
-    if (source.placement.groupId === groupId) {
-      const original = dragSnapshotRef.current?.tabs.find(
-        tab => tab.id === active.id
-      );
-      if (original?.placement.groupId !== groupId && lastCrossOverRef.current) {
-        if (target) lastCrossOverRef.current.overId = String(over.id);
-      }
-      if (
-        String(over.id).startsWith("group-container:") &&
-        !lastCrossOverRef.current
-      ) {
-        setTabOrders(current => {
-          const order = current[destinationKey] ?? [];
-          if (order.at(-1) === source.id) return current;
-          return {
-            ...current,
-            [destinationKey]: [
-              ...order.filter(id => id !== source.id),
-              source.id,
-            ],
-          };
-        });
-      }
-      return;
-    }
-
-    const pointerY =
-      "clientY" in activatorEvent && typeof activatorEvent.clientY === "number"
-        ? activatorEvent.clientY + delta.y
-        : undefined;
-    const activeRect = active.rect.current.translated;
-    const pointerX =
-      "clientX" in activatorEvent && typeof activatorEvent.clientX === "number"
-        ? activatorEvent.clientX + delta.x
-        : undefined;
+    const pointer = event.operation.position.current;
+    const rect = target.shape?.boundingRectangle;
     const placeAfter = Boolean(
-      target &&
+      targetTab &&
+        rect &&
         (tabView === "groups"
-          ? pointerX !== undefined && pointerY !== undefined
-            ? pointerY > over.rect.bottom ||
-              (pointerY >= over.rect.top &&
-                pointerX > over.rect.left + over.rect.width / 2)
-            : activeRect && activeRect.left > over.rect.left
-          : pointerY !== undefined
-            ? pointerY > over.rect.top + over.rect.height / 2
-            : activeRect && activeRect.top > over.rect.top + over.rect.height)
+          ? pointer.y > rect.bottom ||
+            (pointer.y >= rect.top && pointer.x > rect.left + rect.width / 2)
+          : pointer.y > rect.top + rect.height / 2)
     );
-    setTabs(current =>
-      current.map(tab =>
-        tab.id === source.id
-          ? { ...tab, placement: { ...tab.placement, groupId } }
-          : tab
-      )
-    );
+    if (tab.placement.groupId !== groupId) {
+      setTabs(current =>
+        current.map(item =>
+          item.id === tab.id
+            ? { ...item, placement: { ...item.placement, groupId } }
+            : item
+        )
+      );
+    }
     setTabOrders(current => {
       const next = Object.fromEntries(
-        Object.entries(current).map(([id, orderedIds]) => [
-          id,
-          orderedIds.filter(id => id !== source.id),
+        Object.entries(current).map(([key, ids]) => [
+          key,
+          ids.filter(id => id !== tab.id),
         ])
-      ) as Record<GroupId, string[]>;
+      );
       const destination = [...(next[destinationKey] ?? [])];
-      const targetIndex = target ? destination.indexOf(target.id) : -1;
+      const targetIndex = targetTab ? destination.indexOf(targetTab.id) : -1;
       destination.splice(
         targetIndex < 0
           ? destination.length
           : targetIndex + (placeAfter ? 1 : 0),
         0,
-        source.id
+        tab.id
       );
       return { ...next, [destinationKey]: destination };
     });
-    lastCrossOverRef.current = {
-      groupId,
-      entryOverId: String(over.id),
-      overId: String(over.id),
-    };
   };
 
   /**
@@ -253,8 +160,6 @@ export function useLibraryDrag({
       setTabOrders(dragSnapshotRef.current.tabOrders);
     }
     dragSnapshotRef.current = undefined;
-    lastCrossOverRef.current = undefined;
-    setActiveDragId(undefined);
   };
 
   /**
@@ -264,51 +169,42 @@ export function useLibraryDrag({
    * @param {DragEndEvent} event - Drag-end event identifying the moved tab and final target.
    * @returns {Promise<void>} Resolves after remote ordering is saved or reported as failed.
    */
-  const handleLibraryDragEnd = async ({ active, over }: DragEndEvent) => {
-    const snapshot = dragSnapshotRef.current;
-    const lastCrossOver = lastCrossOverRef.current;
-    dragSnapshotRef.current = undefined;
-    lastCrossOverRef.current = undefined;
-    setActiveDragId(undefined);
-    if (!over) {
-      if (snapshot) {
-        setTabs(snapshot.tabs);
-        setTabOrders(snapshot.tabOrders);
-      }
+  const handleLibraryDragEnd = async (event: DragEndEvent) => {
+    const { source: draggable, target } = event.operation;
+    if (event.canceled || !target || !isSortable(draggable)) {
+      cancelLibraryDrag();
       return;
     }
-    const source = tabs.find(tab => tab.id === active.id);
+    const snapshot = dragSnapshotRef.current;
+    dragSnapshotRef.current = undefined;
+    const source = tabs.find(tab => tab.id === draggable.id);
     if (!source) return;
-    const original = snapshot?.tabs.find(tab => tab.id === active.id);
+    const original = snapshot?.tabs.find(tab => tab.id === draggable.id);
     const movedToAnotherGroup =
       original?.placement.groupId !== source.placement.groupId;
-    const finalOverId = movedToAnotherGroup
-      ? (lastCrossOver?.overId ?? String(over.id))
-      : String(over.id);
-    const target = tabs.find(tab => tab.id === finalOverId);
-    const stayedOnInitialCrossTarget =
-      movedToAnotherGroup &&
-      lastCrossOver?.entryOverId === lastCrossOver?.overId;
+    const sourceKey = orderKey(source.placement.groupId);
+    const currentOrder = tabOrders[sourceKey] ?? [];
+    const visibleOrder = renderedTabs.filter(
+      tab => tab.placement.groupId === source.placement.groupId
+    );
     let nextTabOrders = tabOrders;
     if (
-      active.id !== over.id &&
-      target?.placement.groupId === source.placement.groupId &&
-      !stayedOnInitialCrossTarget
+      visibleOrder.findIndex(tab => tab.id === source.id) !== draggable.index
     ) {
-      const sourceKey = orderKey(source.placement.groupId);
-      const currentOrder = nextTabOrders[sourceKey] ?? [];
-      const sourceIndex = currentOrder.indexOf(source.id);
-      const originalTargetIndex = currentOrder.indexOf(target.id);
+      const nextVisibleTab = visibleOrder.filter(tab => tab.id !== source.id)[
+        draggable.index
+      ];
       const order = currentOrder.filter(id => id !== source.id);
-      const targetIndex = order.indexOf(target.id);
+      // Anchor to visible neighbors rather than treating hidden tabs as sortable slots.
+      const insertionIndex = nextVisibleTab
+        ? order.indexOf(nextVisibleTab.id)
+        : -1;
       order.splice(
-        targetIndex < 0
-          ? order.length
-          : targetIndex + (sourceIndex < originalTargetIndex ? 1 : 0),
+        insertionIndex < 0 ? order.length : insertionIndex,
         0,
         source.id
       );
-      nextTabOrders = { ...nextTabOrders, [sourceKey]: order };
+      nextTabOrders = { ...tabOrders, [sourceKey]: order };
       setTabOrders(nextTabOrders);
     }
 
@@ -376,7 +272,7 @@ export function useLibraryDrag({
       toast.success(`Moved to ${destination}`, {
         description: "Placed at the requested position in this collection.",
       });
-    } else if (active.id !== over.id) {
+    } else if (draggable.initialIndex !== draggable.index) {
       toast.success("Order updated", {
         description: "The tab has been repositioned in this collection.",
       });
@@ -384,12 +280,8 @@ export function useLibraryDrag({
   };
 
   return {
-    sensors,
-    collisionDetectionStrategy,
-    activeDragId,
     handleLibraryDragStart,
     handleLibraryDragOver,
     handleLibraryDragEnd,
-    cancelLibraryDrag,
   };
 }
