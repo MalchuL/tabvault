@@ -15,6 +15,7 @@ async function savedLibrary(page: Page) {
 }
 
 async function startDrag(page: Page, handle: Locator) {
+  await expect(page.getByTestId("tab-drag-preview")).toHaveCount(0);
   await handle.scrollIntoViewIfNeeded();
   const rect = (await handle.boundingBox())!;
   await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
@@ -142,7 +143,11 @@ for (const destination of ["collection-drop-research", "tab-group-empty"]) {
     await hoverTarget(page, target);
     // Reposition after projection and auto-scroll settle the destination layout.
     await expect(async () => {
-      await hoverTarget(page, target, 0.9);
+      await hoverTarget(
+        page,
+        target,
+        destination === "tab-group-empty" ? 0.1 : 0.9
+      );
       await expect(target).toHaveAttribute("data-drop-active", "true", {
         timeout: 300,
       });
@@ -262,3 +267,146 @@ test("board favicons sort horizontally and drop into an empty collection", async
     .poll(async () => (await savedLibrary(page)).tabOrders.empty)
     .toEqual(["advanced-new"]);
 });
+
+for (const view of ["standard", "compact"]) {
+  for (const tabId of ["t-duplicate", "t-1001"]) {
+    test(`moving the only tab keeps collection order stable (${view}, ${tabId})`, async ({
+      page,
+    }) => {
+      // Keep every collection visible so auto-scroll cannot move the test pointer.
+      await page.setViewportSize({ width: 1280, height: 1400 });
+      await openSchemaV5Library(page);
+      await page.evaluate(view => {
+        const vault = JSON.parse(localStorage.getItem("tabvault-v3")!);
+        vault.library.tabs = vault.library.tabs.filter(t =>
+          ["t-1001", "t-duplicate", "t-research"].includes(t.id)
+        );
+        vault.preferences.tabView = view;
+        localStorage.setItem("tabvault-v3", JSON.stringify(vault));
+      }, view);
+      await page.reload();
+      const groups = page.locator('[data-testid^="tab-group-"]');
+      await expect(groups).toHaveCount(4);
+      expect(
+        await groups.evaluateAll(nodes =>
+          nodes.map(n => n.getAttribute("data-testid"))
+        )
+      ).toEqual([
+        "tab-group-unassigned",
+        "tab-group-session",
+        "tab-group-empty",
+        "tab-group-research",
+      ]);
+      const order = await groups.evaluateAll(nodes =>
+        nodes.map(n => ({
+          id: n.getAttribute("data-testid"),
+          top:
+            n.getBoundingClientRect().top -
+            n.parentElement!.getBoundingClientRect().top,
+          height: n.getBoundingClientRect().height,
+        }))
+      );
+      await startDrag(page, page.getByTestId(`tab-drag-handle-${tabId}`));
+      await hoverTarget(page, page.getByTestId("tab-row-t-research"), 0.25);
+      await expect(
+        page.getByTestId("tab-group-research").getByTestId(`tab-row-${tabId}`)
+      ).toBeVisible();
+      expect(
+        await groups.evaluateAll(nodes =>
+          nodes.map(n => ({
+            id: n.getAttribute("data-testid"),
+            top:
+              n.getBoundingClientRect().top -
+              n.parentElement!.getBoundingClientRect().top,
+            height: n.getBoundingClientRect().height,
+          }))
+        )
+      ).toEqual(order);
+      await page.mouse.up();
+      await expect
+        .poll(async () => (await savedLibrary(page)).tabOrders.research)
+        .toEqual([tabId, "t-research"]);
+    });
+  }
+}
+
+for (const view of ["standard", "compact"]) {
+  for (const fraction of [0.25, 0.75]) {
+    for (const crossing of [false, true]) {
+      test(`first-row insertion stays stable (${view}, ${fraction}, ${crossing ? "cross-group" : "same-group"})`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width: 1280, height: 1400 });
+        await openSchemaV5Library(page);
+        await page.evaluate(
+          ({ view, crossing }) => {
+            const vault = JSON.parse(localStorage.getItem("tabvault-v3")!);
+            vault.library.tabs = vault.library.tabs.filter(t =>
+              ["t-1001", "advanced-old", "t-duplicate"].includes(t.id)
+            );
+            vault.library.tabs.forEach((tab, position) => {
+              tab.placement = {
+                groupId: crossing
+                  ? tab.id === "t-duplicate"
+                    ? "session"
+                    : "research"
+                  : null,
+                position,
+              };
+            });
+            vault.preferences.tabView = view;
+            localStorage.setItem("tabvault-v3", JSON.stringify(vault));
+          },
+          { view, crossing }
+        );
+        await page.reload();
+        const first = page.getByTestId("tab-row-t-1001");
+        await first.waitFor();
+        await startDrag(page, page.getByTestId("tab-drag-handle-t-duplicate"));
+        await hoverTarget(page, first, fraction);
+        if (crossing) {
+          // The inserted row moves the target; aim at its settled position.
+          await first.evaluate(el =>
+            Promise.all(el.getAnimations().map(animation => animation.finished))
+          );
+          await hoverTarget(page, first, fraction);
+        }
+        const groupId = crossing ? "research" : "unassigned";
+        await expect(page.getByTestId(`tab-group-${groupId}`)).toHaveAttribute(
+          "data-drop-active",
+          "true"
+        );
+        const samples = await page
+          .getByTestId(`tab-group-${groupId}`)
+          .evaluate(async el => {
+            const samples: string[][] = [];
+            for (let i = 0; i < 45; i++) {
+              await new Promise<void>(resolve =>
+                requestAnimationFrame(() => resolve())
+              );
+              samples.push(
+                [...el.querySelectorAll<HTMLElement>("[data-tab-id]")].map(
+                  row => row.dataset.tabId!
+                )
+              );
+            }
+            return samples;
+          });
+        expect(new Set(samples.map(order => order.join(","))).size).toBe(1);
+        const expected =
+          fraction < 0.5
+            ? ["t-duplicate", "t-1001", "advanced-old"]
+            : ["t-1001", "t-duplicate", "advanced-old"];
+        expect(samples.at(-1)).toEqual(expected);
+        await page.mouse.up();
+        await expect(page.getByTestId(`tab-group-${groupId}`)).toHaveAttribute(
+          "data-drop-active",
+          "false"
+        );
+        await expect
+          .poll(async () => (await savedLibrary(page)).tabOrders[groupId])
+          .toEqual(expected);
+      });
+    }
+  }
+}

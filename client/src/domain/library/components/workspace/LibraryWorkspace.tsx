@@ -19,6 +19,7 @@ import {
   libraryStats,
   searchTabs,
   sortTabs,
+  sortGroups,
 } from "@/domain/library/selectors";
 import type {
   SavedSearch,
@@ -67,9 +68,13 @@ import { executeDedupePlan } from "@/domain/deduplication/execution";
 export function LibraryWorkspace() {
   const [location, navigate] = useLocation();
   const { vault, mutate, dispatch, syncStatus, synchronize } = useLibrary();
-  const drag = useLibraryDrag({ vault, mutate });
-  const { tabs, vaultGroups: groups, savedSearches } = drag.preview.library;
   const tabView = vault.preferences.tabView;
+  const archived = location === "/archive",
+    hidden = location === "/hidden";
+  const board = tabView === "groups" && !archived && !hidden;
+  const drag = useLibraryDrag({ vault, mutate, list: !board });
+  const { tabs, vaultGroups, savedSearches } = drag.preview.library;
+  const groups = sortGroups(vaultGroups);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -90,10 +95,7 @@ export function LibraryWorkspace() {
   const [undo, setUndo] = useState<{ label: string; tabs: VaultTab[] } | null>(
     null
   );
-  const archived = location === "/archive",
-    hidden = location === "/hidden";
   const lifecycle = archived ? "archived" : hidden ? "hidden" : "visible";
-  const board = tabView === "groups" && !archived && !hidden;
   const pageTabs = tabs.filter(t =>
     archived
       ? t.lifecycle.archived
@@ -105,15 +107,13 @@ export function LibraryWorkspace() {
     t => filter === "all" || t.placement.groupId === filter
   );
   const visible = searchTabs(sortTabs(filtered, vault), query, vault);
-  const visibleGroups = [...groups]
-    .sort((a, b) => a.placement.position - b.placement.position)
-    .filter(
-      g =>
-        (filter === "all" || g.id === filter) &&
-        !archived &&
-        (pageTabs.some(t => t.placement.groupId === g.id) ||
-          (!hidden && !tabs.some(t => t.placement.groupId === g.id)))
-    );
+  const visibleGroups = groups.filter(
+    g =>
+      (filter === "all" || g.id === filter) &&
+      !archived &&
+      (pageTabs.some(t => t.placement.groupId === g.id) ||
+        (!hidden && !tabs.some(t => t.placement.groupId === g.id)))
+  );
   const tagCatalog = Object.fromEntries(
     vault.library.tags.map(t => [t.name, t.description])
   );
@@ -390,6 +390,7 @@ export function LibraryWorkspace() {
       ]}
       onDragStart={drag.handleLibraryDragStart}
       onDragOver={drag.handleLibraryDragOver}
+      onDragMove={drag.handleLibraryDragMove}
       onDragEnd={event => run(drag.handleLibraryDragEnd(event))}
     >
       <main className="min-h-screen bg-[#f6f3ec] text-[#18261f]">
@@ -566,6 +567,7 @@ export function LibraryWorkspace() {
             ) : visible.length || visibleGroups.length ? (
               <TabList
                 tabs={visible}
+                dragOrigin={drag.origin}
                 viewMode={tabView === "groups" ? "standard" : tabView}
                 navigation={{
                   query,

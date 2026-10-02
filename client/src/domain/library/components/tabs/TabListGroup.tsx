@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { useDroppable } from "@dnd-kit/react";
+import { useDragOperation, useDroppable } from "@dnd-kit/react";
+import { isSortable } from "@dnd-kit/react/sortable";
 import { pointerIntersection } from "@dnd-kit/collision";
 import {
   ChevronDown,
@@ -42,13 +43,21 @@ export function DroppableGroup({
     disabled,
   });
 
+  const { target } = useDragOperation();
+  // A tab wins collision detection over its parent, but both belong to the same destination.
+  const active =
+    !disabled &&
+    (isDropTarget ||
+      (target && isSortable(target) && target.group === groupId));
+
   return (
     <section
       ref={ref}
       style={{ paddingBottom: dropGapHeight }}
       data-testid={`tab-group-${groupId}`}
-      data-drop-active={isDropTarget ? "true" : "false"}
+      data-drop-active={active ? "true" : "false"}
       data-drop-gap-height={dropGapHeight}
+      className="data-[drop-active=true]:bg-[#fff7f1] data-[drop-active=true]:ring-1 data-[drop-active=true]:ring-inset data-[drop-active=true]:ring-[#e95224]"
       aria-label={`Drop a tab into ${groupName}`}
     >
       {children}

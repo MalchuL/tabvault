@@ -1,5 +1,5 @@
 import { resolveProperty } from "./properties";
-import type { PersistedVault, VaultTab } from "./types";
+import type { PersistedVault, VaultGroup, VaultTab } from "./types";
 /** Test visibility at one consistent instant. @param {VaultTab} tab - Saved occurrence. @param {number} now - Current milliseconds. @returns {boolean} Whether the tab is hidden. */
 export function isCurrentlyHidden(tab: VaultTab, now = Date.now()) {
   return (
@@ -20,13 +20,24 @@ export function libraryStats(vault: PersistedVault, now = Date.now()) {
     tagCount: vault.library.tags.length,
   };
 }
-/** Sort by group position, then occurrence position. @param {VaultTab[]} tabs - Records. @param {Pick<PersistedVault,"library">} vault - Group placement data. @returns {VaultTab[]} Ordered copy. */
+/** Order collections newest first with stable ID ties, independently of their tabs.
+ * @param {VaultGroup[]} groups - Collections with validated creation timestamps.
+ * @returns {VaultGroup[]} Ordered copy; saved positions and input order are unchanged.
+ */
+export function sortGroups(groups: VaultGroup[]): VaultGroup[] {
+  return [...groups].sort(
+    (a, b) =>
+      Date.parse(b.timestamps.createdAt) - Date.parse(a.timestamps.createdAt) ||
+      a.id.localeCompare(b.id)
+  );
+}
+/** Sort by newest collection first, then occurrence position; Unassigned stays first. @param {VaultTab[]} tabs - Records. @param {Pick<PersistedVault,"library">} vault - Collection creation data. @returns {VaultTab[]} Ordered copy. */
 export function sortTabs(
   tabs: VaultTab[],
   vault: Pick<PersistedVault, "library">
 ) {
   const groups = new Map(
-    vault.library.vaultGroups.map(g => [g.id, g.placement.position])
+    sortGroups(vault.library.vaultGroups).map((g, index) => [g.id, index])
   );
   return [...tabs].sort(
     (a, b) =>

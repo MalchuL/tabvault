@@ -1,3 +1,4 @@
+import type { DragOrigin } from "../workspace/useLibraryDrag";
 import { DroppableGroup, GroupSeparator } from "./TabListGroup";
 import {
   SortableTabRow,
@@ -18,6 +19,7 @@ type Collections = {
 };
 type Props = {
   tabs: VaultTab[];
+  dragOrigin: DragOrigin | null;
   viewMode: TabViewMode;
   navigation: {
     query: string;
@@ -31,6 +33,7 @@ type Props = {
 /** Reuse the grouped list for active, hidden, and archived occurrences. @param {Props} props - Visible records and owner callbacks. @returns {React.ReactElement} Accessible grouped list. */
 export function TabList({
   tabs,
+  dragOrigin,
   viewMode,
   navigation,
   collections,
@@ -38,25 +41,45 @@ export function TabList({
   lifecycle,
 }: Props) {
   const groups = collections.groups;
-  const buckets = new Map<string, VaultTab[]>();
-  for (const tab of tabs) {
-    const key = tab.placement.groupId ?? "unassigned";
-    buckets.set(key, [...(buckets.get(key) ?? []), tab]);
-  }
-  if (lifecycle.lifecycleMode === "visible" && !navigation.query)
-    for (const group of groups)
-      if (!buckets.has(group.id)) buckets.set(group.id, []);
+  // Build collection slots from collection order, never from tab membership.
+  const buckets = new Map<string, VaultTab[]>([
+    ["unassigned", []],
+    ...groups.map(group => [group.id, []] as [string, VaultTab[]]),
+  ]);
+  for (const tab of tabs)
+    buckets.get(tab.placement.groupId ?? "unassigned")?.push(tab);
+  const orderedBuckets = [...buckets].filter(
+    ([id, members]) =>
+      members.length > 0 ||
+      dragOrigin?.groupId === id ||
+      (id !== "unassigned" &&
+        lifecycle.lifecycleMode === "visible" &&
+        !navigation.query)
+  );
   return (
     <div data-testid="tab-list" className="border-t border-[#dcd7cc]">
-      {[...buckets].map(([id, members]) => {
+      {orderedBuckets.map(([id, members]) => {
         const group = groups.find(g => g.id === id);
         const collapsed = collections.collapsed.has(id);
+        const rowHeight = viewMode === "compact" ? 45 : 96;
+        const startedHere = dragOrigin?.groupId === id;
+        const containsDragged = members.some(tab => tab.id === dragOrigin?.id);
+        const draggedHeight = dragOrigin?.height || rowHeight;
+        // Exchange the reserved gap with the projected row so targets do not move
+        // under a stationary pointer when the source loses its last tab.
+        const dropGapHeight =
+          rowHeight +
+          (startedHere && !containsDragged
+            ? draggedHeight
+            : !startedHere && containsDragged
+              ? -Math.min(rowHeight, draggedHeight)
+              : 0);
         return (
           <DroppableGroup
             key={id}
             groupId={id}
             groupName={group?.details.name ?? "[Unassigned]"}
-            dropGapHeight={collapsed ? 0 : viewMode === "compact" ? 45 : 96}
+            dropGapHeight={collapsed ? 0 : dropGapHeight}
             disabled={collapsed || lifecycle.lifecycleMode === "archived"}
           >
             <GroupSeparator

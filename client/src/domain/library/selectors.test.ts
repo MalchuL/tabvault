@@ -6,6 +6,7 @@ import {
   libraryStats,
   searchTabs,
   sortTabs,
+  sortGroups,
 } from "./selectors";
 it("classifies lifecycle, canonical order, and text search including defaults", () => {
   let vault = captureTabs(emptyBrowserVault(), [
@@ -40,4 +41,34 @@ it("classifies lifecycle, canonical order, and text search including defaults", 
   };
   expect(searchTabs(vault.library.tabs, "research", vault)).toHaveLength(3);
   expect(searchTabs(vault.library.tabs, "not found", vault)).toEqual([]);
+});
+
+it("orders collections by newest creation date regardless of positions or membership", () => {
+  const vault = captureTabs(emptyBrowserVault(), [
+    { url: "https://example.com" },
+  ]);
+  const base = vault.library.vaultGroups[0];
+  const makeGroup = (id: string, createdAt: string, position: number) => ({
+    ...base,
+    id,
+    timestamps: { ...base.timestamps, createdAt },
+    placement: { position },
+  });
+  vault.library.vaultGroups = [
+    makeGroup("old", "2025-01-01T00:00:00Z", 0),
+    makeGroup("z", "2026-01-01T00:00:00Z", 1),
+    makeGroup("a", "2026-01-01T00:00:00Z", 9),
+  ];
+  const tabs = vault.library.vaultGroups.map((group, index) => ({
+    ...vault.library.tabs[0],
+    id: group.id,
+    placement: { groupId: group.id, position: index },
+  }));
+  expect(sortGroups(vault.library.vaultGroups).map(g => g.id)).toEqual([
+    "a",
+    "z",
+    "old",
+  ]);
+  expect(sortTabs(tabs, vault).map(t => t.id)).toEqual(["a", "z", "old"]);
+  expect(vault.library.vaultGroups.map(g => g.id)).toEqual(["old", "z", "a"]);
 });

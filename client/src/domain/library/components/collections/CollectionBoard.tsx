@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
-import { useDroppable } from "@dnd-kit/react";
+import { useDragOperation, useDroppable } from "@dnd-kit/react";
 import { pointerIntersection } from "@dnd-kit/collision";
-import { useSortable } from "@dnd-kit/react/sortable";
+import { isSortable, useSortable } from "@dnd-kit/react/sortable";
 import { FolderOpen, FolderPlus, Pencil, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { GroupId, VaultGroup, VaultTab } from "@/domain/library/types";
@@ -186,11 +186,14 @@ function CollectionCard({
     // Pointer hits on tabs (3) take priority over this collection background.
     collisionPriority: 2,
   });
+  const { target } = useDragOperation();
+  const active =
+    isDropTarget || (target && isSortable(target) && target.group === group.id);
   return (
     <article
       ref={ref}
       data-testid={`group-card-${group.id}`}
-      data-drop-active={isDropTarget ? "true" : "false"}
+      data-drop-active={active ? "true" : "false"}
       className="group flex min-h-[210px] flex-col border border-[#dcd7cc] bg-[#fffdf8] p-5 shadow-[0_10px_24px_rgba(24,38,31,0.035)] transition hover:border-[#c7c1b4] data-[drop-active=true]:border-[#e95224]"
     >
       {children}
