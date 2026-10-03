@@ -29,6 +29,28 @@ The record of one save occurrence. Several saved tabs may have the same saved UR
 distinct identities and metadata.
 _Avoid_: Canonical URL record, group membership
 
+**Custom Property Schema**:
+The project-scoped definition of the custom properties available to Saved Tabs, including each
+property's name, value type, and default value. Clients assign application meaning to properties;
+until Projects exist, one schema applies to the Library. Property names are stable, case-sensitive
+identities, and definition order has no domain meaning.
+_Avoid_: JSON Schema, project settings, tab settings, arbitrary parameters
+
+**Custom Property Value**:
+A value explicitly assigned to one custom property on one Saved Tab. A Saved Tab without an
+explicit value resolves that property according to its Custom Property Schema.
+_Avoid_: Setting, schema entry, built-in field
+
+**Undeclared Property Value**:
+A stored property value whose name is absent from the current Custom Property Schema. It is omitted
+from resolved Saved Tabs until an explicit repair removes it or the schema declares it again.
+_Avoid_: Returned custom property, automatically deleted value
+
+**Custom Property Repair**:
+An explicit Library-wide operation that losslessly converts incompatible Custom Property Values
+when possible and removes undeclared or unconvertible values so schema defaults apply.
+_Avoid_: Validation, read-time normalization, automatic migration
+
 **Saved URL**:
 The original URL retained for a saved occurrence, including its query parameters, order, fragment,
 encoding, trailing slash, and casing. TabVault does not maintain a separate canonical or normalized

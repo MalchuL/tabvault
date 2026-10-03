@@ -1,5 +1,10 @@
 # Groups and Agents
 
+> Historical schema-v2 specification. For current schema-v5 synchronization,
+> custom properties, and UI behavior, see [ADR 0017](adr/0017-generic-library-sync-and-custom-properties.md),
+> [the feature guide](FEATURE_GUIDE.md), and [the API specification](TabVault_API_and_MCP_Spec.md).
+> The per-tab synchronization and dedicated annotation rules below are superseded.
+
 This specification defines the agreed Groups, agent interaction, hiding, archive, duplicate
 reduction, capture, and synchronization model. It intentionally breaks the current schema and API.
 

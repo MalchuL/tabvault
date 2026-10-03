@@ -1,0 +1,31 @@
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+import pytest
+from fastapi.testclient import TestClient
+
+from api.main import create_app
+from config.settings import get_settings
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    monkeypatch.setenv("TABVAULT_STORAGE__DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("TABVAULT_HTTP__API_KEY", "test-key")
+    get_settings.cache_clear()
+
+    with TestClient(create_app()) as value:
+        response = value.post(
+            "/api/v1/property-schema",
+            headers={"X-API-Key": "test-key"},
+            json={"name": "viewed", "type": "boolean", "default": False},
+        )
+        assert response.status_code == 200
+        yield value
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def headers() -> dict[str, str]:
+    return {"X-API-Key": "test-key"}

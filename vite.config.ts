@@ -6,15 +6,60 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path.resolve(import.meta.dirname, "shared"),
+      "@": path.resolve(import.meta.dirname, "chrome_extension", "src"),
     },
   },
   envDir: path.resolve(import.meta.dirname),
-  root: path.resolve(import.meta.dirname, "client"),
+  root: path.resolve(import.meta.dirname, "chrome_extension"),
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      preserveEntrySignatures: "strict",
+      input: {
+        app: path.resolve(
+          import.meta.dirname,
+          "chrome_extension",
+          "index.html"
+        ),
+        "library-sync": path.resolve(
+          import.meta.dirname,
+          "chrome_extension",
+          "src",
+          "extension",
+          "library-sync.ts"
+        ),
+        background: path.resolve(
+          import.meta.dirname,
+          "chrome_extension",
+          "src",
+          "extension",
+          "background.ts"
+        ),
+        popup: path.resolve(
+          import.meta.dirname,
+          "chrome_extension",
+          "src",
+          "extension",
+          "popup.ts"
+        ),
+        "popup-selection": path.resolve(
+          import.meta.dirname,
+          "chrome_extension",
+          "src",
+          "extension",
+          "popup-selection.ts"
+        ),
+      },
+      output: {
+        entryFileNames: chunk =>
+          ["library-sync", "background", "popup", "popup-selection"].includes(
+            chunk.name
+          )
+            ? `${chunk.name}.js`
+            : "assets/[name]-[hash].js",
+      },
+    },
   },
   server: {
     port: 3000,

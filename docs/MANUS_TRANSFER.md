@@ -26,8 +26,8 @@ Do **not** run `pnpm approve-builds` for oxide/esbuild. Re-apply this document i
 - [ ] Delete Manus-only files (section 3).
 - [ ] Point logos at `/icon-128.png` and drop `/manus-storage` images (section 4).
 - [ ] Convert any new Tailwind 4 class syntax (section 5).
-- [ ] Remove Manus analytics from `client/index.html`.
-- [ ] Restore Chrome-extension routing in `client/src/App.tsx` (section 6). Do not leave wouter matching only `/`.
+- [ ] Remove Manus analytics from `chrome_extension/index.html`.
+- [ ] Restore Chrome-extension routing in `chrome_extension/src/App.tsx` (section 6). Do not leave wouter matching only `/`.
 - [ ] Run `pnpm install` then `pnpm build`. Confirm `dist/public/index.html` has no `manus-runtime` script and no `__manus__/` folder.
 - [ ] Reload the unpacked Chrome extension from `dist/public/`. Open the side panel; it must show Home, not the in-app 404 page.
 
@@ -83,7 +83,7 @@ Keep `autoprefixer`, `postcss`, `@tailwindcss/typography`, and `tailwindcss-anim
 
 Set `"config": "tailwind.config.ts"` under `tailwind` so shadcn stays on the v3 config path.
 
-### `client/src/index.css`
+### `chrome_extension/src/index.css`
 
 Manus / Tailwind 4:
 
@@ -134,12 +134,12 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "client", "src"),
+      "@": path.resolve(import.meta.dirname, "chrome_extension", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
     },
   },
   envDir: path.resolve(import.meta.dirname),
-  root: path.resolve(import.meta.dirname, "client"),
+  root: path.resolve(import.meta.dirname, "chrome_extension"),
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
@@ -179,13 +179,13 @@ Delete these if they come back:
 | Path | What it was |
 | --- | --- |
 | `template.json` | Manus project snapshot of package.json / index.css / index.html |
-| `client/src/components/ManusDialog.tsx` | “Login with Manus” dialog (unused by App) |
-| `client/public/__manus__/` | Debug collector + version.json copied into the extension build |
+| `chrome_extension/src/components/ManusDialog.tsx` | “Login with Manus” dialog (unused by App) |
+| `chrome_extension/public/__manus__/` | Debug collector + version.json copied into the extension build |
 
 Ignore rules that mentioned them were also dropped:
 
-- `.gitignore`: `client/public/__manus__/version.json` and `.project-config.json`
-- `eslint.config.mjs`: `"client/public/__manus__/**"`
+- `.gitignore`: `chrome_extension/public/__manus__/version.json` and `.project-config.json`
+- `eslint.config.mjs`: `"chrome_extension/public/__manus__/**"`
 
 After `pnpm build`, `dist/public/` must not contain `__manus__/`.
 
@@ -206,14 +206,14 @@ const validationVisual = "/manus-storage/tabvault-validation_fed8a176.jpg";
 
 Local replacements:
 
-- `client/src/pages/Home.tsx` and `client/src/pages/Transfer.tsx`: `logoUrl = "/icon-128.png"` (file already in `client/public/`).
+- `chrome_extension/src/pages/Home.tsx` and `chrome_extension/src/pages/Transfer.tsx`: `logoUrl = "/icon-128.png"` (file already in `chrome_extension/public/`).
 - Home hero / semantic / validation photos: removed `<img>` tags; keep the paper-grain / gradient panels.
 
 ### `docs/FEATURE_GUIDE.md`
 
 Removed the two markdown images that pointed at `/manus-storage/tabvault-dashboard_*.png` and `/manus-storage/tabvault-system-map_*.png`. Figure captions stayed.
 
-### `client/index.html`
+### `chrome_extension/index.html`
 
 Removed the Manus Umami injection:
 
@@ -239,7 +239,7 @@ Manus shadcn components use Tailwind 4 shorthands. Convert them whenever new UI 
 | `max-h-(--radix-…)` / `w-(--sidebar-width)` / `size-(--cell-size)` | `max-h-[var(--radix-…)]` / `w-[var(--sidebar-width)]` / `size-[var(--cell-size)]` |
 | `outline-hidden` | `outline-none` |
 
-Regex used last time (run on `client/src/**/*.{ts,tsx}`):
+Regex used last time (run on `chrome_extension/src/**/*.{ts,tsx}`):
 
 ```text
 ([\w-]+)-\(--([^)]+)\)  →  \1-[var(--\2)]
@@ -252,21 +252,21 @@ Some leftover v4-only variants (`**:`, `in-data-[…]`, `size-8!`) still exist i
 
 Files converted in this transfer:
 
-- `client/src/components/ui/calendar.tsx`
-- `client/src/components/ui/chart.tsx`
-- `client/src/components/ui/command.tsx`
-- `client/src/components/ui/context-menu.tsx`
-- `client/src/components/ui/dialog.tsx`
-- `client/src/components/ui/dropdown-menu.tsx`
-- `client/src/components/ui/hover-card.tsx`
-- `client/src/components/ui/menubar.tsx`
-- `client/src/components/ui/popover.tsx`
-- `client/src/components/ui/resizable.tsx`
-- `client/src/components/ui/select.tsx`
-- `client/src/components/ui/sheet.tsx`
-- `client/src/components/ui/sidebar.tsx`
-- `client/src/components/ui/slider.tsx`
-- `client/src/components/ui/tooltip.tsx`
+- `chrome_extension/src/components/ui/calendar.tsx`
+- `chrome_extension/src/components/ui/chart.tsx`
+- `chrome_extension/src/components/ui/command.tsx`
+- `chrome_extension/src/components/ui/context-menu.tsx`
+- `chrome_extension/src/components/ui/dialog.tsx`
+- `chrome_extension/src/components/ui/dropdown-menu.tsx`
+- `chrome_extension/src/components/ui/hover-card.tsx`
+- `chrome_extension/src/components/ui/menubar.tsx`
+- `chrome_extension/src/components/ui/popover.tsx`
+- `chrome_extension/src/components/ui/resizable.tsx`
+- `chrome_extension/src/components/ui/select.tsx`
+- `chrome_extension/src/components/ui/sheet.tsx`
+- `chrome_extension/src/components/ui/sidebar.tsx`
+- `chrome_extension/src/components/ui/slider.tsx`
+- `chrome_extension/src/components/ui/tooltip.tsx`
 
 ---
 
@@ -291,7 +291,7 @@ Chrome opens the workspace at `chrome-extension://<extension-id>/index.html`. Wo
 
 The `<script id="manus-runtime">` tag is unrelated to this 404. It comes from `vite-plugin-manus-runtime` (section 2). Strip that plugin; do not try to replace `__MANUS_HOST_DEV__`.
 
-### Fix in `client/src/App.tsx`
+### Fix in `chrome_extension/src/App.tsx`
 
 Keep the same routes. Wrap them in wouter’s `<Router>` and pick the location hook from the page protocol:
 

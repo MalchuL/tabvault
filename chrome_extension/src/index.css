@@ -1,0 +1,123 @@
+/*
+ * Signal Library design reminder: warm paper field, editorial rules, forest-black typography,
+ * and TabVault Orange (#F05A28) reserved for the active object or critical affordance.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --radius: 0.75rem;
+  --background: #f6f3ec;
+  --foreground: #18261f;
+  --card: #fffdf8;
+  --card-foreground: #18261f;
+  --popover: #fffdf8;
+  --popover-foreground: #18261f;
+  --primary: #e95224;
+  --primary-foreground: #fffaf2;
+  --secondary: #ebe8df;
+  --secondary-foreground: #18261f;
+  --muted: #efede6;
+  --muted-foreground: #70746d;
+  --accent: #f0ece2;
+  --accent-foreground: #18261f;
+  --destructive: #bf3f30;
+  --destructive-foreground: #fffaf2;
+  --border: #dfdbd0;
+  --input: #dfdbd0;
+  --ring: #e95224;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    outline-color: color-mix(in srgb, var(--ring) 50%, transparent);
+  }
+  html {
+    background: #f6f3ec;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Manrope", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  button:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input:not(:disabled) {
+    @apply cursor-pointer;
+  }
+  ::selection {
+    background: #f6b8a3;
+    color: #18261f;
+  }
+}
+
+@layer utilities {
+  .paper-grain {
+    background-image: radial-gradient(
+      rgba(24, 38, 31, 0.075) 0.45px,
+      transparent 0.5px
+    );
+    background-size: 5px 5px;
+  }
+  .catalog-rule {
+    border-left: 1px solid #d8d3c6;
+  }
+  .thin-scrollbar::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  .thin-scrollbar::-webkit-scrollbar-thumb {
+    background: #c7c1b5;
+    border-radius: 99px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rise-in {
+    animation: rise-in 440ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+  .rise-in-delay {
+    animation: rise-in 440ms 70ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@layer base {
+  button,
+  a,
+  select {
+    transition-property:
+      color, background-color, border-color, opacity, box-shadow;
+    transition-duration: 160ms;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

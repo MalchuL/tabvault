@@ -1,0 +1,158 @@
+"""FastAPI application factory, lifespan, authentication, and middleware."""
+
+from __future__ import annotations
+
+import hmac
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import timedelta
+from typing import Annotated
+
+import uvicorn
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
+
+from api.error_logging import register_error_handlers
+from api.idempotency import register_idempotency
+from api.request_logging import register_request_logging
+from api.routes.api import api_router
+from api.routes.debug import DEBUG_WARNING
+from api.routes.debug import router as debug_router
+from config.settings import Settings, configure_logging, get_settings
+from db.session import (
+    configure_database,
+    dispose_database,
+    get_session_factory,
+    initialize_database,
+)
+from domain.transfer.repository import TransferRepository
+from domain.transfer.service import TransferService
+from lib.responses import issue, json_data
+from lib.time import utc_now
+
+logger = logging.getLogger(__name__)
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False, scheme_name="API Key")
+ApiKeyDep = Annotated[str | None, Depends(api_key_header)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+async def require_api_key(value: ApiKeyDep, settings: SettingsDep) -> None:
+    """Reject requests that do not provide the configured API key.
+
+    Args:
+        value (ApiKeyDep): API key supplied in the request header, if any.
+        settings (SettingsDep): Validated process settings that control this component.
+
+    Raises:
+        HTTPException: A configured API key is absent or does not match.
+    """
+    if settings.http.api_key and (
+        value is None or not hmac.compare_digest(value, settings.http.api_key)
+    ):
+        raise HTTPException(
+            401,
+            detail=json_data(
+                issue(
+                    "E_UNAUTHORIZED",
+                    "headers.X-API-Key",
+                    "configured API key",
+                    None,
+                    "A valid X-API-Key is required.",
+                    401,
+                )
+            ),
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Initialize and dispose process-wide application resources.
+
+    Args:
+        app (FastAPI): FastAPI application being configured.
+
+    Returns:
+        AsyncIterator[None]: Application lifespan that yields after startup and disposes resources on exit.
+    """
+    settings = get_settings()
+    configure_logging(settings)
+    settings.storage.data_dir.mkdir(parents=True, exist_ok=True)
+    if settings.debug.enabled:
+        logger.warning(DEBUG_WARNING)
+    if "*" in settings.http.cors_origins:
+        logger.warning(
+            "CORS is open to all origins (*); configure TABVAULT_HTTP__CORS_ORIGINS before network exposure"
+        )
+    engine, _session_factory = configure_database(settings)
+    await initialize_database(engine)
+    if settings.storage.effective_database_url.startswith("sqlite"):
+        async with engine.begin() as connection:
+            await connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+    async with get_session_factory()() as db:
+        repository = TransferRepository(db)
+        transfer = TransferService(db, settings, repository)
+        latest = await repository.latest_backup("scheduled")
+        if latest is None or latest.created_at.replace(
+            tzinfo=latest.created_at.tzinfo or utc_now().tzinfo
+        ) < utc_now() - timedelta(days=1):
+            await transfer.create_backup("scheduled")
+            await db.commit()
+        await transfer.prune_backups()
+    yield
+    await dispose_database()
+
+
+def create_app() -> FastAPI:
+    """Build and configure the FastAPI application.
+
+    Returns:
+        FastAPI: Configured application with routes, middleware, and error handlers.
+    """
+    settings = get_settings()
+    configure_logging(settings)
+    app = FastAPI(
+        title="TabVault API Server",
+        version="0.2.0",
+        lifespan=lifespan,
+        swagger_ui_parameters={"persistAuthorization": True},
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.http.cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["Content-Disposition"],
+    )
+    register_idempotency(app, settings.http.api_prefix)
+
+    app.include_router(
+        api_router, prefix=settings.http.api_prefix, dependencies=[Depends(require_api_key)]
+    )
+    app.include_router(debug_router)
+    register_error_handlers(app)
+    register_request_logging(app)
+    return app
+
+
+app = create_app()
+
+
+def main() -> None:
+    """Run the production ASGI server."""
+    settings = get_settings()
+    configure_logging(settings)
+    uvicorn.run(
+        "api.main:app",
+        host=settings.http.host,
+        port=settings.http.port,
+        reload=False,
+        access_log=False,
+        log_level=settings.logging.level.lower(),
+    )
+
+
+if __name__ == "__main__":
+    main()

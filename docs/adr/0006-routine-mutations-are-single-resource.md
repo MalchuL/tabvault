@@ -1,5 +1,7 @@
 # Routine mutations are single-resource operations
 
+Synchronization/indexing details superseded by [ADR 0017](0017-generic-library-sync-and-custom-properties.md).
+
 TabVault does not expose generic bulk create, update, hide, or delete operations for routine tab
 work. Human and agent clients issue one request per resource and report partial failures when
 orchestrating multi-item actions. This avoids coupling unrelated mutations into large failure and

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -17,6 +17,9 @@ from .dto import (
     GroupResponseDTO,
     GroupTabsQueryDTO,
     GroupUpdateDTO,
+    PropertyDefinitionDTO,
+    PropertySchemaResponseDTO,
+    PropertyUnsetDTO,
     SearchQueryDTO,
     SearchResponseDTO,
     TabCreateDTO,
@@ -74,11 +77,11 @@ class MCPClient:
         """Create a client from process-level server and authentication settings.
 
         Returns:
-            MCPClient: Client configured from ``TABVAULT_SERVER_URL`` and ``TABVAULT_API_KEY``.
+            MCPClient: Client configured from ``TABVAULT_SERVER_URL`` and ``TABVAULT_HTTP__API_KEY``.
         """
         return cls(
             os.environ.get("TABVAULT_SERVER_URL", DEFAULT_SERVER_URL),
-            os.environ.get("TABVAULT_API_KEY") or None,
+            os.environ.get("TABVAULT_HTTP__API_KEY") or None,
         )
 
     async def aclose(self) -> None:
@@ -118,11 +121,7 @@ class MCPClient:
                     if body is not None
                     else None
                 ),
-                params=(
-                    query.model_dump(mode="json", by_alias=True, exclude_none=True)
-                    if query is not None
-                    else None
-                ),
+                params=(self._query_parameters(query) if query is not None else None),
             )
         except httpx.RequestError as error:
             raise MCPClientError(f"TabVault API is unavailable: {error}") from error
@@ -149,6 +148,85 @@ class MCPClient:
         except ValidationError as error:
             raise MCPClientError("TabVault API returned an invalid response shape") from error
 
+    async def _ensure_properties(self, values: dict[str, Any]) -> None:
+        """Register missing client conventions only for explicitly written properties.
+
+        Args:
+            values (dict[str, Any]): Explicit custom-property patch.
+
+        Raises:
+            MCPClientError: A convention has an incompatible existing definition.
+        """
+        if not values:
+            return
+        conventions = {
+            "note": {"type": "string", "default": "", "description": "Saved note"},
+            "agentReview": {"type": "string", "default": "", "description": "Agent-written review"},
+            "viewed": {
+                "type": "boolean",
+                "default": False,
+                "description": "Whether this saved tab has been viewed",
+            },
+        }
+        schema = await self.property_schema()
+        for name in values:
+            expected = conventions.get(name)
+            if expected is None:
+                continue
+            existing = schema.data.properties.get(name)
+            if existing is not None and existing.type != expected["type"]:
+                raise MCPClientError(
+                    f"Property {name!r} must have type {expected['type']} for this operation"
+                )
+            if existing is None:
+                await self.upsert_property(
+                    PropertyDefinitionDTO.model_validate({"name": name, **expected})
+                )
+
+    async def property_schema(self) -> PropertySchemaResponseDTO:
+        """Read definitions without modifying server state."""
+        return await self._request("GET", "/property-schema", PropertySchemaResponseDTO)
+
+    async def upsert_property(self, body: PropertyDefinitionDTO) -> PropertySchemaResponseDTO:
+        """Create or explicitly replace one property definition."""
+        return await self._request("POST", "/property-schema", PropertySchemaResponseDTO, body=body)
+
+    async def delete_property(self, name: str) -> PropertySchemaResponseDTO:
+        """Remove a definition while retaining existing raw tab values."""
+        from urllib.parse import quote
+
+        return await self._request(
+            "DELETE", f"/property-schema/{quote(name, safe='')}", PropertySchemaResponseDTO
+        )
+
+    async def unset_properties(self, tab_id: str, names: list[str]) -> TabResponseDTO:
+        """Remove explicit values from a previously resolved visible occurrence."""
+        return await self._request(
+            "POST",
+            f"/tabs/{tab_id}/custom-properties/unset",
+            TabResponseDTO,
+            body=PropertyUnsetDTO(properties=names),
+        )
+
+    @staticmethod
+    def _query_parameters(query: BaseModel) -> dict[str, str | int | float | bool | None]:
+        """Serialize grouped list inputs as ordinary HTTP query parameters.
+
+        Args:
+            query (BaseModel): Validated query object.
+
+        Returns:
+            dict[str, object]: Flat query values with camelCase parameter names.
+        """
+        if isinstance(query, TabListQueryDTO):
+            return {
+                **query.filters.model_dump(mode="json", by_alias=True, exclude_none=True),
+                **query.ordering.model_dump(mode="json", by_alias=True),
+                **query.pagination.model_dump(mode="json", by_alias=True),
+                "fields": query.fields,
+            }
+        return query.model_dump(mode="json", by_alias=True, exclude_none=True)
+
     async def list_tabs(self, query: TabListQueryDTO) -> TabListResponseDTO:
         """List Saved Tabs using typed filters and pagination."""
         return await self._request("GET", "/tabs", TabListResponseDTO, query=query)
@@ -162,11 +240,35 @@ class MCPClient:
         return await self._request("GET", f"/tabs/{tab_id}", TabResponseDTO)
 
     async def create_tab(self, body: TabCreateDTO) -> TabCreateResponseDTO:
-        """Create one Saved Tab occurrence."""
+        """Create one Saved Tab occurrence, registering viewed only when supplied.
+
+        Args:
+            body (TabCreateDTO): Validated tab fields, including optional custom properties.
+
+        Returns:
+            TabCreateResponseDTO: Created occurrence and capture-job metadata.
+
+        Raises:
+            MCPClientError: Schema registration or creation fails, or viewed is incompatible.
+        """
+        await self._ensure_properties(body.annotations.custom_properties)
         return await self._request("POST", "/tabs", TabCreateResponseDTO, body=body)
 
     async def update_tab(self, tab_id: str, body: TabUpdateDTO) -> TabResponseDTO:
-        """Patch explicitly supplied fields on one Saved Tab."""
+        """Patch one Saved Tab, registering viewed only when supplied.
+
+        Args:
+            tab_id (str): Private identifier of the tab selected by the caller.
+            body (TabUpdateDTO): Validated fields to update; omitted fields stay unchanged.
+
+        Returns:
+            TabResponseDTO: Updated Saved Tab.
+
+        Raises:
+            MCPClientError: Schema registration or update fails, or viewed is incompatible.
+        """
+        if body.annotations.custom_properties is not None:
+            await self._ensure_properties(body.annotations.custom_properties)
         return await self._request("PATCH", f"/tabs/{tab_id}", TabResponseDTO, body=body)
 
     async def delete_tab(self, tab_id: str) -> TabDeleteResponseDTO:

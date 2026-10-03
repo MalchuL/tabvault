@@ -2,166 +2,58 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   defaultVault,
-  isVaultV2,
+  isPersistedVault,
   serverDocumentToVault,
-  utcTimestamp,
   vaultToServerDocument,
-} from "../client/public/library-sync.js";
-
-test("schema-v2 conversion preserves occurrence identity, exact URL, and Unassigned", () => {
+} from "../dist/public/library-sync.js";
+const now = "2026-08-23T12:00:00.000Z";
+test("v5 portable round trip preserves raw properties, occurrence identity and original URL", () => {
   const vault = defaultVault();
-  const now = "2026-08-23T12:00:00.000Z";
-  vault.tabs = [
+  vault.propertySchema = {
+    note: { description: "", type: "string", default: "" },
+  };
+  vault.library.tabs = [
     {
-      id: "tab-1",
-      groupId: null,
-      title: "Example",
-      url: "HTTPS://Example.com/a?b=2&a=1#fragment",
-      domain: "example.com",
-      note: "note",
-      agentReview: "Useful agent summary",
-      viewed: true,
-      tags: ["reference"],
-      color: "#F05A28",
-      icon: "E",
-      createdAt: now,
-      updatedAt: now,
+      id: "one",
+      content: {
+        url: "HTTPS://Example.com/a?b=2&a=1#fragment",
+        title: "Example",
+        domain: "example.com",
+        color: "#123456",
+        icon: "E",
+      },
+      annotations: {
+        customProperties: { note: "Useful", unknown: null },
+        tags: [],
+      },
+      placement: { groupId: null, position: 2 },
+      lifecycle: { archived: false, archivedAt: null, hiddenUntil: null },
+      timestamps: { createdAt: now, updatedAt: now },
     },
   ];
-  vault.tabOrders.unassigned = ["tab-1"];
-  vault.vaultGroups.push({
-    id: "custom",
-    name: "Custom",
-    description: "Agent filing context",
-    category: "manual",
-    accent: "#123456",
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  assert.equal(isVaultV2(vault), true);
   const document = vaultToServerDocument(vault);
-  assert.equal(document.schemaVersion, 2);
-  assert.equal(document.tabs[0].id, "tab-1");
-  assert.equal(document.tabs[0].groupId, null);
-  assert.equal(document.tabs[0].url, vault.tabs[0].url);
-  assert.equal(document.groups[0].category, "manual");
-  assert.equal("parentId" in document.groups[0], false);
-
-  const hydrated = serverDocumentToVault(
-    {
-      ...document,
-      tabs: [
-        ...document.tabs,
-        {
-          id: "tab-2",
-          url: "https://example.com/b",
-          title: "Server only",
-          tags: [],
-          groupId: "custom",
-          position: 0,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ],
-    },
-    vault
-  );
-  assert.equal(hydrated.tabs.length, 2);
+  assert.equal(document.schemaVersion, 5);
+  const hydrated = serverDocumentToVault(document, vault);
+  assert.equal(isPersistedVault(hydrated), true);
   assert.equal(
-    hydrated.tabs.find(tab => tab.id === "tab-2")?.groupId,
-    "custom"
+    hydrated.library.tabs[0].content.url,
+    vault.library.tabs[0].content.url
   );
-  assert.equal(hydrated.tabs.find(tab => tab.id === "tab-1")?.groupId, null);
-  assert.equal(hydrated.tabs.find(tab => tab.id === "tab-2")?.agentReview, "");
-});
-
-test("schema guard rejects v1, hierarchy, Inbox-shaped, and normalized data", () => {
-  assert.equal(
-    isVaultV2({ schemaVersion: 1, tabs: [], vaultGroups: [] }),
-    false
+  assert.deepEqual(
+    hydrated.library.tabs[0].annotations,
+    vault.library.tabs[0].annotations
   );
-  const vault = defaultVault();
-  vault.vaultGroups.push({
-    id: "bad",
-    name: "Bad",
-    description: "",
-    category: "manual",
-    accent: "#000",
-    createdAt: "now",
-    updatedAt: "now",
-    parent: "other",
-  });
-  assert.equal(isVaultV2(vault), false);
-  vault.vaultGroups = [];
-  vault.tabs.push({
-    id: "bad",
-    groupId: null,
-    title: "Bad",
-    url: "https://example.com",
-    domain: "example.com",
-    note: "",
-    agentReview: "",
-    viewed: false,
-    tags: [],
-    color: "#000",
-    icon: "B",
-    createdAt: "now",
-    updatedAt: "now",
-    normalizedUrl: "https://example.com",
-  });
-  assert.equal(isVaultV2(vault), false);
+  assert.equal(hydrated.library.tabs[0].placement.position, 2);
 });
-
-test("browser tombstones suppress server resurrection until deletion syncs", () => {
-  const vault = defaultVault();
-  vault.tombstones = { tabs: ["deleted-tab"], groups: ["deleted-group"] };
-  const hydrated = serverDocumentToVault(
-    {
-      schemaVersion: 2,
-      tags: [],
-      groups: [
-        {
-          id: "deleted-group",
-          name: "Returned group",
-          category: "manual",
-          createdAt: "2026-01-01T00:00:00Z",
-          updatedAt: "2026-01-01T00:00:00Z",
-        },
-      ],
-      tabs: [
-        {
-          id: "deleted-tab",
-          url: "https://example.com/deleted",
-          title: "Returned tab",
-          tags: [],
-          groupId: null,
-          createdAt: "2026-01-01T00:00:00Z",
-          updatedAt: "2026-01-01T00:00:00Z",
-        },
-      ],
-    },
-    vault
-  );
-  assert.deepEqual(hydrated.tabs, []);
-  assert.deepEqual(hydrated.vaultGroups, []);
-  assert.deepEqual(hydrated.tombstones, vault.tombstones);
-});
-
-test("portable timestamps without a timezone are treated as UTC", () => {
-  assert.equal(utcTimestamp("2026-08-29T20:37:37.346680"), "2026-08-29T20:37:37.346Z");
-  assert.equal(utcTimestamp("2026-08-29T20:37:37.346680Z"), "2026-08-29T20:37:37.346Z");
-  const vault = defaultVault();
-  vault.vaultGroups.push({
-    id: "group-1",
-    name: "Group",
-    description: "",
-    category: "manual",
-    accent: "#829b65",
-    createdAt: "2026-08-29T20:37:37.346680",
-    updatedAt: "2026-08-29T20:37:37.346680",
-  });
-  const document = vaultToServerDocument(vault);
-  assert.equal(document.groups[0].updatedAt, "2026-08-29T20:37:37.346Z");
-  assert.match(document.groups[0].updatedAt, /Z$/);
+test("legacy and malformed records are rejected without changing the input", () => {
+  for (const version of [1, 2, 3, 4]) {
+    const previous = { ...defaultVault(), schemaVersion: version };
+    const copy = globalThis.structuredClone(previous);
+    assert.equal(isPersistedVault(previous), false);
+    assert.throws(() => serverDocumentToVault(previous), /schema v5/);
+    assert.deepEqual(previous, copy);
+  }
+  const malformed = defaultVault();
+  malformed.library.tabs = [{ id: "flat", url: "https://example.com" }];
+  assert.equal(isPersistedVault(malformed), false);
 });

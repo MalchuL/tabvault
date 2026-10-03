@@ -1,0 +1,1 @@
+"""Custom Property Schema domain."""

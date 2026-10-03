@@ -6,7 +6,8 @@ from collections.abc import Callable
 from typing import Any, get_args, get_origin, get_type_hints
 
 import pytest
-from factories import tab
+from factories import group, tab
+from mcp import Client
 
 from mcp_tabvault import main
 from mcp_tabvault.client import MCPClient
@@ -17,10 +18,12 @@ from mcp_tabvault.client.dto import (
     SearchResponseDTO,
     TabDTO,
 )
+from mcp_tabvault.domain.groups import mapper as group_mapper
 from mcp_tabvault.domain.groups import prompts as group_prompts
 from mcp_tabvault.domain.groups import resources as group_resources
 from mcp_tabvault.domain.groups import tools as group_tools
 from mcp_tabvault.domain.groups import utils as group_utils
+from mcp_tabvault.domain.tabs import mapper as tab_mapper
 from mcp_tabvault.domain.tabs import prompts as tab_prompts
 from mcp_tabvault.domain.tabs import resources as tab_resources
 from mcp_tabvault.domain.tabs import tools as tab_tools
@@ -30,6 +33,10 @@ from mcp_tabvault.domain.tags import tools as tag_tools
 from mcp_tabvault.server import lifespan, mcp
 
 TOOLS = {
+    "property_schema",
+    "define_property",
+    "delete_property",
+    "unset_properties",
     "list_tabs",
     "search_tabs",
     "get_tab",
@@ -37,13 +44,8 @@ TOOLS = {
     "update_tab",
     "delete_tab",
     "move_tab",
-    "reorder_tabs",
-    "get_tab_by_url",
-    "list_tabs_by_url",
-    "update_tabs_by_url",
-    "tag_tabs_by_url",
-    "untag_tabs_by_url",
     "list_groups",
+    "get_group",
     "create_group",
     "update_group",
     "delete_group",
@@ -51,75 +53,136 @@ TOOLS = {
     "tag_tab",
     "untag_tab",
 }
+FORBIDDEN = {"id", "groupId", "position", "tabId", "jobId", "tabIds"}
+
+
+def property_names(schema: object) -> set[str]:
+    if isinstance(schema, list):
+        return set().union(*(property_names(item) for item in schema), set())
+    if not isinstance(schema, dict):
+        return set()
+    names = set(schema.get("properties", {}))
+    for value in schema.values():
+        names.update(property_names(value))
+    return names
 
 
 @pytest.mark.anyio
-async def test_all_tools_have_typed_schemas_and_safety_annotations() -> None:
+async def test_tools_have_id_free_typed_contracts_and_safety_annotations() -> None:
     registered = await main.mcp.list_tools()
     by_name = {tool.name: tool for tool in registered}
 
     assert set(by_name) == TOOLS
     for tool in by_name.values():
+        assert tool.title and tool.description
         assert tool.input_schema["type"] == "object"
+        assert all(
+            parameter.get("description") for parameter in tool.input_schema["properties"].values()
+        )
         assert tool.output_schema is not None
-        assert tool.output_schema.get("additionalProperties") is False
+        assert not (property_names(tool.output_schema) & FORBIDDEN)
+        assert not (property_names(tool.input_schema) & FORBIDDEN)
         assert tool.annotations is not None
         assert tool.annotations.read_only_hint is not None
         assert tool.annotations.destructive_hint is not None
         assert tool.annotations.idempotent_hint is not None
         assert tool.annotations.open_world_hint is not None
-    assert "result" in by_name["get_tab_by_url"].output_schema["properties"]
-    assert set(by_name["update_tabs_by_url"].output_schema["properties"]) == {
-        "matched",
-        "data",
-        "errors",
-    }
-    for tool in by_name.values():
-        defs = tool.output_schema.get("$defs", {})
-        assert "JsonValue" not in defs
-        for name, definition in defs.items():
-            assert definition, f"{tool.name} $defs.{name} must declare validation keywords"
+    assert "meta" not in by_name["save_tab"].output_schema["properties"]
+    for name in ("list_tabs", "list_groups", "list_tags", "search_tabs"):
+        parameters = by_name[name].input_schema["properties"]
+        assert parameters["limit"]["minimum"] == 1
+        assert parameters["limit"]["maximum"] == (50 if name == "search_tabs" else 100)
+        if name != "search_tabs":
+            assert parameters["offset"]["minimum"] == 0
+    assert by_name["save_tab"].annotations.open_world_hint is False
+    for name in ("update_tab", "update_group", "delete_tab", "delete_group"):
+        assert by_name[name].annotations.destructive_hint is True
+        assert by_name[name].annotations.idempotent_hint is False
+    assert by_name["untag_tab"].annotations.destructive_hint is True
+    assert by_name["untag_tab"].annotations.idempotent_hint is True
 
 
 @pytest.mark.anyio
-async def test_mcp_v2_converts_returned_dto_to_structured_content(
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("list_tabs", {"limit": 0}),
+        ("list_groups", {"limit": 101}),
+        ("list_tags", {"offset": -1}),
+        ("search_tabs", {"query": "docs", "limit": 51, "unassignedOnly": True}),
+        ("search_tabs", {"query": ""}),
+        ("get_tab", {"url": ""}),
+        ("save_tab", {"url": "https://exact", "tags": ["docs"] * 65}),
+        ("update_tab", {"url": "https://exact", "changes": {"newUrl": ""}}),
+        ("create_group", {"name": ""}),
+        ("tag_tab", {"url": "https://exact", "tagName": ""}),
+        ("untag_tab", {"url": "https://exact", "tagName": "x" * 257}),
+    ],
+)
+async def test_tool_constraints_reject_input_before_api_access(
+    name: str, arguments: dict[str, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+
+    def unexpected_client() -> None:
+        calls.append("client")
+        raise AssertionError("Invalid arguments must be rejected before API access")
+
+    for module in (tab_tools, group_tools, tag_tools, tab_utils, group_utils):
+        monkeypatch.setattr(module, "get_client", unexpected_client)
+    async with Client(main.mcp, read_timeout_seconds=10) as client:
+        result = await client.call_tool(name, arguments)
+        assert result.is_error
+    assert calls == []
+
+
+@pytest.mark.anyio
+async def test_get_tab_structured_output_replaces_ids_with_group_name(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def result(_url: str) -> list[TabDTO]:
-        return [tab()]
+    assigned = tab().model_copy(
+        update={"placement": tab().placement.model_copy(update={"group_id": "group"})}
+    )
 
-    monkeypatch.setattr(tab_tools.utils, "matching_tabs", result)
-    response = await main.mcp.call_tool("get_tab_by_url", {"url": "https://exact"})
+    async def first(_url: str) -> TabDTO:
+        return assigned
+
+    async def visible():
+        return [group()]
+
+    monkeypatch.setattr(tab_tools.utils, "first_visible_tab", first)
+    monkeypatch.setattr(tab_tools.group_utils, "visible_groups", visible)
+    response = await main.mcp.call_tool("get_tab", {"url": "https://exact"})
     assert response.structured_content is not None
-    assert response.structured_content["result"]["id"] == "tab"
+    assert response.structured_content["data"]["placement"]["group"] == "Group"
+    assert not (set(response.structured_content["data"]) & FORBIDDEN)
 
 
 @pytest.mark.anyio
-async def test_structured_output_emits_rfc3339_timestamps_from_naive_api_values(
+async def test_structured_output_keeps_rfc3339_timestamps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     naive = tab().model_dump(mode="json", by_alias=True)
-    naive["createdAt"] = "2026-08-24T16:38:22.557000"
-    naive["updatedAt"] = "2026-08-24T16:38:22.557000"
+    naive["timestamps"]["createdAt"] = "2026-08-24T16:38:22.557000"
+    naive["timestamps"]["updatedAt"] = "2026-08-24T16:38:22.557000"
     parsed = TabDTO.model_validate(naive)
 
     async def search(*_args: object, **_kwargs: object) -> SearchResponseDTO:
         return SearchResponseDTO(
-            data=SearchDataDTO(
-                results=[
-                    SearchItemDTO(tab=parsed, score=1, match_type="keyword", matched_on="title")
-                ]
-            ),
-            meta=SearchMetaDTO(query_embedding_ms=1, search_ms=2),
+            data=SearchDataDTO(results=[SearchItemDTO(tab=parsed, score=1, matched_on="title")]),
+            meta=SearchMetaDTO(search_ms=2),
         )
 
+    async def visible():
+        return []
+
     monkeypatch.setattr(tab_tools, "get_client", lambda: types.SimpleNamespace(search_tabs=search))
+    monkeypatch.setattr(tab_tools.group_utils, "visible_groups", visible)
     response = await main.mcp.call_tool("search_tabs", {"query": "docs"})
     assert response.structured_content is not None
-    created_at = response.structured_content["data"]["results"][0]["tab"]["createdAt"]
-    updated_at = response.structured_content["data"]["results"][0]["tab"]["updatedAt"]
-    assert created_at == "2026-08-24T16:38:22.557000Z"
-    assert updated_at == "2026-08-24T16:38:22.557000Z"
+    result = response.structured_content["data"]["results"][0]["tab"]
+    assert result["timestamps"]["createdAt"] == "2026-08-24T16:38:22.557000Z"
+    assert result["timestamps"]["updatedAt"] == "2026-08-24T16:38:22.557000Z"
 
 
 def contains_dict(annotation: object) -> bool:
@@ -138,18 +201,21 @@ def public_functions(module: types.ModuleType) -> list[Callable[..., Any]]:
 
 
 def test_public_layers_never_annotate_dictionary_returns() -> None:
-    functions = [
-        *public_functions(group_prompts),
-        *public_functions(group_resources),
-        *public_functions(group_utils),
-        *public_functions(tab_prompts),
-        *public_functions(tab_resources),
-        *public_functions(tab_utils),
-        *public_functions(tag_resources),
-        *public_functions(group_tools),
-        *public_functions(tab_tools),
-        *public_functions(tag_tools),
-    ]
+    modules = (
+        group_mapper,
+        group_prompts,
+        group_resources,
+        group_utils,
+        tab_mapper,
+        tab_prompts,
+        tab_resources,
+        tab_utils,
+        tag_resources,
+        group_tools,
+        tab_tools,
+        tag_tools,
+    )
+    functions = [function for module in modules for function in public_functions(module)]
     methods = [
         method
         for name, method in inspect.getmembers(MCPClient, inspect.isfunction)
@@ -180,3 +246,23 @@ def test_main_runs_shared_server(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main.mcp, "run", lambda: called.append(True))
     main.main()
     assert called == [True]
+
+
+@pytest.mark.anyio
+async def test_update_contract_groups_changes_and_caps_every_object_at_seven_fields() -> None:
+    def check(schema: object) -> None:
+        if isinstance(schema, list):
+            for item in schema:
+                check(item)
+        elif isinstance(schema, dict):
+            assert len(schema.get("properties", {})) <= 7
+            for value in schema.values():
+                check(value)
+
+    registered = await main.mcp.list_tools()
+    for tool in registered:
+        check(tool.input_schema)
+        check(tool.output_schema)
+    update = next(tool for tool in registered if tool.name == "update_tab")
+    assert set(update.input_schema["properties"]) == {"url", "changes"}
+    assert "changes" in update.input_schema["required"]

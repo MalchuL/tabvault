@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Generic, Literal, TypeAlias, TypeVar
+from typing import Any, Generic, Literal, TypeAlias, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -18,7 +18,6 @@ from pydantic.alias_generators import to_camel
 DataT = TypeVar("DataT")
 MetaT = TypeVar("MetaT")
 ItemT = TypeVar("ItemT")
-SearchMode: TypeAlias = Literal["semantic", "keyword", "hybrid"]
 TabVisibility: TypeAlias = Literal["visible", "hidden", "archived"]
 TabSortBy: TypeAlias = Literal["position", "createdAt", "updatedAt", "title"]
 SortDirection: TypeAlias = Literal["asc", "desc"]
@@ -139,26 +138,43 @@ class PaginatedResponseDTO(DTO, Generic[ItemT]):
     total: int = 0
 
 
-class TabListQueryDTO(DTO):
-    """Describe filters accepted by the Saved Tab collection endpoint."""
+class TabListQueryFiltersDTO(DTO):
+    """Filters fields for TabListQueryDTO."""
 
-    group_id: str = "all"
+    group_id: str | None = "all"
     category: str | None = None
     tags: str = ""
     search: str | None = None
-    sort_by: TabSortBy = "position"
-    sort_dir: SortDirection = "asc"
-    limit: int = Field(default=50, ge=1, le=100)
-    offset: int = Field(default=0, ge=0)
-    fields: str = "full"
     visibility: TabVisibility = "visible"
 
 
+class TabListQueryOrderingDTO(DTO):
+    """Ordering fields for TabListQueryDTO."""
+
+    sort_by: TabSortBy = "position"
+    sort_dir: SortDirection = "asc"
+
+
+class TabListQueryPaginationDTO(DTO):
+    """Pagination fields for TabListQueryDTO."""
+
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class TabListQueryDTO(DTO):
+    """Describe filters accepted by the Saved Tab collection endpoint. Fields are grouped by responsibility."""
+
+    fields: str = "full"
+    filters: TabListQueryFiltersDTO = Field(default_factory=TabListQueryFiltersDTO)
+    ordering: TabListQueryOrderingDTO = Field(default_factory=TabListQueryOrderingDTO)
+    pagination: TabListQueryPaginationDTO = Field(default_factory=TabListQueryPaginationDTO)
+
+
 class SearchQueryDTO(DTO):
-    """Describe one semantic, keyword, or hybrid Saved Tab search."""
+    """Describe one text Saved Tab search."""
 
     q: str = Field(min_length=1)
-    mode: SearchMode = "hybrid"
     limit: int = Field(default=10, ge=1, le=50)
     group_id: str | None = None
 
@@ -188,30 +204,68 @@ class TagListQueryDTO(DTO):
     offset: int = Field(default=0, ge=0)
 
 
-class TabCreateDTO(DTO):
-    """Describe one Saved Tab occurrence to create."""
+class TabCreateContentDTO(DTO):
+    """Content fields for TabCreateDTO."""
 
     url: str = Field(min_length=1, max_length=4096)
     title: str | None = Field(default=None, max_length=1024)
-    note: str = Field(default="", max_length=20_000)
-    agent_review: str = Field(default="", max_length=20_000)
-    viewed: bool = False
+
+
+class TabCreateAnnotationsDTO(DTO):
+    """Annotations fields for TabCreateDTO."""
+
+    custom_properties: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list, max_length=64)
+
+
+class TabCreatePlacementDTO(DTO):
+    """Placement fields for TabCreateDTO."""
+
     group_id: str | None = Field(default=None, max_length=128)
 
 
-class TabUpdateDTO(DTO):
-    """Describe explicitly supplied Saved Tab fields to patch."""
+class TabCreateDTO(DTO):
+    """Describe one Saved Tab occurrence to create. Fields are grouped by responsibility."""
+
+    content: TabCreateContentDTO
+    annotations: TabCreateAnnotationsDTO = Field(default_factory=TabCreateAnnotationsDTO)
+    placement: TabCreatePlacementDTO = Field(default_factory=TabCreatePlacementDTO)
+
+
+class TabUpdateContentDTO(DTO):
+    """Content fields for TabUpdateDTO."""
 
     url: str | None = Field(default=None, min_length=1, max_length=4096)
     title: str | None = Field(default=None, min_length=1, max_length=1024)
-    note: str | None = Field(default=None, max_length=20_000)
-    agent_review: str | None = Field(default=None, max_length=20_000)
-    viewed: bool | None = None
+
+
+class TabUpdateAnnotationsDTO(DTO):
+    """Annotations fields for TabUpdateDTO."""
+
+    custom_properties: dict[str, Any] | None = None
     tags: list[str] | None = Field(default=None, max_length=64)
+
+
+class TabUpdatePlacementDTO(DTO):
+    """Placement fields for TabUpdateDTO."""
+
     group_id: str | None = Field(default=None, max_length=128)
     position: float | None = Field(default=None, ge=0)
+
+
+class TabUpdateLifecycleDTO(DTO):
+    """Lifecycle fields for TabUpdateDTO."""
+
     hidden_until: datetime | None = None
+
+
+class TabUpdateDTO(DTO):
+    """Describe explicitly supplied Saved Tab fields to patch. Fields are grouped by responsibility."""
+
+    content: TabUpdateContentDTO = Field(default_factory=TabUpdateContentDTO)
+    annotations: TabUpdateAnnotationsDTO = Field(default_factory=TabUpdateAnnotationsDTO)
+    placement: TabUpdatePlacementDTO = Field(default_factory=TabUpdatePlacementDTO)
+    lifecycle: TabUpdateLifecycleDTO = Field(default_factory=TabUpdateLifecycleDTO)
 
 
 class TabReorderDTO(DTO):
@@ -235,8 +289,8 @@ class TabTagDTO(DTO):
     tag_name: str = Field(min_length=1, max_length=256)
 
 
-class GroupCreateDTO(DTO):
-    """Describe one Manual Group to create."""
+class GroupCreateDetailsDTO(DTO):
+    """Details fields for GroupCreateDTO."""
 
     name: str = Field(min_length=1, max_length=200)
     category: str = Field(default="manual", min_length=1, max_length=128)
@@ -244,67 +298,128 @@ class GroupCreateDTO(DTO):
     color: str | None = Field(default=None, max_length=32)
 
 
-class GroupUpdateDTO(DTO):
-    """Describe explicitly supplied Group fields to patch."""
+class GroupCreateDTO(DTO):
+    """Describe one Manual Group to create. Fields are grouped by responsibility."""
+
+    details: GroupCreateDetailsDTO
+
+
+class GroupUpdateDetailsDTO(DTO):
+    """Details fields for GroupUpdateDTO."""
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
     category: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=20_000)
     color: str | None = Field(default=None, max_length=32)
+
+
+class GroupUpdatePlacementDTO(DTO):
+    """Placement fields for GroupUpdateDTO."""
+
     position: float | None = Field(default=None, ge=0)
 
 
-class TabDTO(DTO):
-    """Represent one complete Saved Tab returned by the API."""
+class GroupUpdateDTO(DTO):
+    """Describe explicitly supplied Group fields to patch. Fields are grouped by responsibility."""
 
-    id: str
+    details: GroupUpdateDetailsDTO = Field(default_factory=GroupUpdateDetailsDTO)
+    placement: GroupUpdatePlacementDTO = Field(default_factory=GroupUpdatePlacementDTO)
+
+
+class TabContentDTO(DTO):
+    """Content fields for TabDTO."""
+
     url: str
     title: str
-    favicon: str | None
-    note: str
-    agent_review: str
-    viewed: bool
+
+
+class TabAnnotationsDTO(DTO):
+    """Annotations fields for TabDTO."""
+
+    custom_properties: dict[str, Any] = Field(default_factory=dict)
     tags: list[str]
+
+
+class TabPlacementDTO(DTO):
+    """Placement fields for TabDTO."""
+
     group_id: str | None
     position: float
+
+
+class TabLifecycleDTO(DTO):
+    """Lifecycle fields for TabDTO."""
+
     archived: bool
     archived_at: datetime | None
     hidden_until: datetime | None
+
+
+class TabTimestampsDTO(DTO):
+    """Timestamps fields for TabDTO."""
+
     created_at: datetime
     updated_at: datetime
 
 
-class TabProjectionDTO(DTO):
-    """Represent a caller-selected subset of Saved Tab fields."""
+class TabDTO(DTO):
+    """Represent one complete Saved Tab returned by the API. Fields are grouped by responsibility."""
 
-    id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    id: str
+    content: TabContentDTO
+    annotations: TabAnnotationsDTO
+    placement: TabPlacementDTO
+    lifecycle: TabLifecycleDTO
+    timestamps: TabTimestampsDTO
+
+
+class TabProjectionContentDTO(DTO):
+    """Content fields for TabProjectionDTO."""
+
     url: str | None = Field(default=None, exclude_if=lambda value: value is None)
     title: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    favicon: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    note: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    agent_review: str | None = Field(default=None, exclude_if=lambda value: value is None)
-    viewed: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class TabProjectionAnnotationsDTO(DTO):
+    """Annotations fields for TabProjectionDTO."""
+
+    custom_properties: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     tags: list[str] | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class TabProjectionPlacementDTO(DTO):
+    """Placement fields for TabProjectionDTO."""
+
     group_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
     position: float | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class TabProjectionLifecycleDTO(DTO):
+    """Lifecycle fields for TabProjectionDTO."""
+
     archived: bool | None = Field(default=None, exclude_if=lambda value: value is None)
     archived_at: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
     hidden_until: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class TabProjectionTimestampsDTO(DTO):
+    """Timestamps fields for TabProjectionDTO."""
+
     created_at: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
     updated_at: datetime | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
-class TabJobDTO(DTO):
-    """Identify one preview job created with a Saved Tab."""
+class TabProjectionDTO(DTO):
+    """Represent a caller-selected subset of Saved Tab fields. Fields are grouped by responsibility."""
 
-    tab_id: str
-    job_id: str
-
-
-class TabCreateMetaDTO(DTO):
-    """Expose preview-job metadata returned by Saved Tab creation."""
-
-    job: TabJobDTO
+    id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    content: TabProjectionContentDTO = Field(default_factory=TabProjectionContentDTO)
+    annotations: TabProjectionAnnotationsDTO = Field(default_factory=TabProjectionAnnotationsDTO)
+    placement: TabProjectionPlacementDTO = Field(default_factory=TabProjectionPlacementDTO)
+    lifecycle: TabProjectionLifecycleDTO = Field(default_factory=TabProjectionLifecycleDTO)
+    timestamps: TabProjectionTimestampsDTO = Field(default_factory=TabProjectionTimestampsDTO)
 
 
 class TabDeleteResultDTO(DTO):
@@ -322,18 +437,42 @@ class TabReorderResultDTO(DTO):
     tab_ids: list[str]
 
 
-class GroupDTO(DTO):
-    """Represent one visible flat Group."""
+class GroupDetailsDTO(DTO):
+    """Details fields for GroupDTO."""
 
-    id: str
     name: str
     category: str
     description: str
     color: str | None
+
+
+class GroupPlacementDTO(DTO):
+    """Placement fields for GroupDTO."""
+
     position: float
+
+
+class GroupTimestampsDTO(DTO):
+    """Timestamps fields for GroupDTO."""
+
     created_at: datetime
     updated_at: datetime
+
+
+class GroupCountsDTO(DTO):
+    """Counts fields for GroupDTO."""
+
     tab_count: int = 0
+
+
+class GroupDTO(DTO):
+    """Represent one visible flat Group. Fields are grouped by responsibility."""
+
+    id: str
+    details: GroupDetailsDTO
+    placement: GroupPlacementDTO
+    timestamps: GroupTimestampsDTO
+    counts: GroupCountsDTO = Field(default_factory=GroupCountsDTO)
 
 
 class GroupDeleteResultDTO(DTO):
@@ -359,8 +498,7 @@ class SearchItemDTO(DTO):
 
     tab: TabDTO
     score: float
-    match_type: Literal["both", "semantic", "keyword"]
-    matched_on: Literal["title", "url", "note", "agentReview", "tags", "semantic"]
+    matched_on: Literal["title", "url", "tags", "customProperties"]
 
 
 class SearchDataDTO(DTO):
@@ -372,44 +510,45 @@ class SearchDataDTO(DTO):
 class SearchMetaDTO(DTO):
     """Report search timing metadata in milliseconds."""
 
-    query_embedding_ms: int
     search_ms: int
-
-
-class TabByUrlResultDTO(DTO):
-    """Wrap the first exact URL match for MCP structured output."""
-
-    result: TabDTO | None
-
-
-class TabsByUrlResultDTO(DTO):
-    """Wrap all exact URL matches for MCP structured output."""
-
-    result: list[TabDTO]
-
-
-class UrlBulkErrorDTO(DTO):
-    """Describe one failed member of a best-effort URL mutation."""
-
-    tab_id: str
-    message: str
-
-
-class UrlBulkResultDTO(DTO):
-    """Describe successes and failures from a best-effort URL mutation."""
-
-    matched: int
-    data: list[TabDTO]
-    errors: list[UrlBulkErrorDTO]
 
 
 TabListResponseDTO = PaginatedResponseDTO[TabDTO | TabProjectionDTO]
 GroupListResponseDTO = PaginatedResponseDTO[GroupDTO]
 TagListResponseDTO = PaginatedResponseDTO[TagDTO]
 TabResponseDTO = SuccessResponseDTO[TabDTO, None]
-TabCreateResponseDTO = SuccessResponseDTO[TabDTO, TabCreateMetaDTO]
+TabCreateResponseDTO = SuccessResponseDTO[TabDTO, dict[str, Any]]
 TabDeleteResponseDTO = SuccessResponseDTO[TabDeleteResultDTO, None]
 TabReorderResponseDTO = SuccessResponseDTO[TabReorderResultDTO, None]
 GroupResponseDTO = SuccessResponseDTO[GroupDTO, None]
 GroupDeleteResponseDTO = SuccessResponseDTO[GroupDeleteResultDTO, None]
 SearchResponseDTO = SuccessResponseDTO[SearchDataDTO, SearchMetaDTO]
+
+
+class PropertyDefinitionDataDTO(DTO):
+    """Describe one schema-defined custom property."""
+
+    description: str = Field(default="", max_length=1000)
+    type: Literal["int", "float", "string", "boolean", "json"]
+    default: Any
+
+
+class PropertyDefinitionDTO(PropertyDefinitionDataDTO):
+    """Name the definition being explicitly created or replaced."""
+
+    name: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,127}$")
+
+
+class PropertySchemaDTO(DTO):
+    """Return the complete name-to-definition map."""
+
+    properties: dict[str, PropertyDefinitionDataDTO]
+
+
+class PropertyUnsetDTO(DTO):
+    """Remove explicit tab overrides to resume using schema defaults."""
+
+    properties: list[str] = Field(min_length=1, max_length=256)
+
+
+PropertySchemaResponseDTO = SuccessResponseDTO[PropertySchemaDTO, dict[str, Any]]

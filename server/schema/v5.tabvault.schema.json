@@ -1,0 +1,392 @@
+{
+  "$defs": {
+    "TransferDocumentLibraryDTO": {
+      "additionalProperties": false,
+      "description": "Library fields for TransferDocumentDTO.",
+      "properties": {
+        "tags": {
+          "items": {
+            "$ref": "#/$defs/TransferTagDTO"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/TransferGroupDTO"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "tabs": {
+          "items": {
+            "$ref": "#/$defs/TransferTabDTO"
+          },
+          "title": "Tabs",
+          "type": "array"
+        }
+      },
+      "title": "TransferDocumentLibraryDTO",
+      "type": "object"
+    },
+    "TransferGroupDTO": {
+      "additionalProperties": false,
+      "description": "Group in a portable library document. Fields are grouped by responsibility.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "details": {
+          "$ref": "#/$defs/TransferGroupDetailsDTO"
+        },
+        "placement": {
+          "$ref": "#/$defs/TransferGroupPlacementDTO"
+        },
+        "timestamps": {
+          "$ref": "#/$defs/TransferGroupTimestampsDTO"
+        }
+      },
+      "required": ["id", "details"],
+      "title": "TransferGroupDTO",
+      "type": "object"
+    },
+    "TransferGroupDetailsDTO": {
+      "additionalProperties": false,
+      "description": "Details fields for TransferGroupDTO.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "",
+          "title": "Description"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Color"
+        }
+      },
+      "required": ["name", "category"],
+      "title": "TransferGroupDetailsDTO",
+      "type": "object"
+    },
+    "TransferGroupPlacementDTO": {
+      "additionalProperties": false,
+      "description": "Placement fields for TransferGroupDTO.",
+      "properties": {
+        "position": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Position",
+          "type": "number"
+        }
+      },
+      "title": "TransferGroupPlacementDTO",
+      "type": "object"
+    },
+    "TransferGroupTimestampsDTO": {
+      "additionalProperties": false,
+      "description": "Timestamps fields for TransferGroupDTO.",
+      "properties": {
+        "createdAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Createdat"
+        },
+        "updatedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updatedat"
+        }
+      },
+      "title": "TransferGroupTimestampsDTO",
+      "type": "object"
+    },
+    "TransferTabAnnotationsDTO": {
+      "additionalProperties": false,
+      "description": "Annotations fields for TransferTabDTO.",
+      "properties": {
+        "customProperties": {
+          "additionalProperties": true,
+          "title": "Customproperties",
+          "type": "object"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "title": "TransferTabAnnotationsDTO",
+      "type": "object"
+    },
+    "TransferTabContentDTO": {
+      "additionalProperties": false,
+      "description": "Content fields for TransferTabDTO.",
+      "properties": {
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": ["url", "title"],
+      "title": "TransferTabContentDTO",
+      "type": "object"
+    },
+    "TransferTabDTO": {
+      "additionalProperties": false,
+      "description": "Tab in a portable library document. Fields are grouped by responsibility.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "content": {
+          "$ref": "#/$defs/TransferTabContentDTO"
+        },
+        "annotations": {
+          "$ref": "#/$defs/TransferTabAnnotationsDTO"
+        },
+        "placement": {
+          "$ref": "#/$defs/TransferTabPlacementDTO"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/TransferTabLifecycleDTO"
+        },
+        "timestamps": {
+          "$ref": "#/$defs/TransferTabTimestampsDTO"
+        }
+      },
+      "required": ["id", "content"],
+      "title": "TransferTabDTO",
+      "type": "object"
+    },
+    "TransferTabLifecycleDTO": {
+      "additionalProperties": false,
+      "description": "Lifecycle fields for TransferTabDTO.",
+      "properties": {
+        "archived": {
+          "default": false,
+          "title": "Archived",
+          "type": "boolean"
+        },
+        "archivedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Archivedat"
+        },
+        "hiddenUntil": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hiddenuntil"
+        }
+      },
+      "title": "TransferTabLifecycleDTO",
+      "type": "object"
+    },
+    "TransferTabPlacementDTO": {
+      "additionalProperties": false,
+      "description": "Placement fields for TransferTabDTO.",
+      "properties": {
+        "groupId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Groupid"
+        },
+        "position": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Position",
+          "type": "number"
+        }
+      },
+      "title": "TransferTabPlacementDTO",
+      "type": "object"
+    },
+    "TransferTabTimestampsDTO": {
+      "additionalProperties": false,
+      "description": "Timestamps fields for TransferTabDTO.",
+      "properties": {
+        "createdAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Createdat"
+        },
+        "updatedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updatedat"
+        }
+      },
+      "title": "TransferTabTimestampsDTO",
+      "type": "object"
+    },
+    "TransferTagDTO": {
+      "additionalProperties": false,
+      "description": "Tag in a portable library document.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "createdAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Createdat"
+        },
+        "updatedAt": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updatedat"
+        }
+      },
+      "required": ["name"],
+      "title": "TransferTagDTO",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Complete schema-v5 portable library document. Fields are grouped by responsibility.",
+  "properties": {
+    "schemaVersion": {
+      "const": 5,
+      "default": 5,
+      "title": "Schemaversion",
+      "type": "integer"
+    },
+    "exportedAt": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Exportedat"
+    },
+    "propertySchema": {
+      "additionalProperties": true,
+      "title": "Propertyschema",
+      "type": "object"
+    },
+    "library": {
+      "$ref": "#/$defs/TransferDocumentLibraryDTO"
+    }
+  },
+  "title": "TransferDocumentDTO",
+  "type": "object"
+}

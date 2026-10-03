@@ -1,0 +1,15 @@
+{
+  "E_INVALID_DOCUMENT": "The import root is not a JSON object.",
+  "E_JSON_PARSE_ERROR": "JSON source could not be parsed.",
+  "E_MARKDOWN_PARSE_ERROR": "Markdown source does not match TabVault grammar.",
+  "E_UNKNOWN_SCHEMA_VERSION": "The server does not support this schema version.",
+  "E_MISSING_REQUIRED_FIELD": "A required field is absent or empty.",
+  "E_INVALID_OBJECT": "An entity is not represented as an object.",
+  "E_INVALID_URL": "A tab URL is not an absolute HTTP or HTTPS URL.",
+  "E_DUPLICATE_ID": "An identifier is duplicated inside the document.",
+  "E_UNKNOWN_GROUP_REFERENCE": "A group or tab references a group that does not exist.",
+  "E_INVALID_TAGS": "A tab tag list is not an array of strings.",
+  "E_DATABASE_BACKUP_DISABLED": "Manual database backups are disabled by server configuration.",
+  "E_DATABASE_BACKUP_UNSUPPORTED": "Database backups require file-backed SQLite.",
+  "W_ORPHAN_TAG": "A tag is missing from the directory and will be created."
+}

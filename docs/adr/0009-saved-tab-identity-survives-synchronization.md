@@ -1,5 +1,7 @@
 # Saved tab identity survives synchronization
 
+Synchronization/indexing details superseded by [ADR 0017](0017-generic-library-sync-and-custom-properties.md).
+
 A browser-created Saved Tab keeps the same ID when synchronized to the local server; only exact ID,
 never URL equality, identifies the same occurrence across stores. Record-level `updatedAt`
 last-write-wins resolves browser/server conflicts, and tombstones prevent deleted records from
