@@ -31,6 +31,7 @@ from domain.transfer.repository import TransferRepository
 from domain.transfer.service import TransferService
 from lib.responses import issue, json_data
 from lib.time import utc_now
+from lib.version import VERSION
 
 logger = logging.getLogger(__name__)
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False, scheme_name="API Key")
@@ -115,7 +116,7 @@ def create_app() -> FastAPI:
     configure_logging(settings)
     app = FastAPI(
         title="TabVault API Server",
-        version="0.2.0",
+        version=VERSION,
         lifespan=lifespan,
         swagger_ui_parameters={"persistAuthorization": True},
     )

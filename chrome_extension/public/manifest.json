@@ -2,7 +2,6 @@
   "manifest_version": 3,
   "name": "TabVault — Local Link Library",
   "description": "A local-first tab manager with a searchable collection side panel.",
-  "version": "0.1.0",
   "action": {
     "default_title": "TabVault fast save",
     "default_popup": "popup.html"

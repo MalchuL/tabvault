@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tabvault-local-server"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Local-first HTTP server for the TabVault Chrome extension and MCP service."
 requires-python = ">=3.11"
 dependencies = [
@@ -23,8 +23,14 @@ tabvault-server = "api.main:main"
 [tool.setuptools]
 package-dir = {"" = "src"}
 
+[tool.setuptools.dynamic]
+version = {file = ["VERSION.txt"]}
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv]
+cache-keys = [{file = "pyproject.toml"}, {file = "VERSION.txt"}]
 
 [dependency-groups]
 dev = [

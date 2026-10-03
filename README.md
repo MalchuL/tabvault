@@ -2,6 +2,22 @@
 
 A React/Vite tab library with browser-local storage, a Chrome extension, a FastAPI server, and an MCP bridge. Tabs are saved occurrences: repeated URLs retain separate IDs and the original URL.
 
+## Screenshots
+
+A sample browser-local library with popular websites, organized into Development, Design inspiration, Reading list, and Everyday favorites.
+
+**Standard view** — saved tabs with website domains, tags, and reading status. Shown here with the Development collection selected.
+
+![TabVault Standard view showing React, MDN Web Docs, Stack Overflow, and npm with tags and reading status](docs/screenshots/library-standard.png)
+
+**Collection board** — related websites grouped into collections with favicon previews and actions to open or browse each collection.
+
+![TabVault collection board showing Development, Design inspiration, Reading list, and Everyday favorites with recognizable website favicons](docs/screenshots/collections-board.png)
+
+**Compact view** — a denser list of saved tabs, with collections that can be collapsed.
+
+![TabVault Compact view showing GitHub, YouTube, developer resources, and design websites, with Reading list and Everyday favorites collapsed](docs/screenshots/library-compact.png)
+
 ## Run
 
 ```bash
@@ -14,7 +30,7 @@ Build with `pnpm build`. Load `dist/public/` as an unpacked Chrome extension for
 ```bash
 cd server
 uv sync --group dev
-TABVAULT_HTTP__API_KEY=admin uv run tabvault-server
+TABVAULT_HTTP__API_KEY=admin TABVAULT_HTTP__HOST=0.0.0.0 uv run tabvault-server
 ```
 
 By default, the server stores its SQLite database at `~/.local/share/tabvault/tabvault.sqlite3`, under the home directory of the user running the server. Set `TABVAULT_STORAGE__DATA_DIR` to change the data directory.
@@ -30,7 +46,9 @@ API key validation is enabled only when the server has a nonempty `TABVAULT_HTTP
 
 To use a different key, stop the running server and restart it from `server/` with `TABVAULT_HTTP__API_KEY=your-key uv run tabvault-server`, then enter the same key in extension Settings and click **Save & check**. A missing or incorrect key now returns **401 Unauthorized**.
 
-For network access, set a strong `TABVAULT_HTTP__API_KEY` and restrictive `TABVAULT_HTTP__CORS_ORIGINS`, and use the matching endpoint and key in Settings. All `/api/v1` requests use `X-API-Key`.
+For network access, set `TABVAULT_HTTP__HOST=0.0.0.0`, a strong `TABVAULT_HTTP__API_KEY`, and restrictive `TABVAULT_HTTP__CORS_ORIGINS`, and use the server's network address and matching key in Settings. The default host `127.0.0.1` accepts only loopback connections. See [running the API on another machine](server/README.md#network-access) for the launch command and `/docs` access. All `/api/v1` requests use `X-API-Key`.
+
+`TABVAULT_SERVER_URL` sets the MCP client's destination; it does not change the backend's listening address. Configure the backend with `TABVAULT_HTTP__HOST` and `TABVAULT_HTTP__PORT`.
 
 ```bash
 cd mcp
@@ -43,7 +61,7 @@ Start the backend with debugging enabled:
 
 ```bash
 cd server
-TABVAULT_DEBUG__ENABLED=true TABVAULT_HTTP__API_KEY=admin uv run tabvault-server
+TABVAULT_DEBUG__ENABLED=true TABVAULT_HTTP__API_KEY=admin TABVAULT_HTTP__HOST=0.0.0.0 uv run tabvault-server
 ```
 
 Open [the debug playground](http://127.0.0.1:47821/debug). This styled Swagger page applies the configured API key automatically. Expand **tabs** or **groups**, select POST to create a record or GET to list records, edit the request values, and click **Execute**. Responses appear below the request. Requests affect the current database; closing the page does not undo changes.

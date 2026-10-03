@@ -1,6 +1,5 @@
 {
   "name": "tabvault-ai-tab-manager",
-  "version": "1.0.0",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -14,7 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:unit": "vitest run --coverage",
-    "test:extension": "pnpm build && node --test tests/deduplication.test.mjs tests/extension-sync.test.mjs tests/library-sync.test.mjs tests/popup-selection.test.mjs",
+    "test:extension": "pnpm build && node --test tests/deduplication.test.mjs tests/extension-sync.test.mjs tests/library-sync.test.mjs tests/popup-selection.test.mjs tests/version.test.mjs",
     "test:e2e": "playwright test",
     "test:e2e:transfer": "playwright test e2e/transfer-round-trip.spec.ts --workers=2",
     "validate": "pnpm format:check && pnpm lint && pnpm check && pnpm check:shapes && pnpm build",

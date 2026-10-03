@@ -26,6 +26,40 @@ The FastAPI service is under `server/`, with code in `tabvault_server/`, JSON co
 
 The root `make check` currently references a legacy `mcp-server/` directory that is not present; use the package-level commands above.
 
+## Shared Semantic Versioning
+
+The backend and Chrome extension share one release version in `MAJOR.MINOR.PATCH`
+format. `server/VERSION.txt` is the only source; do not add application version
+literals elsewhere. Setuptools reads it for backend package metadata, and
+`lib.version.VERSION` exposes that metadata to the FastAPI application and health
+response. Vite adds the same value to `dist/public/manifest.json`; the source
+manifest is a template without a version. CI names its artifact from the built
+manifest. The root npm package has no independent release version.
+
+Before editing code, read `server/VERSION.txt`, compare it with `HEAD`, and record
+its starting value, including any existing uncommitted version change. After code
+editing and before changing the version, read it again to detect updates made
+during the task. Compare the release value, not unrelated file changes or
+dependency, manifest-format, or database schema versions.
+
+If the release version already differs from `HEAD` or the recorded starting value,
+preserve it without applying another increment. If that value conflicts with an
+explicitly requested version, report the conflict and request the intended value;
+never overwrite concurrent version changes automatically.
+
+If no application version has changed, bump the shared version once after code
+editing, even when only one component changed. Use a patch increment for compatible
+fixes or internal changes, a minor increment for compatible new functionality, and
+a major increment for incompatible API or behavior changes. Choose the largest
+required increment for the complete task; reset lower components to zero for minor
+and major increments. Documentation-only changes do not require a release bump.
+
+Before finishing a code task, run `uv lock` and `uv sync` from `server/` when the
+release value changes, rebuild the extension, and verify that installed backend
+metadata, API and health versions, and the built manifest match `server/VERSION.txt`.
+Run the checks for the changed code. Do not edit generated `dist/` files directly.
+Report the shared version or any unresolved version conflict.
+
 ## Coding Style & Naming Conventions
 
 Use Prettier and ESLint for TypeScript/React. Keep strict types, two-space indentation, double quotes, `PascalCase` component files, `camelCase` functions, and `useX` hooks. Prefer `@/` and `@shared/` aliases over long relative imports. Python targets 3.11, four spaces, double quotes, a 100-character line limit, Ruff, and fully typed functions checked by mypy.

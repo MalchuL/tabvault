@@ -1,9 +1,37 @@
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { defineConfig } from "vite";
 
+const releaseVersion = readFileSync(
+  path.resolve(import.meta.dirname, "server/VERSION.txt"),
+  "utf8"
+).trim();
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: "extension-manifest",
+      /** Emit the manifest with the shared backend release version. @returns {void} */
+      generateBundle() {
+        const manifest = JSON.parse(
+          readFileSync(
+            path.resolve(
+              import.meta.dirname,
+              "chrome_extension/public/manifest.json"
+            ),
+            "utf8"
+          )
+        );
+        this.emitFile({
+          type: "asset",
+          fileName: "manifest.json",
+          source: `${JSON.stringify({ ...manifest, version: releaseVersion }, null, 2)}\n`,
+        });
+      },
+    },
+  ],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "chrome_extension", "src"),

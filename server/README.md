@@ -2,12 +2,30 @@
 
 FastAPI and SQLite store Saved Tabs, Groups, Tags, custom-property definitions, deletion markers, generation metadata, and JSON backups. The default data directory is `~/.local/share/tabvault/`.
 
+`VERSION.txt` is the shared release version for the backend and Chrome extension. Packaging reads this file, and the API and health response report the installed package version. After changing it, run `uv lock` and `uv sync` here, then rebuild the extension from the repository root.
+
 ```bash
 uv sync --group dev
 uv run tabvault-server
 ```
 
 See [`.env.example`](.env.example) for configuration. A network deployment needs a strong `TABVAULT_HTTP__API_KEY` and restrictive `TABVAULT_HTTP__CORS_ORIGINS`. Clients send `X-API-Key`. API metadata is available at `/docs`, `/api/v1/schema`, `/api/v1/errors`, and `/api/v1/health`.
+
+## Network access
+
+The backend defaults to `127.0.0.1:47821`, accepting only loopback connections. To reach it through a network address such as `192.168.1.145`, run this from `server/` on that machine:
+
+```bash
+TABVAULT_HTTP__HOST=0.0.0.0 \
+TABVAULT_HTTP__API_KEY='your-secret-key' \
+uv run tabvault-server
+```
+
+Replace `your-secret-key` with a strong key. Binding beyond loopback requires a nonempty API key. Keep the terminal running, then open `http://192.168.1.145:47821/docs`, replacing the example IP with your server's address. `/docs` opens without a key; click **Authorize** and enter the configured key to make API requests.
+
+Set `TABVAULT_HTTP__PORT` to change the listening port and use that port in client URLs. The settings can also be placed in `server/.env`; restart the backend after changing them. `TABVAULT_SERVER_URL` configures the MCP client's destination and does not configure the backend listener. For the extension, enter the server's address and key in **Settings**.
+
+`ERR_CONNECTION_REFUSED` means the connection could not reach a listener. Confirm that startup completed, the URL uses the configured port, and the server's firewall allows incoming TCP connections on that port. An HTTP 401 response means the server is reachable but the API key is missing or incorrect.
 
 ## Persistence
 
