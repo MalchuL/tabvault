@@ -1,14 +1,14 @@
 /** Browser and Chrome extension operations shared by the workspace. */
+import {
+  openChromeTabs,
+  type OpenTabGroup,
+  type OpenTabsResponse,
+} from "./open-tabs";
 export type ChromeTabSnapshot = {
   id?: number;
   title?: string;
   url?: string;
   favIconUrl?: string;
-};
-type OpenTabsResponse = {
-  openedCount: number;
-  requestedCount: number;
-  openedUrls: string[];
 };
 /**
  * Detect whether Chrome extension storage and messaging are available.
@@ -19,33 +19,31 @@ export function isExtensionContext() {
   return Boolean(window.chrome?.runtime?.id && window.chrome?.storage?.local);
 }
 /**
- * Open distinct HTTP(S) URLs and report only successfully opened tabs.
+ * Open distinct HTTP(S) URLs, optionally group them in Chrome, and report successful openings.
  *
  * @param {string[]} urls - Page URLs requested for opening.
+ * @param {OpenTabGroup | undefined} group - Optional collection title and Chrome color.
  * @returns {Promise<OpenTabsResponse>} Requested and successful opening counts and URLs.
+ * @throws {Error} Requested Chrome group color is incorrect.
  */
-export async function openTabUrls(urls: string[]): Promise<OpenTabsResponse> {
+export async function openTabUrls(
+  urls: string[],
+  group?: OpenTabGroup
+): Promise<OpenTabsResponse> {
   const validUrls = Array.from(
     new Set(urls.filter(url => /^https?:\/\//i.test(url)))
   );
-  if (isExtensionContext() && window.chrome?.tabs?.create) {
-    let openedCount = 0;
-    const openedUrls: string[] = [];
-    for (const url of validUrls) {
-      try {
-        await window.chrome.tabs.create({ url, active: false });
-        openedCount += 1;
-        openedUrls.push(url);
-      } catch {
-        // Continue opening the remainder and report the completed count.
-      }
-    }
-    return { openedCount, requestedCount: validUrls.length, openedUrls };
+  if (
+    isExtensionContext() &&
+    typeof window.chrome?.tabs?.create === "function"
+  ) {
+    return openChromeTabs(validUrls, group);
   }
   if (isExtensionContext() && window.chrome?.runtime?.sendMessage) {
     return window.chrome.runtime.sendMessage({
       type: "TABVAULT_OPEN_TABS",
       urls: validUrls,
+      group,
     }) as Promise<OpenTabsResponse>;
   }
   // Activate anchors synchronously inside the original click gesture. This is

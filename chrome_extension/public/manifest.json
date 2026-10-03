@@ -14,7 +14,7 @@
   "side_panel": {
     "default_path": "index.html"
   },
-  "permissions": ["sidePanel", "tabs", "storage", "alarms"],
+  "permissions": ["sidePanel", "tabs", "tabGroups", "storage", "alarms"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "commands": {
     "save-current-tab": {

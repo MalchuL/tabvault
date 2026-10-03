@@ -104,6 +104,38 @@ async function capture(listener, tabs) {
   });
 }
 
+test("background open requests create a collection group using successful tab IDs", async () => {
+  const h = chromeHarness();
+  const calls = [];
+  globalThis.chrome.tabs.create = async ({ url }) => {
+    if (url.endsWith("fail")) throw new Error("Navigation failed");
+    return { id: 12 };
+  };
+  globalThis.chrome.tabs.group = async options => {
+    calls.push(options);
+    return 8;
+  };
+  globalThis.chrome.tabGroups = {
+    update: async (id, options) => calls.push({ id, options }),
+  };
+  await import("../dist/public/background.js?open-group");
+  const group = { title: "Reading", color: "purple" };
+  const result = await new Promise(resolve => {
+    h.listener()(
+      {
+        type: "TABVAULT_OPEN_TABS",
+        urls: ["https://example.com", "https://example.com/fail"],
+        group,
+      },
+      {},
+      resolve
+    );
+  });
+  assert.equal(result.openedCount, 1);
+  assert.equal(result.requestedCount, 2);
+  assert.deepEqual(calls, [{ tabIds: [12] }, { id: 8, options: group }]);
+});
+
 test("capture commits one session and distinct URL occurrences before closing, then syncs once", async () => {
   const h = chromeHarness();
   await import("../dist/public/background.js?capture");

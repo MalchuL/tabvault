@@ -87,6 +87,7 @@ export function TabList({
                 groupId: id,
                 groupName: group?.details.name ?? "[Unassigned]",
                 groupCategory: group?.details.category,
+                groupColor: group?.details.accent,
                 tabCount: members.length,
               }}
               collapse={{

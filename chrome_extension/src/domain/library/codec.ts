@@ -260,7 +260,7 @@ export function fromServerDocument(
             name: g.details.name,
             description: g.details.description ?? "",
             category: g.details.category,
-            accent: g.details.color ?? "#829b65",
+            accent: g.details.color ?? "grey",
           },
         }))
         .sort(

@@ -213,6 +213,39 @@ export function deleteGroup(vault: PersistedVault, id: string): PersistedVault {
     },
   };
 }
+/**
+ * Switch one collection between manual and session without changing its color or tabs.
+ * Custom categories and unknown identities remain unchanged. The caller commits
+ * the returned vault to persist and synchronize the category change.
+ * @param {PersistedVault} vault - Latest library state.
+ * @param {string} id - Identity of the collection to switch.
+ * @returns {PersistedVault} Library with only the selected collection's category changed.
+ */
+export function toggleCollectionCategory(
+  vault: PersistedVault,
+  id: string
+): PersistedVault {
+  return {
+    ...vault,
+    library: {
+      ...vault.library,
+      vaultGroups: vault.library.vaultGroups.map(group =>
+        group.id === id &&
+        ["manual", "session"].includes(group.details.category)
+          ? {
+              ...group,
+              details: {
+                ...group.details,
+                category:
+                  group.details.category === "manual" ? "session" : "manual",
+              },
+            }
+          : group
+      ),
+    },
+  };
+}
+
 /** Set a compatible reading-status convention only when requested. @param {PersistedVault} vault - Library. @param {string} id - Tab identity. @param {boolean} viewed - Explicit status. @returns {PersistedVault} Definition and override committed together. */
 export function setViewed(
   vault: PersistedVault,

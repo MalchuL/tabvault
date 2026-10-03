@@ -12,7 +12,8 @@ import {
   Trash2,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { categoryColor } from "@/domain/library/categoryColor";
+import { CollectionCategoryToggle } from "../collections/CollectionCategoryToggle";
+import { CollectionColorPicker } from "../collections/CollectionColorPicker";
 import { HideDurationMenu } from "@/domain/library/components/shared/HideDurationMenu";
 
 /**
@@ -70,6 +71,7 @@ type GroupSeparatorGroup = {
   groupId: string;
   groupName: string;
   groupCategory?: string;
+  groupColor?: string;
   tabCount: number;
 };
 /** Collapse for GroupSeparatorProps. */
@@ -84,6 +86,8 @@ type GroupSeparatorActions = {
   onShare?: (groupId: string) => void;
   onDelete?: (groupId: string) => void;
   onEdit?: (groupId: string) => void;
+  onColorChange?: (groupId: string, color: string) => void;
+  onCategoryToggle?: (groupId: string) => void;
 };
 /** Archive and hidden state for GroupSeparatorProps. */
 type GroupSeparatorLifecycle = {
@@ -106,9 +110,16 @@ type GroupSeparatorProps = {
  * @returns {React.ReactElement} Group heading and action controls.
  */
 export function GroupSeparator({
-  group: { groupId, groupName, groupCategory, tabCount },
+  group: { groupId, groupName, groupCategory, groupColor, tabCount },
   collapse: { collapsible, collapsed, onToggle },
-  actions: { onOpen, onShare, onDelete, onEdit },
+  actions: {
+    onOpen,
+    onShare,
+    onDelete,
+    onEdit,
+    onColorChange,
+    onCategoryToggle,
+  },
   lifecycle: { lifecycleMode, onHide, onUnhide, onProlong },
 }: GroupSeparatorProps) {
   return (
@@ -118,10 +129,10 @@ export function GroupSeparator({
     >
       <div className="flex min-w-0 items-center gap-1.5">
         {groupCategory && (
-          <span
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{ backgroundColor: categoryColor(groupCategory) }}
-            title={`Category: ${groupCategory}`}
+          <CollectionCategoryToggle
+            name={groupName}
+            category={groupCategory}
+            onToggle={() => onCategoryToggle?.(groupId)}
           />
         )}
         {collapsible ? (
@@ -140,6 +151,13 @@ export function GroupSeparator({
           </Button>
         ) : (
           <span>{groupName}</span>
+        )}
+        {groupColor !== undefined && onColorChange && (
+          <CollectionColorPicker
+            name={groupName}
+            color={groupColor}
+            onChange={color => onColorChange(groupId, color)}
+          />
         )}
         {collapsible && (
           <div

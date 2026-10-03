@@ -67,16 +67,19 @@ test("group hide is client-orchestrated and category colors are deterministic", 
   page,
 }) => {
   await openSchemaV5Library(page);
-  const manualDot = page
+  const manualIndicator = page
     .getByTestId("group-separator-research")
-    .locator("span[title='Category: manual']");
-  const sessionDot = page
+    .getByRole("button", { name: "Unpin Research to session", exact: true });
+  const sessionIndicator = page
     .getByTestId("group-separator-session")
-    .locator("span[title='Category: session']");
-  await expect(manualDot).toBeVisible();
-  await expect(sessionDot).toBeVisible();
-  expect(await manualDot.getAttribute("style")).not.toBe(
-    await sessionDot.getAttribute("style")
+    .getByRole("button", {
+      name: "Pin Session Aug 23 13:00 as manual",
+      exact: true,
+    });
+  await expect(manualIndicator).toBeVisible();
+  await expect(sessionIndicator).toBeVisible();
+  expect(await manualIndicator.getAttribute("style")).not.toBe(
+    await sessionIndicator.getAttribute("style")
   );
 
   await page.getByLabel("Hide Research").click();

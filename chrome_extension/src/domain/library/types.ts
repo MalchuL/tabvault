@@ -20,6 +20,7 @@ export type VaultGroup = {
     name: string;
     description: string;
     category: string;
+    /** Chrome group color; unrecognized imported values remain available for explicit repair. */
     accent: string;
   };
   placement: { position: number };

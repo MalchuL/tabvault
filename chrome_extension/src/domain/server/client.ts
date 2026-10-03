@@ -1,16 +1,39 @@
-/** Failed local-server response with its HTTP status retained for callers. */
+/** Field-level diagnostics returned by API validation, including import failures. */
+export type TabVaultApiIssue = {
+  code?: string;
+  path?: string;
+  expected?: string;
+  received?: unknown;
+  suggestedFix?: string;
+  message?: string;
+};
+
+/**
+ * Retain one failed response's status and diagnostics for callers throughout its lifetime.
+ * `status` is the HTTP status; `errors` and `warnings` are the server's field-level
+ * diagnostics, or empty arrays when the response has no structured report.
+ */
 export class TabVaultApiError extends Error {
   readonly status: number;
+  readonly errors: TabVaultApiIssue[];
+  readonly warnings: TabVaultApiIssue[];
 
   /**
    * Preserve the status of one failed local-server request.
    * @param {number} status - HTTP response status.
    * @param {string} message - User-facing or diagnostic failure text.
+   * @param {{errors?: TabVaultApiIssue[]; warnings?: TabVaultApiIssue[]}} issues - Structured server diagnostics, when available.
    */
-  constructor(status: number, message: string) {
+  constructor(
+    status: number,
+    message: string,
+    issues: { errors?: TabVaultApiIssue[]; warnings?: TabVaultApiIssue[] } = {}
+  ) {
     super(message);
     this.name = "TabVaultApiError";
     this.status = status;
+    this.errors = Array.isArray(issues.errors) ? issues.errors : [];
+    this.warnings = Array.isArray(issues.warnings) ? issues.warnings : [];
   }
 }
 
@@ -59,7 +82,8 @@ export function createTabVaultApi(config: ApiConfig) {
           : body?.errors?.[0]?.message;
       throw new TabVaultApiError(
         response.status,
-        message || `Request failed (${response.status})`
+        message || `Request failed (${response.status})`,
+        { errors: body?.errors, warnings: body?.warnings }
       );
     }
     return response;

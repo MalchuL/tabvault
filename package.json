@@ -16,6 +16,7 @@
     "test:unit": "vitest run --coverage",
     "test:extension": "pnpm build && node --test tests/deduplication.test.mjs tests/extension-sync.test.mjs tests/library-sync.test.mjs tests/popup-selection.test.mjs",
     "test:e2e": "playwright test",
+    "test:e2e:transfer": "playwright test e2e/transfer-round-trip.spec.ts --workers=2",
     "validate": "pnpm format:check && pnpm lint && pnpm check && pnpm check:shapes && pnpm build",
     "check:shapes": "node scripts/check-source-shapes.mjs && python3 scripts/check_python_shapes.py"
   },

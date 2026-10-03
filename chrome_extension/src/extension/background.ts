@@ -1,6 +1,7 @@
 import { captureTabs } from "@/domain/library/operations";
 import { commitLibrary } from "@/domain/library/store";
 import { synchronizeLibrary } from "@/domain/server/sync";
+import { openChromeTabs } from "./open-tabs";
 import {
   readBrowserVault,
   readStorageMode,
@@ -35,24 +36,6 @@ async function saveAndCloseTabs(source: chrome.tabs.Tab[]) {
     serverSynced,
   };
 }
-/** Open supported URLs without aborting after an individual failure. @param {string[]} urls - Requested URLs. @returns {Promise<object>} Successfully opened URLs and counts. */
-async function openVaultTabs(urls: string[]) {
-  const valid = [...new Set(urls)].filter(url => /^https?:\/\//i.test(url));
-  const openedUrls: string[] = [];
-  for (const url of valid) {
-    try {
-      await chrome.tabs.create({ url, active: false });
-      openedUrls.push(url);
-    } catch {
-      /* Return partial success to the caller. */
-    }
-  }
-  return {
-    openedUrls,
-    openedCount: openedUrls.length,
-    requestedCount: valid.length,
-  };
-}
 /** Install the durable retry alarm and remove obsolete index-health alarms. @returns {Promise<void>} Alarm installation. */
 async function restoreAlarms() {
   await chrome.alarms.clear("tabvault-index-health");
@@ -65,7 +48,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "TABVAULT_FAST_SAVE_AND_CLOSE")
     work = saveAndCloseTabs(message.tabs ?? []);
   else if (message?.type === "TABVAULT_OPEN_TABS")
-    work = openVaultTabs(message.urls ?? []);
+    work = openChromeTabs(message.urls ?? [], message.group);
   else if (message?.type === "TABVAULT_REFRESH_LIBRARY")
     work = synchronizeLibrary().then(() => ({ success: true, synced: true }));
   else if (message?.type === "TABVAULT_CONFIGURE_LIBRARY_REFRESH")

@@ -35,7 +35,7 @@ export function createSessionGroup(date = new Date()): VaultGroup {
       name: sessionName(date),
       description: "Captured from the browser",
       category: "session",
-      accent: "#829b65",
+      accent: "green",
     },
     placement: { position: 0 },
     timestamps: { createdAt: timestamp, updatedAt: timestamp },

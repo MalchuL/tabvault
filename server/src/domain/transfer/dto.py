@@ -1,9 +1,9 @@
 """Portable transfer and backup DTOs."""
 
 from datetime import datetime
-from typing import Any, Literal, TypeAlias
+from typing import Annotated, Any, Literal, TypeAlias
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from domain.custom_properties.dto import PropertyDefinitionDTO, is_json_value
 from lib.dto_config import DTO, model_config
@@ -254,7 +254,12 @@ class MinimalTransferDocumentDTO(DTO):
 class TransferExportDTO(BaseModel):
     """Rendered export content and media type."""
 
-    content: str | TransferDocumentDTO | MinimalTransferDocumentDTO
+    # Markdown metadata is indentation-sensitive; DTO normalization must not trim it.
+    content: (
+        Annotated[str, StringConstraints(strip_whitespace=False)]
+        | TransferDocumentDTO
+        | MinimalTransferDocumentDTO
+    )
     media_type: str
     model_config = model_config()
 

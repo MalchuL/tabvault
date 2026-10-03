@@ -65,7 +65,9 @@ async def export_data(
     }
     if format == "json":
         content = (
-            json_data(result.content) if isinstance(result.content, BaseModel) else result.content
+            result.content.model_dump(mode="json", by_alias=True)
+            if isinstance(result.content, BaseModel)
+            else result.content
         )
         return JSONResponse(content, headers=headers)
     return PlainTextResponse(str(result.content), media_type=result.media_type, headers=headers)
@@ -84,7 +86,8 @@ async def sync_document(
     Returns:
         JSONResponse: JSON response containing the synchronized document.
     """
-    return JSONResponse(json_data(await transfer.document()))
+    # Null placement and lifecycle fields are part of the browser's portable contract.
+    return JSONResponse((await transfer.document()).model_dump(mode="json", by_alias=True))
 
 
 async def _import_body(request: Request) -> tuple[object, TransferFormat]:

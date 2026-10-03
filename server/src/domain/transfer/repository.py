@@ -15,7 +15,6 @@ from sqlalchemy.orm import selectinload
 
 from domain.tabs.visibility import exportable_tabs
 from lib.model_changes import apply_model_changes
-from lib.time import utc_now
 from models import Backup, Base, Group, LibraryMetadata, PropertyDefinition, Tab, Tag, Tombstone
 
 from .error import DatabaseBackupUnsupportedError
@@ -200,7 +199,10 @@ class TransferRepository:
     async def replace_property_schema(
         self, properties: dict[str, Any], *, replace: bool = False
     ) -> None:
-        """Stage validated definitions; only explicit replacement removes absent names.
+        """Add missing definitions on merge; replace definitions only with explicit replacement.
+
+        Keeping existing meanings matches browser-local merge and prevents an imported
+        default or type from silently changing values already stored in the library.
 
         Args:
             properties (dict[str, Any]): Portable definitions keyed by name.
@@ -217,9 +219,6 @@ class TransferRepository:
                 self.session.add(
                     PropertyDefinition(name=name, definition=dto.model_dump(exclude={"name"}))
                 )
-            else:
-                row.definition = dto.model_dump(exclude={"name"})
-                row.updated_at = utc_now()
         await self.session.flush()
 
     async def current_ids(self) -> tuple[set[str], set[str], set[str]]:

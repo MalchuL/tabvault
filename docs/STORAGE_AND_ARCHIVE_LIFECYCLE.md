@@ -35,3 +35,32 @@ Hidden and archived content stays outside MCP visibility. Browser views expose t
 ## Imports and backups
 
 JSON exports preserve definitions, raw values, identity, positions, and lifecycle. Markdown remains a readable interchange for active links and property metadata. Import validation runs before mutation. Server replacement first saves a complete JSON backup; direct restore validates the backup and replaces the library within the request transaction. Backups do not depend on background jobs.
+
+Browser JSON includes hidden and archived tabs. Server JSON follows the public export visibility policy: archived tabs are included, but active tabs with a future hide deadline are omitted. Download a registered server backup or use Browser JSON when hidden tabs must be preserved. Portable responses retain nullable placement and lifecycle fields so the same JSON can be imported in either storage mode.
+
+Merge keeps existing property definitions and adds missing ones in both storage modes; an import cannot silently change an existing definition's type or default. Newer tab, group, and tag timestamps win, and ties retain the destination record. Replace adopts the imported definitions and removes destination-only portable records. Browser-local imports create durable pending changes and can advance modification timestamps. Server imports preserve supplied record timestamps.
+
+Markdown preserves active tab IDs, original URLs, titles, tag links, raw custom properties, property definitions, collection names, and descriptions. It omits hidden and archived tabs, unused tag catalog entries, and tag descriptions; collection IDs, categories, colors, positions, and timestamps are not a full backup. On import, collections receive new IDs and the `manual` category. Both `.md` and `.markdown` files use this parser. Browser preferences, saved views, display colors/icons, and sync bookkeeping are outside the portable export contract.
+
+## Inspecting UI transfer tests
+
+Run `pnpm test:e2e:transfer` for the focused suite, or `pnpm test:e2e --workers=2` for all UI tests. Backend cases require `cd server && uv sync --group dev` first. Each backend test starts the real FastAPI application on an automatically assigned loopback port with a disposable API key, temporary SQLite database, and backup directory. Cleanup stops the process and removes those fixtures. Browser-only cases use isolated local storage and an unavailable API endpoint.
+
+| Scenario                         | What the test checks                                                                                                                                  |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser JSON export              | Every portable field; hidden and archived tabs; distinct occurrences of an identical URL; no storage mutation                                         |
+| Offline merge and replace        | Exported bytes imported through the file picker; persistence after reload; re-export; repeated import without duplicate identities or timestamp drift |
+| Raw recovery JSON                | Settings-style browser vault files use the same import flow                                                                                           |
+| Local replacement                | Destination-only records and definitions disappear; destination preferences and saved views remain                                                    |
+| Merge conflicts in both modes    | Newer imports win; older and equal timestamps lose; unrelated records and existing definition meanings survive                                        |
+| Authenticated server imports     | Browser JSON survives merge/replace, server persistence, browser cache adoption, reload, and repeat import; requests use the configured API key       |
+| Server JSON                      | Exact exported records survive server and offline browser imports; hidden-tab omission is explicitly asserted                                         |
+| Server safety backup and restore | Pre-replacement snapshot includes hidden tabs; Dashboard download and restore preserve data; Settings explicitly adopts the changed server generation |
+| Cancellation and invalid files   | Cancelled replacement, malformed JSON, unsupported schema, missing definitions, duplicate IDs, unknown groups, and unsafe URLs preserve existing data |
+| Validation diagnostics and retry | Multiple server errors show their codes and exact field paths; failed import creates no backup; corrected file clears the report                      |
+| Rejected API credentials         | UI export/import reports HTTP 401 without changing browser or server records or downloading an error document                                         |
+| Markdown and offline fallback    | `.md` and `.markdown` round trips preserve supported fields and expose losses; an offline Markdown failure can be followed by a valid JSON import     |
+
+The fixture includes empty collections, custom categories, tag descriptions, exact URLs with query order and fragments, Unicode, newlines, quotes, backslashes, every custom-property type, `false`, zero, empty strings, nested JSON and null values, undeclared raw properties, and missing overrides. Comparisons check record identities/counts first, then use a named Playwright step for each record. Only array order and equivalent UTC timestamp spelling are normalized; positions, creation times, lifecycle, and raw values are compared. Local mutation times are checked separately, while server round trips require exact modification times.
+
+Open `pnpm exec playwright show-report` after a run. Each test includes the actual downloaded export files and backend logs where applicable. A failing test also retains a screenshot and trace under `test-results/`; the assertion names the record and prints the differing fields. The trace shows file selection, confirmation dialogs, HTTP requests, and responses. Run a specific scenario with `pnpm test:e2e:transfer --grep "Server JSON"`, or open its trace with `pnpm exec playwright show-trace <path-to-trace.zip>`. Attachments contain disposable fixture data.

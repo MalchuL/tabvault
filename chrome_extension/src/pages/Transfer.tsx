@@ -33,16 +33,11 @@ import {
   toServerDocument,
 } from "@/domain/library/codec";
 import { useLibrary } from "@/domain/library/library-context";
-import { createTabVaultApi } from "@/domain/server/client";
-
-type ValidationError = {
-  code?: string;
-  path?: string;
-  expected?: string;
-  received?: unknown;
-  suggestion?: string;
-  message?: string;
-};
+import {
+  createTabVaultApi,
+  TabVaultApiError,
+  type TabVaultApiIssue,
+} from "@/domain/server/client";
 
 /**
  * Download generated text through a temporary browser object URL.
@@ -84,7 +79,7 @@ export default function Transfer() {
   const [serverOnline, setServerOnline] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
   const [importMode, setImportMode] = useState<"merge" | "replace">("merge");
-  const [issues, setIssues] = useState<ValidationError[]>([]);
+  const [issues, setIssues] = useState<TabVaultApiIssue[]>([]);
   const api = createTabVaultApi({ baseUrl: serverUrl, apiKey });
 
   useEffect(() => {
@@ -159,7 +154,7 @@ export default function Transfer() {
     setIsWorking(true);
     try {
       const source = await file.text();
-      const markdown = /\.md(?:own)?$/i.test(file.name);
+      const markdown = /\.(?:md|markdown)$/i.test(file.name);
       if (markdown && !serverOnline) {
         throw new Error("Markdown import requires a connected TabVault API.");
       }
@@ -209,8 +204,8 @@ export default function Transfer() {
       await synchronize();
       const result = await api.transfer.import<{
         success?: boolean;
-        errors?: ValidationError[];
-        warnings?: ValidationError[];
+        errors?: TabVaultApiIssue[];
+        warnings?: TabVaultApiIssue[];
         document?: Record<string, unknown>;
       }>({
         format: markdown ? "markdown" : "json",
@@ -238,6 +233,8 @@ export default function Transfer() {
         }
       );
     } catch (error) {
+      if (error instanceof TabVaultApiError)
+        setIssues([...error.errors, ...error.warnings]);
       toast.error("Import could not be completed", {
         description: error instanceof Error ? error.message : undefined,
       });
@@ -385,9 +382,9 @@ export default function Transfer() {
                       issue.expected ??
                       "The transfer needs review."}
                   </p>
-                  {issue.suggestion && (
+                  {issue.suggestedFix && (
                     <p className="mt-2 text-[10px] leading-4 text-[#727870]">
-                      Suggested fix: {issue.suggestion}
+                      Suggested fix: {issue.suggestedFix}
                     </p>
                   )}
                 </article>

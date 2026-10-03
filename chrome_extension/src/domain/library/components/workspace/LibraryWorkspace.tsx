@@ -9,6 +9,7 @@ import {
   captureTabs,
   changeTag,
   deleteGroup,
+  toggleCollectionCategory,
   deleteTab,
   moveTab,
   setViewed,
@@ -61,6 +62,11 @@ import {
   type StorageMode,
 } from "@/domain/server/browserStorage";
 import { createSessionGroup } from "@/domain/library/session";
+import {
+  isGroupColor,
+  regenerateGroupColor,
+  setCollectionColor,
+} from "@/domain/library/collectionColor";
 import { buildQuickCleanPlan } from "@/domain/deduplication/model";
 import { executeDedupePlan } from "@/domain/deduplication/execution";
 
@@ -227,12 +233,35 @@ export function LibraryWorkspace() {
     const members = pageTabs.filter(
       t => t.placement.groupId === (id === "unassigned" ? null : id)
     );
-    const result = await openTabUrls(members.map(t => t.content.url));
+    if (!members.length) return;
+    const collection = groups.find(g => g.id === id);
+    const color = collection?.details.accent ?? "grey";
+    if (!isGroupColor(color)) {
+      toast.error("Color is incorrect", {
+        action: {
+          label: "Regenerate color",
+          onClick: () =>
+            run(mutate(v => setCollectionColor(v, id, regenerateGroupColor()))),
+        },
+      });
+      return;
+    }
+    const result = await openTabUrls(
+      members.map(t => t.content.url),
+      {
+        title: collection?.details.name ?? "[Unassigned]",
+        color,
+      }
+    );
     await mutate(v =>
       members
         .filter(t => result.openedUrls.includes(t.content.url))
         .reduce((next, t) => setViewed(next, t.id, true), v)
     );
+    if (result.groupError)
+      toast.error("Tabs opened, but Chrome could not create the group", {
+        description: result.groupError,
+      });
   };
   const shareGroup = async (id: string) => {
     await navigator.clipboard.writeText(
@@ -540,6 +569,12 @@ export function LibraryWorkspace() {
             {board ? (
               <CollectionBoard
                 groups={visibleGroups}
+                onCategoryToggle={id =>
+                  run(mutate(v => toggleCollectionCategory(v, id)))
+                }
+                onColorChange={(id, color) =>
+                  run(mutate(v => setCollectionColor(v, id, color)))
+                }
                 tabs={sortTabs(pageTabs, vault)}
                 search={{
                   query,
@@ -590,6 +625,10 @@ export function LibraryWorkspace() {
                     onDelete: id => withGroup(id, removeGroup),
                     onEdit: id =>
                       withGroup(id, g => setEditingGroup(structuredClone(g))),
+                    onColorChange: (id, color) =>
+                      run(mutate(v => setCollectionColor(v, id, color))),
+                    onCategoryToggle: id =>
+                      run(mutate(v => toggleCollectionCategory(v, id))),
                   },
                   lifecycle: {
                     lifecycleMode: lifecycle,

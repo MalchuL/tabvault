@@ -6,6 +6,8 @@ import { FolderOpen, FolderPlus, Pencil, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { GroupId, VaultGroup, VaultTab } from "@/domain/library/types";
 import { categoryColor } from "@/domain/library/categoryColor";
+import { CollectionColorPicker } from "./CollectionColorPicker";
+import { CollectionCategoryToggle } from "./CollectionCategoryToggle";
 import { HideDurationMenu } from "@/domain/library/components/shared/HideDurationMenu";
 
 /** Interaction handlers for CollectionBoardProps. */
@@ -25,6 +27,8 @@ type CollectionBoardProps = {
   tabs: VaultTab[];
   actions: CollectionBoardActions;
   search: CollectionBoardSearch;
+  onColorChange: (id: string, color: string) => void;
+  onCategoryToggle: (id: string) => void;
 };
 
 /**
@@ -38,6 +42,8 @@ export function CollectionBoard({
   tabs,
   actions: { onOpen, onShare, onDelete, onEdit, onBrowse, onCreate, onHide },
   search: { query, matchedTabIds },
+  onColorChange,
+  onCategoryToggle,
 }: CollectionBoardProps) {
   return (
     <div
@@ -51,22 +57,26 @@ export function CollectionBoard({
         return (
           <CollectionCard key={group.id} group={group}>
             <div className="flex items-start gap-3">
+              <CollectionCategoryToggle
+                name={group.details.name}
+                category={group.details.category}
+                onToggle={() => onCategoryToggle(group.id)}
+              />
               <Button
                 variant="ghost"
                 onClick={() => onBrowse(group.id)}
                 data-testid={`group-browse-${group.id}`}
-                className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e95224]"
+                className="flex min-w-0 flex-1 shrink items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e95224]"
               >
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{
-                    backgroundColor: categoryColor(group.details.category),
-                  }}
-                />
                 <span className="truncate text-[15px] font-bold tracking-[-0.025em] text-[#26342c]">
                   {group.details.name}
                 </span>
               </Button>
+              <CollectionColorPicker
+                name={group.details.name}
+                color={group.details.accent}
+                onChange={color => onColorChange(group.id, color)}
+              />
               <div
                 className="flex shrink-0 items-center gap-0.5"
                 aria-label={`${group.details.name} collection actions`}
@@ -194,7 +204,7 @@ function CollectionCard({
       ref={ref}
       data-testid={`group-card-${group.id}`}
       data-drop-active={active ? "true" : "false"}
-      className="group flex min-h-[210px] flex-col border border-[#dcd7cc] bg-[#fffdf8] p-5 shadow-[0_10px_24px_rgba(24,38,31,0.035)] transition hover:border-[#c7c1b4] data-[drop-active=true]:border-[#e95224]"
+      className="group flex min-h-[210px] min-w-0 flex-col border border-[#dcd7cc] bg-[#fffdf8] p-5 shadow-[0_10px_24px_rgba(24,38,31,0.035)] transition hover:border-[#c7c1b4] data-[drop-active=true]:border-[#e95224]"
     >
       {children}
     </article>

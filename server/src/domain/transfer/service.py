@@ -269,7 +269,8 @@ class TransferService:
         lines.extend(["## [Unassigned]", ""])
         write_tabs(None)
         return TransferExportDTO(
-            content="\n".join(lines).strip() + "\n",
+            # The parser requires the propertySchema metadata's leading indentation.
+            content="\n".join(lines).rstrip() + "\n",
             media_type="text/markdown",
         )
 
