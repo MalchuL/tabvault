@@ -4,6 +4,8 @@ This project includes a Chrome Manifest V3 package in `chrome_extension/public/`
 
 To install the extension locally, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the `dist/public/` directory. The toolbar action opens the **TabVault fast-save popup**; its button at the top, **Open TabVault workspace**, opens the TabVault side panel in the current browser window. `Command+Shift+S` on macOS or `Ctrl+Shift+S` on other platforms also opens the side panel and requests a capture of the active tab.
 
+GitHub Actions builds the extension on pushes, pull requests, and manual runs of **Build Chrome extension**. Download the `tabvault-chrome-extension-<version>` artifact from the workflow run and extract it to load it as an unpacked extension. Both the extension build and backend packaging use the release version in `server/VERSION.txt`. Update that file and run `cd server && uv lock` when preparing a new version. Vite adds the version to the built manifest, and CI reads that manifest to name the artifact.
+
 ## Fast-save popup
 
 The toolbar popup is intentionally limited to rapid cleanup. The three arrow buttons carry both visible labels and browser tooltips:

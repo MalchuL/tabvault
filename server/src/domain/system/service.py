@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from lib.time import utc_now
+from lib.version import VERSION
 
 from .dto import CapabilitiesDTO, CapabilityDTO, HealthDTO, StorageCountsDTO
 from .repository import SystemRepository
@@ -34,7 +35,7 @@ class SystemService:
         tabs, groups, tags = await self.repository.health_counts(utc_now())
         return HealthDTO(
             status="ok",
-            version="0.2.0",
+            version=VERSION,
             schema_version=5,
             storage=StorageCountsDTO(tabs=tabs, groups=groups, tags=tags),
         )
