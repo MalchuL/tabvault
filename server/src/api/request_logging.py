@@ -176,8 +176,8 @@ def _body_iterator(response: Response, content_type: str) -> Any:
     """Return the response body iterator when a textual preview is safe to build.
 
     ``BaseHTTPMiddleware`` wraps every downstream reply as a streaming response, so the
-    decision uses Content-Type instead of the concrete class. Images and other binary
-    downloads keep their iterators intact and are described from headers only.
+    decision uses Content-Type instead of the concrete class. Binary downloads and
+    sensitive no-store responses keep their iterators intact and log headers only.
 
     Args:
         response (Response): Downstream response produced by the application.
@@ -186,7 +186,10 @@ def _body_iterator(response: Response, content_type: str) -> Any:
     Returns:
         Any: Async iterator of body chunks, or ``None`` when the body should not be read.
     """
-    if not is_textual_content(content_type):
+    # The debug playground embeds credentials; no-store bodies must stay out of access logs.
+    if "no-store" in response.headers.get("cache-control", "").lower() or not is_textual_content(
+        content_type
+    ):
         return None
     return getattr(response, "body_iterator", None)
 

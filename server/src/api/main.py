@@ -18,6 +18,8 @@ from api.error_logging import register_error_handlers
 from api.idempotency import register_idempotency
 from api.request_logging import register_request_logging
 from api.routes.api import api_router
+from api.routes.debug import DEBUG_WARNING
+from api.routes.debug import router as debug_router
 from config.settings import Settings, configure_logging, get_settings
 from db.session import (
     configure_database,
@@ -78,6 +80,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings)
     settings.storage.data_dir.mkdir(parents=True, exist_ok=True)
+    if settings.debug.enabled:
+        logger.warning(DEBUG_WARNING)
     if "*" in settings.http.cors_origins:
         logger.warning(
             "CORS is open to all origins (*); configure TABVAULT_HTTP__CORS_ORIGINS before network exposure"
@@ -89,12 +93,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await connection.exec_driver_sql("PRAGMA journal_mode=WAL")
     async with get_session_factory()() as db:
         repository = TransferRepository(db)
+        transfer = TransferService(db, settings, repository)
         latest = await repository.latest_backup("scheduled")
         if latest is None or latest.created_at.replace(
             tzinfo=latest.created_at.tzinfo or utc_now().tzinfo
         ) < utc_now() - timedelta(days=1):
-            await TransferService(db, settings, repository).create_backup("scheduled")
+            await transfer.create_backup("scheduled")
             await db.commit()
+        await transfer.prune_backups()
     yield
     await dispose_database()
 
@@ -125,6 +131,7 @@ def create_app() -> FastAPI:
     app.include_router(
         api_router, prefix=settings.http.api_prefix, dependencies=[Depends(require_api_key)]
     )
+    app.include_router(debug_router)
     register_error_handlers(app)
     register_request_logging(app)
     return app

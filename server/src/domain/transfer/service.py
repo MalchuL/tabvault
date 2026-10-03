@@ -16,6 +16,7 @@ from lib.time import stored_utc, utc_now
 from .document import markdown_import, validate_document
 from .dto import (
     BackupDTO,
+    DatabaseBackupDTO,
     ExportFields,
     ImportApplyDataDTO,
     ImportApplyResultDTO,
@@ -29,7 +30,7 @@ from .dto import (
     TransferExportDTO,
     TransferFormat,
 )
-from .error import BackupNotFoundError
+from .error import BackupNotFoundError, DatabaseBackupDisabledError
 from .mapper import TransferMapper
 from .repository import TransferRepository
 
@@ -88,8 +89,70 @@ class TransferService:
             }
         )
 
+    async def create_database_backup(self) -> DatabaseBackupDTO:
+        """Create a manual SQLite copy and return its absolute server-side path.
+
+        Copies committed data without modifying the live library or registering a
+        portable JSON snapshot. Each request reserves a unique, private file under
+        the data directory's backups folder; failed copies are removed. After a
+        successful copy, retention keeps the newest 30 backups across both formats.
+
+        Returns:
+            DatabaseBackupDTO: Absolute path to the completed standalone database.
+
+        Raises:
+            DatabaseBackupDisabledError: Debug mode or manual database backups are disabled.
+            DatabaseBackupUnsupportedError: The active database is not file-backed SQLite.
+            OSError: The backup directory or file cannot be created or removed.
+            sqlite3.Error: SQLite cannot complete the database copy.
+        """
+        if not self.settings.debug.enabled or not self.settings.debug.database_backup_enabled:
+            raise DatabaseBackupDisabledError(
+                "Database backups are disabled by server configuration"
+            )
+        directory = (self.settings.storage.data_dir / "backups").resolve()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"backup-{utc_now():%Y%m%dT%H%M%S%fZ}-{uuid.uuid4().hex}.sqlite3"
+        temporary = path.with_suffix(".tmp")
+        temporary.touch(mode=0o600, exist_ok=False)
+        try:
+            await self.repository.copy_database(temporary)
+            temporary.replace(path)
+        except BaseException:
+            # A failed or cancelled copy must not leave a file that looks like a usable backup.
+            temporary.unlink(missing_ok=True)
+            raise
+        await self.prune_backups()
+        return DatabaseBackupDTO(path=str(path))
+
+    async def prune_backups(self) -> None:
+        """Retain the newest 30 completed backups across JSON and SQLite formats.
+
+        Call only after a new backup and its owning transaction have succeeded.
+        Commits expired JSON metadata removal before deleting its files, so a
+        rollback cannot leave registered snapshots pointing at files removed here.
+        No library records are changed; temporary files and the live database stay
+        untouched. Startup also calls this to prune existing surplus backups.
+
+        Raises:
+            OSError: An expired backup cannot be deleted.
+            SQLAlchemyError: Expired JSON metadata cannot be deleted or committed.
+        """
+        expired = await self.repository.expired_backups(
+            self.settings.storage.data_dir / "backups", 30
+        )
+        backup_ids = [backup_id for _, backup_id in expired if backup_id is not None]
+        if backup_ids:
+            await self.repository.delete_backup_records(backup_ids)
+            await self.db.commit()
+        for path, _ in expired:
+            path.unlink(missing_ok=True)
+
     async def create_backup(self, reason: str) -> BackupDTO:
         """Write a complete backup before registering its file in the database.
+
+        The caller owns the transaction and prunes old backups after committing,
+        so a failed replacement cannot remove existing recovery snapshots.
 
         Args:
             reason (str): Reason recorded for the backup.
@@ -380,6 +443,8 @@ class TransferService:
                 )
                 updated.tabs += 1
         await self.db.commit()
+        if backup_id is not None:
+            await self.prune_backups()
         return ImportApplyResultDTO(
             success=True,
             data=ImportApplyDataDTO(
@@ -445,4 +510,5 @@ class TransferService:
         backup = await self.create_backup("clear_library")
         await self.repository.clear_library()
         await self.db.commit()
+        await self.prune_backups()
         return LibraryClearDTO(cleared=True, backup_snapshot_id=backup.id)

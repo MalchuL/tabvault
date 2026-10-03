@@ -11,8 +11,11 @@ The FastAPI OpenAPI document (`/openapi.json`, interactive `/docs`) and [schema-
 - `/search`: text query and structured property predicates over visible active records. The contract has no search-mode parameter.
 - `POST /sync`: transactional common resource changes, precise token acknowledgements, current generation, full raw snapshot, definition timestamps, and tombstones. `GET /sync` reads the full raw document. See [sync protocol](STORAGE_AND_ARCHIVE_LIFECYCLE.md).
 - `/export`, `/import/validate`, and `/import`: portable transfer. Imports explicitly choose `upload` (merge) or `replace`; only schema v5 is accepted.
-- `/backups`: list snapshots. `/{id}/download` downloads an authenticated JSON backup and `/{id}/restore` completes a validated replacement directly. `/library` clears the library after a backup.
+- `/backups`: dedicated backup API group listing JSON snapshots. `/{id}/download` downloads an authenticated JSON backup and `/{id}/restore` completes a validated replacement directly. The `scheduled` reason denotes a startup snapshot created when no such snapshot exists or the last is over 24 hours old; it is not a recurring timer. `/library` clears the library after a backup.
+- `POST /backups/database`: create a standalone SQLite database copy and return HTTP 201 with its absolute server-side path in `data.path`. Files use a `backup-` prefix under the data directory's `backups/` folder. Requires `TABVAULT_DEBUG__ENABLED=true` and `TABVAULT_DEBUG__DATABASE_BACKUP_ENABLED=true`; otherwise returns HTTP 403. Existing JSON safety backups remain enabled. Other database types and in-memory SQLite return HTTP 503.
 - `/health`, `/capabilities`, `/schema`, and `/errors`: read-only metadata.
+
+Outside the API prefix, `GET /debug` serves an unsafe Swagger request playground with the server API key embedded and applied automatically. Requires `TABVAULT_DEBUG__ENABLED=true` and `TABVAULT_DEBUG__PLAYGROUND_ENABLED=true`; otherwise returns HTTP 404. The page is not cached and shows how to disable debug mode. See [debug setup](../README.md#debug-playground).
 
 ## Properties and identity
 

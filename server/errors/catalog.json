@@ -9,5 +9,7 @@
   "E_DUPLICATE_ID": "An identifier is duplicated inside the document.",
   "E_UNKNOWN_GROUP_REFERENCE": "A group or tab references a group that does not exist.",
   "E_INVALID_TAGS": "A tab tag list is not an array of strings.",
+  "E_DATABASE_BACKUP_DISABLED": "Manual database backups are disabled by server configuration.",
+  "E_DATABASE_BACKUP_UNSUPPORTED": "Database backups require file-backed SQLite.",
   "W_ORPHAN_TAG": "A tag is missing from the directory and will be created."
 }

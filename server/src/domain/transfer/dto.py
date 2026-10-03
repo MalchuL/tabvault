@@ -39,6 +39,17 @@ class BackupListDataDTO(BaseModel):
     model_config = model_config()
 
 
+class DatabaseBackupDTO(BaseModel):
+    """Absolute server-side path to a completed SQLite database copy.
+
+    Attributes:
+        path (str): Location of the standalone database backup on the server filesystem.
+    """
+
+    path: str
+    model_config = model_config()
+
+
 class LibraryClearDTO(BaseModel):
     """Library clear result and its safety backup."""
 

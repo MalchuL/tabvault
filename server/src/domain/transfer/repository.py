@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal, cast
 
+import aiosqlite
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,6 +17,8 @@ from domain.tabs.visibility import exportable_tabs
 from lib.model_changes import apply_model_changes
 from lib.time import utc_now
 from models import Backup, Base, Group, LibraryMetadata, PropertyDefinition, Tab, Tag, Tombstone
+
+from .error import DatabaseBackupUnsupportedError
 
 
 class TransferRepository:
@@ -30,6 +35,31 @@ class TransferRepository:
             session (AsyncSession): Request-scoped asynchronous database session.
         """
         self.session = session
+
+    async def copy_database(self, destination: Path) -> None:
+        """Copy committed SQLite data, including WAL pages, into a standalone database.
+
+        Uses the active session's database location and SQLite's online backup API.
+        Separate connections keep backup work off the event loop and leave request
+        transactions unchanged. The source is opened read-only to avoid creating an
+        empty database if the configured file is missing.
+
+        Args:
+            destination (Path): Reserved output file owned and cleaned up by the service.
+
+        Raises:
+            DatabaseBackupUnsupportedError: The active database is not file-backed SQLite.
+            sqlite3.Error: SQLite cannot open or copy either database.
+        """
+        url = self.session.get_bind().engine.url
+        if url.get_backend_name() != "sqlite" or url.database in {None, "", ":memory:"}:
+            raise DatabaseBackupUnsupportedError("Database backups require file-backed SQLite")
+        source_uri = Path(url.database).resolve().as_uri() + "?mode=ro"
+        async with (
+            aiosqlite.connect(source_uri, uri=True) as source,
+            aiosqlite.connect(destination) as target,
+        ):
+            await source.backup(target)
 
     async def backups(self) -> list[Backup]:
         """List backups newest first.
@@ -51,6 +81,52 @@ class TransferRepository:
             Backup | None: Backup with the requested ID, or None if absent.
         """
         return await self.session.get(Backup, backup_id)
+
+    async def expired_backups(self, directory: Path, keep: int) -> list[tuple[Path, str | None]]:
+        """Find completed backups beyond a shared newest-first retention limit.
+
+        Includes registered JSON snapshots and SQLite copies with the exact
+        generated filename format, directly inside the backup directory. Temporary
+        files, unrelated files, symlinks, and the active database are excluded.
+        File modification times order both formats consistently.
+
+        Args:
+            directory (Path): Directory containing manual database copies.
+            keep (int): Number of completed backups to retain across both formats.
+
+        Returns:
+            list[tuple[Path, str | None]]: Expired absolute paths paired with JSON
+                metadata IDs, or None for unregistered SQLite copies.
+        """
+        directory = directory.resolve()
+        candidates: dict[Path, str | None] = {}
+        for backup in await self.backups():
+            path = Path(backup.path)
+            if (
+                path.parent.resolve() == directory
+                and path.name == f"{backup.id}.json"
+                and not path.is_symlink()
+            ):
+                candidates[path.resolve()] = backup.id
+        for path in directory.glob("backup-*.sqlite3"):
+            if (
+                re.fullmatch(r"backup-[0-9]{8}T[0-9]{12}Z-[0-9a-f]{32}\.sqlite3", path.name)
+                and not path.is_symlink()
+            ):
+                candidates[path.resolve()] = None
+        database = self.session.get_bind().engine.url.database
+        active = Path(database).resolve() if database else None
+        completed = [path for path in candidates if path != active and path.is_file()]
+        completed.sort(key=lambda path: (path.stat().st_mtime_ns, path.name), reverse=True)
+        return [(path, candidates[path]) for path in completed[keep:]]
+
+    async def delete_backup_records(self, backup_ids: list[str]) -> None:
+        """Stage removal of expired JSON backup metadata without committing.
+
+        Args:
+            backup_ids (list[str]): IDs whose files the service will remove after commit.
+        """
+        await self.session.execute(delete(Backup).where(Backup.id.in_(backup_ids)))
 
     async def latest_backup(self, reason: str) -> Backup | None:
         """Find the newest backup for a reason.

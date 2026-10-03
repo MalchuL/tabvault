@@ -12,6 +12,20 @@ class BackupNotFoundError(SystemDomainError):
     path = "params.id"
 
 
+class DatabaseBackupDisabledError(SystemDomainError):
+    """Manual database backup requests are disabled by server configuration."""
+
+    code = "E_DATABASE_BACKUP_DISABLED"
+    status_code = 403
+
+
+class DatabaseBackupUnsupportedError(SystemDomainError):
+    """The active database is not a file-backed SQLite database."""
+
+    code = "E_DATABASE_BACKUP_UNSUPPORTED"
+    status_code = 503
+
+
 class ImportValidationError(SystemDomainError):
     """Portable-document validation failed.
 

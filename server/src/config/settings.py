@@ -64,6 +64,21 @@ class SettingsLogging(BaseModel):
     model_config = SettingsConfigDict(extra="forbid")
 
 
+class SettingsDebug(BaseModel):
+    """Opt-in debugging tools whose switches take effect only while debug mode is enabled.
+
+    Attributes:
+        enabled (bool): Master switch, disabled by default for normal server operation.
+        playground_enabled (bool): Allow the browser playground to embed the configured API key.
+        database_backup_enabled (bool): Allow manual copies of the live SQLite database.
+    """
+
+    enabled: bool = False
+    playground_enabled: bool = True
+    database_backup_enabled: bool = True
+    model_config = SettingsConfigDict(extra="forbid")
+
+
 class Settings(BaseSettings):
     """Load validated TabVault settings from environment variables. Fields are grouped by responsibility."""
 
@@ -88,6 +103,7 @@ class Settings(BaseSettings):
     http: SettingsHttp = Field(default_factory=SettingsHttp)
     storage: SettingsStorage = Field(default_factory=SettingsStorage)
     logging: SettingsLogging = Field(default_factory=SettingsLogging)
+    debug: SettingsDebug = Field(default_factory=SettingsDebug)
 
 
 @lru_cache

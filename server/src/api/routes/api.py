@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from api.routes.backups import router as backups_router
 from domain.custom_properties.controller import router as custom_properties_router
 from domain.groups.controller import router as groups_router
 from domain.search.controller import router as search_router
@@ -19,6 +20,7 @@ api_router.include_router(tags_router)
 api_router.include_router(system_router)
 api_router.include_router(search_router)
 api_router.include_router(transfer_router)
+api_router.include_router(backups_router)
 
 
 api_router.include_router(sync_router)

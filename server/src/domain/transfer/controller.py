@@ -5,16 +5,14 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from api.routes.service_dependencies import get_transfer_service
 from lib.responses import SuccessResponseDTO, failure, issue, json_data, success
 
 from .dto import (
-    BackupListDataDTO,
     ExportFields,
-    ImportApplyResultDTO,
     ImportEnvelopeDTO,
     ImportMode,
     LibraryClearDTO,
@@ -23,64 +21,6 @@ from .dto import (
 from .service import TransferService
 
 router = APIRouter(tags=["transfer"])
-
-
-@router.get("/backups", response_model=SuccessResponseDTO[BackupListDataDTO])
-async def backups(
-    transfer: Annotated[TransferService, Depends(get_transfer_service)],
-) -> SuccessResponseDTO[BackupListDataDTO]:
-    """List backup snapshots.
-
-    Args:
-        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped
-            transfer service for import, export, and backup operations.
-
-    Returns:
-        SuccessResponseDTO[BackupListDataDTO]: Response envelope containing the backup list
-            data.
-    """
-    return success(BackupListDataDTO(backups=await transfer.backups()))
-
-
-@router.get("/backups/{backup_id}/download")
-async def download_backup(
-    backup_id: str,
-    transfer: Annotated[TransferService, Depends(get_transfer_service)],
-) -> FileResponse:
-    """Download a registered JSON backup with normal API authentication.
-
-    Args:
-        backup_id (str): Existing snapshot identifier.
-        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Transfer service.
-
-    Returns:
-        FileResponse: Unmodified portable JSON snapshot.
-    """
-    path = await transfer.backup_path(backup_id)
-    return FileResponse(
-        path, media_type="application/json", filename=f"tabvault-backup-{backup_id}.json"
-    )
-
-
-@router.post(
-    "/backups/{backup_id}/restore",
-    response_model=ImportApplyResultDTO,
-)
-async def restore_backup(
-    backup_id: str,
-    transfer: Annotated[TransferService, Depends(get_transfer_service)],
-) -> ImportApplyResultDTO:
-    """Complete backup restoration in one request transaction.
-
-    Args:
-        backup_id (str): Identifier of the backup to restore.
-        transfer (Annotated[TransferService, Depends(get_transfer_service)]): Request-scoped
-            transfer service for import, export, and backup operations.
-
-    Returns:
-        ImportApplyResultDTO: Completed restore result.
-    """
-    return await transfer.restore_backup(backup_id)
 
 
 @router.delete("/library", response_model=SuccessResponseDTO[LibraryClearDTO])
