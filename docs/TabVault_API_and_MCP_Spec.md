@@ -8,6 +8,7 @@ The FastAPI OpenAPI document (`/openapi.json`, interactive `/docs`) and [schema-
 - `/groups`: list, create, edit, order, and delete collections. Deletion archives and unassigns members. Groups have ordinary string categories and no parent hierarchy.
 - `/tags`: catalog operations with explicit detachment when deleting a used tag.
 - `/property-schema`: read, define, and remove definitions. Validation reports invalid and undeclared raw values; repair is an explicit mutation.
+- `DELETE /property-schema/values/{key}` removes the definition and stored values for one key from every tab, including hidden and archived tabs. Undeclared keys and repeated deletion are supported. `DELETE /tabs/{tab_id}/custom-properties/{key}` removes only that tab's stored override; the definition and other tabs are retained, and reads still resolve schema defaults. Both operations require the API key.
 - `/search`: text query and structured property predicates over visible active records. The contract has no search-mode parameter.
 - `POST /sync`: transactional common resource changes, precise token acknowledgements, current generation, full raw snapshot, definition timestamps, and tombstones. `GET /sync` reads the full raw document. See [sync protocol](STORAGE_AND_ARCHIVE_LIFECYCLE.md).
 - `/export`, `/import/validate`, and `/import`: portable transfer. Imports explicitly choose `upload` (merge) or `replace`; only schema v5 is accepted.

@@ -162,6 +162,33 @@ class CustomPropertyService:
             raise
         return await self.get()
 
+    async def delete_everywhere(self, name: str) -> PropertySchemaDTO:
+        """Remove a definition and its raw values from every tab atomically.
+
+        Hidden and archived tabs are included. Undeclared and absent keys may also
+        be removed; repeated deletion is an idempotent no-op. Roll back all staged
+        changes if persistence fails.
+
+        Args:
+            name (str): Case-sensitive property key to remove throughout the library.
+
+        Returns:
+            PropertySchemaDTO: Remaining definitions after the transaction commits.
+        """
+        try:
+            row = await self.repository.get_definition(name)
+            for tab in await self.repository.list_tabs():
+                if name in (tab.annotations.custom_properties or {}):
+                    await self.unset_tab(tab, [name])
+            if row is not None:
+                await self.repository.delete_definition(row)
+                await record_deletion(self.db, "property", name, utc_now())
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+        return await self.get()
+
     @staticmethod
     def resolve_values(
         raw: dict[str, Any] | None, definitions: dict[str, dict[str, Any]]

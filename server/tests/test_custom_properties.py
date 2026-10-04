@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
+
+from domain.custom_properties.repository import CustomPropertyRepository
 
 
 def upsert_property(
@@ -97,3 +100,98 @@ def test_schema_type_changes_validate_and_explicit_repair_converts_or_removes(
     assert validation["summary"]["undeclaredValues"] == 1
     repaired = client.post("/api/v1/property-schema/repair", headers=headers).json()["data"]
     assert repaired["removed"] == 1
+
+
+def test_keyed_deletion_distinguishes_one_tab_from_the_entire_library(client, headers) -> None:
+    upsert_property(client, headers, "payload", "json", {"default": True})
+    tabs = []
+    for index in range(3):
+        response = client.post(
+            "/api/v1/tabs",
+            headers=headers,
+            json={
+                "content": {"url": f"https://example.com/remove/{index}"},
+                "annotations": {"customProperties": {"payload": None, "viewed": True}},
+            },
+        )
+        assert response.status_code == 201
+        tabs.append(response.json()["data"])
+    path = f"/api/v1/tabs/{tabs[0]['id']}/custom-properties/payload"
+    assert client.delete(path).status_code == 401
+    removed = client.delete(path, headers=headers)
+    assert removed.status_code == 200
+    assert removed.json()["data"]["annotations"]["customProperties"]["payload"] == {"default": True}
+    snapshot = client.get("/api/v1/sync", headers=headers).json()
+    raw = {tab["id"]: tab["annotations"]["customProperties"] for tab in snapshot["library"]["tabs"]}
+    assert "payload" not in raw[tabs[0]["id"]]
+    assert raw[tabs[1]["id"]]["payload"] is None
+    assert "payload" in snapshot["propertySchema"]
+    assert client.delete(path, headers=headers).status_code == 200
+    assert (
+        client.delete("/api/v1/tabs/missing/custom-properties/payload", headers=headers).status_code
+        == 404
+    )
+    assert (
+        client.patch(
+            f"/api/v1/tabs/{tabs[1]['id']}",
+            headers=headers,
+            json={"lifecycle": {"hiddenUntil": "2099-01-01T00:00:00Z"}},
+        ).status_code
+        == 200
+    )
+    assert client.delete(f"/api/v1/tabs/{tabs[2]['id']}", headers=headers).status_code == 200
+    global_path = "/api/v1/property-schema/values/payload"
+    assert client.delete(global_path).status_code == 401
+    assert client.delete(global_path, headers=headers).status_code == 200
+    snapshot = client.get("/api/v1/sync", headers=headers).json()
+    assert "payload" not in snapshot["propertySchema"]
+    for tab in snapshot["library"]["tabs"]:
+        assert "payload" not in tab["annotations"]["customProperties"]
+        assert tab["annotations"]["customProperties"]["viewed"] is True
+    assert client.delete(global_path, headers=headers).status_code == 200
+
+
+def test_global_property_deletion_rolls_back_raw_values_when_persistence_fails(
+    client, headers, monkeypatch
+) -> None:
+    upsert_property(client, headers, "score", "int", 0)
+    tab = client.post(
+        "/api/v1/tabs",
+        headers=headers,
+        json={
+            "content": {"url": "https://example.com/rollback"},
+            "annotations": {"customProperties": {"score": 7}},
+        },
+    ).json()["data"]
+
+    async def fail_delete(self, row) -> None:
+        raise RuntimeError("disposable persistence failure")
+
+    monkeypatch.setattr(CustomPropertyRepository, "delete_definition", fail_delete)
+    with pytest.raises(RuntimeError, match="disposable persistence failure"):
+        client.delete("/api/v1/property-schema/values/score", headers=headers)
+    snapshot = client.get("/api/v1/sync", headers=headers).json()
+    assert "score" in snapshot["propertySchema"]
+    stored = next(item for item in snapshot["library"]["tabs"] if item["id"] == tab["id"])
+    assert stored["annotations"]["customProperties"]["score"] == 7
+
+
+def test_global_property_deletion_also_removes_undeclared_values(client, headers) -> None:
+    upsert_property(client, headers, "oldKey", "int", 0)
+    client.post(
+        "/api/v1/tabs",
+        headers=headers,
+        json={
+            "content": {"url": "https://example.com/undeclared"},
+            "annotations": {"customProperties": {"oldKey": 7}},
+        },
+    )
+    assert client.delete("/api/v1/property-schema/oldKey", headers=headers).status_code == 200
+    assert (
+        client.delete("/api/v1/property-schema/values/oldKey", headers=headers).status_code == 200
+    )
+    snapshot = client.get("/api/v1/sync", headers=headers).json()
+    assert all(
+        "oldKey" not in tab["annotations"]["customProperties"]
+        for tab in snapshot["library"]["tabs"]
+    )

@@ -172,7 +172,7 @@ export function expectedDocument(vault = transferVault()): PortableDocument {
           name: group.details.name,
           description: group.details.description,
           category: group.details.category,
-          color: group.details.accent,
+          color: group.details.accent ?? null,
         },
         placement: { ...group.placement },
         timestamps: { ...group.timestamps },

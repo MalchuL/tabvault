@@ -29,7 +29,7 @@ type EditCollectionDialogProps = {
 };
 
 /**
- * Edit a collection name, description, category, and preset or custom color.
+ * Edit a collection name, description, category, and optional preset or custom color.
  * Categories change only when explicitly selected.
  * @param {EditCollectionDialogProps} props - Current collection, category choices, and edit/save/close callbacks.
  * @returns {React.ReactElement} Collection editor dialog.
@@ -87,12 +87,15 @@ export function EditCollectionDialog({
             <CollectionColorPicker
               name={collection.details.name}
               color={collection.details.accent}
-              onChange={accent =>
+              onChange={accent => {
+                const details = { ...collection.details };
+                if (accent === undefined) delete details.accent;
+                else details.accent = accent;
                 onChange({
                   ...collection,
-                  details: { ...collection.details, accent },
-                })
-              }
+                  details,
+                });
+              }}
             />
           </div>
         </div>

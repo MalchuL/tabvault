@@ -229,11 +229,13 @@ test("empty Session groups remain until explicitly deleted", async ({
   await page
     .getByTestId("tab-row-t-duplicate")
     .getByLabel("Move Agents can organize the web better than we can")
-    .selectOption("research");
+    .click();
+  await page.getByRole("menuitem", { name: "Research", exact: true }).click();
   await page
     .getByTestId("tab-row-advanced-new")
     .getByLabel("Move New title")
-    .selectOption("research");
+    .click();
+  await page.getByRole("menuitem", { name: "Research", exact: true }).click();
 
   await expect(page.getByTestId("group-separator-session")).toContainText(
     "0 tabs"

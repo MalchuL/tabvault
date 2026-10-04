@@ -79,6 +79,7 @@ export function TabList({
             key={id}
             groupId={id}
             groupName={group?.details.name ?? "[Unassigned]"}
+            groupColor={group?.details.accent}
             dropGapHeight={collapsed ? 0 : dropGapHeight}
             disabled={collapsed || lifecycle.lifecycleMode === "archived"}
           >

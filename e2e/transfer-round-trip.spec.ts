@@ -575,10 +575,8 @@ for (const extension of ["md", "markdown"]) {
     for (const group of browserDocument.library.groups) {
       expect(
         group.details.color,
-        "Markdown collections receive a browser display color"
-      ).toBeTruthy();
-      // Markdown supplies no color; its browser-only fallback is outside the round trip.
-      group.details.color = null;
+        "Markdown collections preserve no color"
+      ).toBeNull();
     }
     await expectSameDocument(browserDocument, browserExpected);
     // Re-export preserves the readable interchange even though original backup metadata was lost.

@@ -133,12 +133,9 @@ export function isPersistedVault(value: unknown): value is PersistedVault {
         g.id.trim().length > 0 &&
         g.id.length <= 256 &&
         isRecord(g.details) &&
-        strings([
-          g.details.name,
-          g.details.category,
-          g.details.description,
-          g.details.accent,
-        ]) &&
+        strings([g.details.name, g.details.category, g.details.description]) &&
+        (g.details.accent === undefined ||
+          typeof g.details.accent === "string") &&
         isRecord(g.placement) &&
         position(g.placement.position) &&
         times(g.timestamps)
@@ -188,7 +185,12 @@ export function parseBrowserVault(value: unknown): PersistedVault | null {
     ...value,
     library: {
       tabs: value.library.tabs,
-      vaultGroups: value.library.vaultGroups,
+      vaultGroups: value.library.vaultGroups.map(group => {
+        if (group.details.accent !== "none") return group;
+        const details = { ...group.details };
+        delete details.accent;
+        return { ...group, details };
+      }),
       tags: value.library.tags,
     },
   };
@@ -210,7 +212,7 @@ export type PortableDocument = {
   exportedAt?: string;
   library: { tabs: PortableTab[]; groups: PortableGroup[]; tags: VaultTag[] };
 };
-/** Convert the library into portable records without inventing timestamps. @param {PersistedVault} vault - Current library. @returns {PortableDocument} Transfer document. */
+/** Convert the library into portable records without inventing timestamps. No color is serialized as null; incorrect imported colors remain available for repair. @param {PersistedVault} vault - Current library. @returns {PortableDocument} Transfer document. */
 export function toServerDocument(vault: PersistedVault): PortableDocument {
   return {
     schemaVersion: 5,
@@ -226,14 +228,14 @@ export function toServerDocument(vault: PersistedVault): PortableDocument {
           name: g.details.name,
           description: g.details.description,
           category: g.details.category,
-          color: g.details.accent,
+          color: g.details.accent ?? null,
         },
       })),
       tags: vault.library.tags,
     },
   };
 }
-/** Convert and validate server data before it can replace browser records. @param {Record<string, unknown>} document - Server snapshot. @param {PersistedVault} local - Local preferences and pending metadata. @returns {PersistedVault} Valid mapped vault. @throws {Error} Unsupported or malformed data. */
+/** Convert and validate server data before it can replace browser records. A null color maps to no color without altering incorrect imported values. @param {Record<string, unknown>} document - Server snapshot. @param {PersistedVault} local - Local preferences and pending metadata. @returns {PersistedVault} Valid mapped vault. @throws {Error} Unsupported or malformed data. */
 export function fromServerDocument(
   document: Record<string, unknown>,
   local = emptyBrowserVault()
@@ -267,7 +269,7 @@ export function fromServerDocument(
             name: g.details.name,
             description: g.details.description ?? "",
             category: g.details.category,
-            accent: g.details.color ?? "grey",
+            ...(g.details.color == null ? {} : { accent: g.details.color }),
           },
         }))
         .sort(

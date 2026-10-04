@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { useLibrary } from "@/domain/library/library-context";
-import { changePropertyDefinition } from "@/domain/library/properties";
+import {
+  changePropertyDefinition,
+  removePropertyEverywhere,
+} from "@/domain/library/properties";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -51,6 +54,13 @@ export default function CustomProperties() {
   const { vault, mutate, persistenceStatus, syncStatus, synchronize } =
     useLibrary();
   const schema = vault.propertySchema;
+  const undeclared = [
+    ...new Set(
+      vault.library.tabs.flatMap(tab =>
+        Object.keys(tab.annotations.customProperties)
+      )
+    ),
+  ].filter(key => !Object.hasOwn(schema, key));
   const hasPendingChanges = Object.values(vault.sync.pending).some(
     change => change.kind === "property"
   );
@@ -165,6 +175,19 @@ export default function CustomProperties() {
                     variant="ghost"
                     type="button"
                     className="text-xs font-semibold text-[#a33b21]"
+                    aria-label={`Remove ${propertyName} everywhere`}
+                    onClick={() => {
+                      void mutate(current =>
+                        removePropertyEverywhere(current, propertyName)
+                      ).catch(error => toast.error(String(error)));
+                    }}
+                  >
+                    Remove everywhere
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    className="text-xs font-semibold text-[#a33b21]"
                     onClick={() => {
                       void mutate(current =>
                         changePropertyDefinition(current, propertyName, null)
@@ -179,6 +202,30 @@ export default function CustomProperties() {
           </Card>
         ))}
       </section>
+      {!!undeclared.length && (
+        <section className="mt-5 space-y-2" aria-label="Undeclared properties">
+          <h2 className="font-semibold">
+            Stored properties without a definition
+          </h2>
+          {undeclared.map(key => (
+            <div key={key} className="flex items-center justify-between gap-3">
+              <span className="font-mono text-sm">{key}</span>
+              <Button
+                variant="ghost"
+                type="button"
+                aria-label={`Remove ${key} everywhere`}
+                onClick={() =>
+                  void mutate(current =>
+                    removePropertyEverywhere(current, key)
+                  ).catch(error => toast.error(String(error)))
+                }
+              >
+                Remove everywhere
+              </Button>
+            </div>
+          ))}
+        </section>
+      )}
       <Card className="mt-5 gap-0 rounded-none border-[#ded9cd] bg-[#fffdf8] p-5 shadow-none">
         <h2 className="font-semibold">Add or update a property</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">

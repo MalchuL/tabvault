@@ -242,6 +242,27 @@ async def delete_tab(
     return success(await service.delete(tab_id, hard))
 
 
+@router.delete(
+    "/{tab_id}/custom-properties/{property_name:path}", response_model=SuccessResponseDTO[TabDTO]
+)
+async def delete_tab_custom_property(
+    tab_id: str,
+    property_name: str,
+    service: Annotated[TabService, Depends(get_tab_service)],
+) -> SuccessResponseDTO[TabDTO]:
+    """Remove one keyed override while retaining its definition and other tabs.
+
+    Args:
+        tab_id (str): Stable Saved Tab identity; missing tabs raise the existing not-found error.
+        property_name (str): Case-sensitive stored key to remove idempotently.
+        service (Annotated[TabService, Depends(get_tab_service)]): Request-scoped tab service.
+
+    Returns:
+        SuccessResponseDTO[TabDTO]: Updated tab with schema defaults resolved for absent values.
+    """
+    return success(await service.unset_custom_properties(tab_id, [property_name]))
+
+
 @router.post("/{tab_id}/tags", response_model=SuccessResponseDTO[TabDTO])
 async def tag_tab(
     tab_id: str, body: TabTagDTO, service: Annotated[TabService, Depends(get_tab_service)]

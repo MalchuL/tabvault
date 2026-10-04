@@ -68,9 +68,18 @@ for (const view of ["Standard", "Compact"]) {
     const row = page.getByTestId("tab-row-t-1001");
     const title = "Agents can organize the web better than we can";
     await row.hover();
-    await row
-      .getByLabel(`Move ${title}`, { exact: true })
-      .selectOption("research");
+    const move = row.getByRole("button", {
+      name: `Move ${title}`,
+      exact: true,
+    });
+    await expect(move).toHaveText("");
+    await expect(move).toHaveAttribute("title", "Move to…");
+    await move.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("menuitem")).toHaveCount(1);
+    await expect(page.getByTestId("tab-drag-preview")).toHaveCount(0);
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
     await expect
       .poll(
         async () =>
@@ -79,6 +88,12 @@ for (const view of ["Standard", "Compact"]) {
           ).placement.groupId
       )
       .toBe("research");
+    await row.hover();
+    await move.click();
+    await expect(
+      page.getByRole("menuitem", { name: "Research", exact: true })
+    ).toBeDisabled();
+    await page.keyboard.press("Escape");
     await row.hover();
     await row
       .getByRole("button", { name: `Edit ${title}`, exact: true })
@@ -166,6 +181,7 @@ test("create collection immediately saves an empty manual session", async ({
   );
   expect(group.details.description).toBe("");
   expect(group.details.category).toBe("manual");
+  expect(group.details).not.toHaveProperty("accent");
   await expect(page.getByTestId(`group-card-${group.id}`)).toBeVisible();
 });
 

@@ -20,8 +20,8 @@ export type VaultGroup = {
     name: string;
     description: string;
     category: string;
-    /** Chrome group color; unrecognized imported values remain available for explicit repair. */
-    accent: string;
+    /** Optional preset or custom hex; absence uses default styling, while incorrect imports remain available for repair. */
+    accent?: string;
   };
   placement: { position: number };
   timestamps: RecordTimes;

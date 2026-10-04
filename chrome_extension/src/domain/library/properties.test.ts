@@ -1,11 +1,52 @@
 import { expect, it } from "vitest";
 import { emptyBrowserVault } from "./codec";
+import { captureTabs } from "./operations";
 import {
   changePropertyDefinition,
   ensureClientProperty,
   isPropertyDefinition,
   resolveProperty,
+  removePropertyEverywhere,
+  unsetTabProperty,
 } from "./properties";
+it("removes raw keys from one tab or throughout the library without assigning defaults", () => {
+  const vault = captureTabs(emptyBrowserVault(), [
+    { url: "https://example.com/a" },
+    { url: "https://example.com/b" },
+  ]);
+  vault.propertySchema.payload = {
+    type: "json",
+    description: "",
+    default: { fallback: true },
+  };
+  for (const tab of vault.library.tabs)
+    tab.annotations.customProperties = {
+      payload: null,
+      other: false,
+      undeclared: 0,
+    };
+  const first = unsetTabProperty(vault.library.tabs[0], "payload");
+  expect(first.annotations.customProperties).toEqual({
+    other: false,
+    undeclared: 0,
+  });
+  expect(vault.library.tabs[1].annotations.customProperties).toHaveProperty(
+    "payload",
+    null
+  );
+  const cleared = removePropertyEverywhere(vault, "payload");
+  expect(cleared.propertySchema).not.toHaveProperty("payload");
+  expect(
+    cleared.library.tabs.every(
+      tab => !Object.hasOwn(tab.annotations.customProperties, "payload")
+    )
+  ).toBe(true);
+  const undeclared = removePropertyEverywhere(cleared, "undeclared");
+  expect(
+    undeclared.library.tabs.map(tab => tab.annotations.customProperties)
+  ).toEqual([{ other: false }, { other: false }]);
+  expect(unsetTabProperty(first, "missing")).toBe(first);
+});
 it("creates conventions on demand without overriding incompatible definitions", () => {
   const empty = emptyBrowserVault();
   expect(empty.propertySchema).toEqual({});
