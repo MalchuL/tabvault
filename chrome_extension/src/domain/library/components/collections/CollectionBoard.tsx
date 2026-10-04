@@ -5,7 +5,6 @@ import { isSortable, useSortable } from "@dnd-kit/react/sortable";
 import { FolderOpen, FolderPlus, Pencil, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { GroupId, VaultGroup, VaultTab } from "@/domain/library/types";
-import { categoryColor } from "@/domain/library/categoryColor";
 import { groupColorBackground } from "@/domain/library/collectionColor";
 import { CollectionColorPicker } from "./CollectionColorPicker";
 import { CollectionCategoryToggle } from "./CollectionCategoryToggle";
@@ -14,8 +13,8 @@ import { HideDurationMenu } from "@/domain/library/components/shared/HideDuratio
 
 /** Interaction handlers for CollectionBoardProps. */
 type CollectionBoardActions = {
-  onOpen: (group: VaultGroup) => void;
-  onShare: (group: VaultGroup) => void;
+  onOpen: { group: (id: GroupId) => void; tab: (tab: VaultTab) => void };
+  onShare: (id: GroupId) => void;
   onDelete: (group: VaultGroup) => void;
   onEdit: (group: VaultGroup) => void;
   onBrowse: (groupId: GroupId) => void;
@@ -52,109 +51,134 @@ export function CollectionBoard({
   return (
     <div
       data-testid="group-board"
-      className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+      className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3"
     >
-      {groups.map(group => {
+      {(tabs.some(tab => tab.placement.groupId === null)
+        ? [null, ...groups]
+        : groups
+      ).map(group => {
+        const id = group?.id ?? "unassigned";
+        const name = group?.details.name ?? "[Unassigned]";
         const groupTabs = tabs.filter(
-          tab => tab.placement.groupId === group.id
+          tab => tab.placement.groupId === (group?.id ?? null)
         );
         return (
-          <CollectionCard key={group.id} group={group}>
+          <CollectionCard key={id} group={group}>
             <header
-              className="flex items-start gap-3 px-5 py-4"
+              className="grid grid-cols-[32px_minmax(0,1fr)_32px] items-center gap-2 px-3 py-2"
               style={{
-                backgroundColor: groupColorBackground(group.details.accent, 18),
+                backgroundColor: groupColorBackground(
+                  group?.details.accent,
+                  18
+                ),
               }}
             >
-              <CollectionCategoryToggle
-                name={group.details.name}
-                category={group.details.category}
-                onToggle={() => onCategoryToggle(group.id)}
-              />
+              {group ? (
+                <CollectionColorPicker
+                  name={name}
+                  color={group.details.accent}
+                  onChange={color => onColorChange(group.id, color)}
+                />
+              ) : (
+                <span
+                  className="flex size-8 items-center justify-center"
+                  aria-hidden="true"
+                >
+                  <FolderOpen className="size-4" />
+                </span>
+              )}
               <CollectionNameEditor
-                name={group.details.name}
-                onRename={name => onRename(group.id, name)}
-                className="flex-1 text-[15px] font-bold tracking-[-0.025em] text-[#26342c]"
+                name={name}
+                onRename={group ? name => onRename(group.id, name) : undefined}
+                className="text-[15px] font-bold leading-5 text-[#26342c]"
               />
-              <CollectionColorPicker
-                name={group.details.name}
-                color={group.details.accent}
-                onChange={color => onColorChange(group.id, color)}
-              />
+              {group ? (
+                <CollectionCategoryToggle
+                  name={name}
+                  category={group.details.category}
+                  onToggle={() => onCategoryToggle(group.id)}
+                />
+              ) : (
+                <span aria-hidden="true" />
+              )}
+            </header>
+            <div className="flex min-h-14 flex-wrap content-start items-center gap-2 px-3 py-2">
+              {groupTabs.map((tab, index) => (
+                <SortableCollectionTab
+                  key={tab.id}
+                  index={index}
+                  tab={tab}
+                  groupId={id}
+                  onOpen={onOpen.tab}
+                  searchActive={Boolean(query.trim())}
+                  matched={matchedTabIds.has(tab.id)}
+                />
+              ))}
+              {!groupTabs.length ? (
+                <span className="text-sm text-[#626a60]">Empty collection</span>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-1 border-t border-[#e8e3d8] px-3 py-2 text-xs text-[#626a60]">
+              <span>{groupTabs.length} tabs</span>
               <div
-                className="flex shrink-0 items-center gap-0.5"
-                aria-label={`${group.details.name} collection actions`}
+                className="ml-auto flex shrink-0 items-center gap-0.5"
+                aria-label={`${name} collection actions`}
               >
                 <Button
                   variant="ghost"
-                  onClick={() => onOpen(group)}
-                  className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                  aria-label={`Open all tabs in ${group.details.name}`}
+                  size="icon-sm"
+                  onClick={() => onOpen.group(id)}
+                  className="rounded p-1 text-[#626a60] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+                  aria-label={`Open all tabs in ${name}`}
                   title="Open all tabs"
                 >
                   <FolderOpen className="h-3.5 w-3.5" />
                 </Button>
                 <Button
                   variant="ghost"
-                  onClick={() => onShare(group)}
-                  className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                  aria-label={`Copy ${group.details.name} as Markdown`}
+                  size="icon-sm"
+                  onClick={() => onShare(id)}
+                  className="rounded p-1 text-[#626a60] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+                  aria-label={`Copy ${name} as Markdown`}
                   title="Copy as Markdown"
                 >
                   <Share2 className="h-3.5 w-3.5" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => onEdit(group)}
-                  className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                  aria-label={`Edit ${group.details.name}`}
-                  title="Edit collection"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => onDelete(group)}
-                  className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
-                  aria-label={`Delete ${group.details.name}`}
-                  title="Delete collection"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </header>
-            <div className="flex flex-1 flex-wrap content-start gap-2 p-5">
-              {groupTabs.map((tab, index) => (
-                <SortableCollectionTab
-                  key={tab.id}
-                  index={index}
-                  tab={tab}
-                  groupId={group.id}
-                  onBrowse={onBrowse}
-                  searchActive={Boolean(query.trim())}
-                  matched={matchedTabIds.has(tab.id)}
+                {group && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => onEdit(group)}
+                      className="rounded p-1 text-[#626a60] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+                      aria-label={`Edit ${group.details.name}`}
+                      title="Edit collection"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => onDelete(group)}
+                      className="rounded p-1 text-[#626a60] hover:bg-[#fff0ea] hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+                      aria-label={`Delete ${group.details.name}`}
+                      title="Delete collection"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
+                )}
+                <HideDurationMenu
+                  mode="hide"
+                  target={name}
+                  onSelect={duration => onHide(id, duration)}
                 />
-              ))}
-              {!groupTabs.length ? (
-                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[#92958d]">
-                  Empty collection
-                </span>
-              ) : null}
-            </div>
-            <div className="flex items-center justify-between border-t border-[#e8e3d8] px-5 pb-5 pt-3 font-mono text-[9px] uppercase tracking-[0.08em] text-[#858980]">
-              <span>{groupTabs.length} tabs</span>
-              <span style={{ color: categoryColor(group.details.category) }}>
-                {group.details.category}
-              </span>
-              <HideDurationMenu
-                mode="hide"
-                target={group.details.name}
-                onSelect={duration => onHide(group.id, duration)}
-              />
+              </div>
+
               <Button
                 variant="ghost"
-                onClick={() => onBrowse(group.id)}
-                className="font-semibold text-[#667268] hover:text-[#e95224]"
+                onClick={() => onBrowse(id)}
+                className="h-8 px-1 text-xs font-semibold text-[#596353] hover:text-[#c1431b]"
               >
                 Browse →
               </Button>
@@ -166,14 +190,11 @@ export function CollectionBoard({
         variant="ghost"
         onClick={onCreate}
         data-testid="create-collection-card"
-        className="flex min-h-[210px] flex-col items-center justify-center border border-dashed border-[#c9c2b5] bg-[#f8f5ed]/60 px-6 text-center transition hover:border-[#e95224] hover:bg-[#fff7f1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e95224]"
+        className="flex h-auto min-h-20 items-center justify-center gap-3 self-start whitespace-normal border border-dashed border-[#c9c2b5] bg-[#f8f5ed]/60 p-4 text-center transition hover:border-[#e95224] hover:bg-[#fff7f1] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e95224]"
       >
         <FolderPlus className="h-5 w-5 text-[#e95224]" />
-        <span className="mt-4 text-[14px] font-bold tracking-[-0.02em] text-[#3b4a40]">
+        <span className="text-sm font-semibold text-[#3b4a40]">
           Create collection
-        </span>
-        <span className="mt-1 text-[11px] leading-5 text-[#7c8179]">
-          Add a new place for related links.
         </span>
       </Button>
     </div>
@@ -183,35 +204,36 @@ export function CollectionBoard({
 /**
  * Make a collection card a grid-layout drop target.
  * The card highlights when a dragged tab is over its group.
- * @param {{ group: VaultGroup; children: React.ReactNode; }} props - Group record and card contents to register as a drop target.
+ * @param {{ group: VaultGroup | null; children: React.ReactNode; }} props - Persisted group, or null for virtual Unassigned, and card contents.
  * @returns {React.ReactElement} Card surface with active-drop feedback.
  */
 function CollectionCard({
   group,
   children,
 }: {
-  group: VaultGroup;
+  group: VaultGroup | null;
   children: React.ReactNode;
 }) {
+  const id = group?.id ?? "unassigned";
   const { isDropTarget, ref } = useDroppable({
-    id: `group-container:${group.id}`,
-    data: { groupId: group.id },
+    id: `group-container:${id}`,
+    data: { groupId: id },
     collisionDetector: pointerIntersection,
     // Pointer hits on tabs (3) take priority over this collection background.
     collisionPriority: 2,
   });
   const { target } = useDragOperation();
   const active =
-    isDropTarget || (target && isSortable(target) && target.group === group.id);
+    isDropTarget || (target && isSortable(target) && target.group === id);
   return (
     <article
       ref={ref}
-      data-testid={`group-card-${group.id}`}
+      data-testid={`group-card-${id}`}
       data-drop-active={active ? "true" : "false"}
       style={{
-        backgroundColor: groupColorBackground(group.details.accent, 8),
+        backgroundColor: groupColorBackground(group?.details.accent, 8),
       }}
-      className="group flex min-h-[210px] min-w-0 flex-col border border-[#dcd7cc] bg-[#fffdf8] shadow-[0_10px_24px_rgba(24,38,31,0.035)] transition hover:border-[#c7c1b4] data-[drop-active=true]:border-[#e95224]"
+      className="group flex min-w-0 flex-col border border-[#dcd7cc] bg-[#fffdf8] shadow-[0_10px_24px_rgba(24,38,31,0.035)] transition hover:border-[#c7c1b4] data-[drop-active=true]:border-[#e95224]"
     >
       {children}
     </article>
@@ -220,22 +242,22 @@ function CollectionCard({
 
 /**
  * Show one draggable tab favicon within a collection card.
- * Search dims nonmatches while preserving drag and browse actions.
- * @param {{ tab: VaultTab; index: number; groupId: GroupId; onBrowse: (groupId: GroupId) => void; searchActive: boolean; matched: boolean; }} props - Tab, containing group, search match state, and browse handler.
+ * Search dims nonmatches while preserving drag and link-opening actions.
+ * @param {{ tab: VaultTab; index: number; groupId: GroupId; onOpen: (tab: VaultTab) => void; searchActive: boolean; matched: boolean; }} props - Tab, containing group, search match state, and link-opening handler.
  * @returns {React.ReactElement} Draggable tab favicon button.
  */
 function SortableCollectionTab({
   tab,
   index,
   groupId,
-  onBrowse,
+  onOpen,
   searchActive,
   matched,
 }: {
   tab: VaultTab;
   index: number;
   groupId: GroupId;
-  onBrowse: (groupId: GroupId) => void;
+  onOpen: (tab: VaultTab) => void;
   searchActive: boolean;
   matched: boolean;
 }) {
@@ -252,7 +274,7 @@ function SortableCollectionTab({
       size="icon"
       ref={ref}
       type="button"
-      onClick={() => onBrowse(groupId)}
+      onClick={() => onOpen(tab)}
       data-testid={`grouped-tab-${tab.id}`}
       data-tab-id={tab.id}
       data-search-state={searchActive ? (matched ? "match" : "dimmed") : "idle"}

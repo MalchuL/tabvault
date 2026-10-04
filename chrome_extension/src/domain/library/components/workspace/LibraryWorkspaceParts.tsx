@@ -9,6 +9,7 @@ import {
   Rows3,
   Search,
 } from "lucide-react";
+import { Link } from "wouter";
 import type { LibraryViewMode } from "@/domain/library/types";
 
 const logoUrl = "/icon-128.png";
@@ -56,7 +57,7 @@ export function LibraryHeader({
       <Button
         variant="ghost"
         onClick={onOpenDashboard}
-        className="inline-flex shrink-0 items-center gap-2 rounded px-2 py-2 text-left font-mono text-[9px] uppercase tracking-[0.09em] text-[#6d746b] transition hover:text-[#e95224] active:scale-[0.98]"
+        className="inline-flex shrink-0 items-center gap-2 rounded px-2 py-2 text-left text-xs text-[#596353] transition hover:text-[#e95224] active:scale-[0.98]"
         title="Open dashboard"
       >
         <BrandMark className="h-3.5 w-3.5 shrink-0" />
@@ -110,17 +111,17 @@ export function LibraryResultSummary({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {query && (
-          <p className="hidden max-w-[250px] text-right text-[11px] leading-5 text-[#80847d] md:block">
+          <p className="hidden max-w-[250px] text-right text-sm leading-5 text-[#626a60] md:block">
             {searchStatusCopy}
           </p>
         )}
-        {!query && isAllTabsPage && (
+        {!query && visibleCount > 1 && isAllTabsPage && (
           <>
             <Button
               variant="ghost"
               onClick={onQuickClean}
               disabled={isQuickCleaning}
-              className="rounded border border-[#d9d3c6] bg-[#fffdf8] px-2.5 py-1.5 font-mono text-[9px] uppercase tracking-[0.08em] text-[#687067] hover:border-[#e95224] hover:text-[#e95224] disabled:opacity-50"
+              className="rounded border border-[#d9d3c6] bg-[#fffdf8] px-2.5 py-1.5 text-sm text-[#596353] hover:border-[#e95224] hover:text-[#e95224] disabled:opacity-50"
             >
               {isQuickCleaning ? "Cleaning…" : "Quick clean"}
             </Button>
@@ -220,18 +221,27 @@ export function LibraryEmptyState({
   return (
     <div className="border-t border-[#dcd7cc] bg-[#fffdf8] px-5 py-12 text-center">
       <Search className="mx-auto h-5 w-5 text-[#e95224]" />
-      <p className="mt-3 text-[13px] font-bold">
+      <p className="mt-3 text-base font-bold">
         {(isArchivePage || isHiddenPage) && !query
           ? `${workspaceLabel} is empty.`
-          : "No links matched that query."}
+          : query
+            ? "No links matched that query."
+            : "Your library is empty."}
       </p>
-      <p className="mt-1 text-[11px] text-[#7b8078]">
+      <p className="mt-1 text-sm text-[#626a60]">
         {isArchivePage && !query
           ? "Archived links remain recoverable here until you permanently delete them."
           : isHiddenPage && !query
             ? "Tabs with future hide deadlines appear here."
-            : "Try a topic, note, or tag. Search includes custom-property values."}
+            : query
+              ? "Try a topic, note, or tag. Search includes custom-property values."
+              : "Save tabs with the TabVault extension, or import an existing library."}
       </p>
+      {!query && !isArchivePage && !isHiddenPage && (
+        <Button asChild className="mt-4">
+          <Link href="/transfer">Import a library</Link>
+        </Button>
+      )}
     </div>
   );
 }

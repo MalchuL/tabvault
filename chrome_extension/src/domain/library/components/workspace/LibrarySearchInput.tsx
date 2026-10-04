@@ -36,8 +36,8 @@ export function LibrarySearchInput({
 }: LibrarySearchInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <div className="flex h-10 items-center gap-3 border-b border-[#bcb6a8] bg-[#fffdf8] px-4 transition focus-within:border-[#e95224] focus-within:shadow-[0_8px_24px_rgba(24,38,31,0.04)]">
-      <Search className="h-4 w-4 text-[#e95224]" />
+    <div className="flex flex-wrap items-center gap-3 py-2 sm:flex-nowrap border-b border-[#bcb6a8] bg-[#fffdf8] px-4 transition focus-within:border-[#e95224] focus-within:shadow-[0_8px_24px_rgba(24,38,31,0.04)]">
+      <Search className="h-4 w-4 shrink-0 text-[#c1431b]" />
       <Input
         ref={inputRef}
         value={query}
@@ -50,15 +50,16 @@ export function LibrarySearchInput({
             ? `search-result-${activeResultId}`
             : undefined
         }
-        className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 text-[13px] font-medium shadow-none outline-none placeholder:text-[#a1a39b] focus-visible:ring-0"
+        className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 text-[15px] font-medium shadow-none outline-none placeholder:text-[#626a60] focus-visible:ring-0"
       />
       <NativeSelect
         value={searchGroupFilter}
         onChange={event => onGroupFilterChange(event.target.value)}
         aria-label="Filter search by collection"
-        className="h-auto max-w-[118px] border-0 bg-transparent px-0 font-mono text-[9px] uppercase tracking-[0.06em] text-[#6f756d] shadow-none outline-none"
+        className="order-last h-9 w-full border-0 border-t bg-transparent px-0 text-sm text-[#596353] shadow-none outline-none sm:order-none sm:h-auto sm:w-auto sm:max-w-[200px] sm:border-t-0"
       >
         <option value="all">All collections</option>
+        <option value="unassigned">[Unassigned]</option>
         {groups.map(group => (
           <option key={group.id} value={group.id}>
             {group.details.name}
@@ -66,7 +67,7 @@ export function LibrarySearchInput({
         ))}
       </NativeSelect>
       {query && (
-        <span className="hidden rounded border border-[#ded9cd] px-1.5 py-1 font-mono text-[8px] text-[#858980] 2xl:inline">
+        <span className="hidden rounded border border-[#ded9cd] px-1.5 py-1 text-xs text-[#626a60] 2xl:inline">
           ↑↓ navigate · ↵ open
         </span>
       )}
