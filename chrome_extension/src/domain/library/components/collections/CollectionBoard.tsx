@@ -6,8 +6,10 @@ import { FolderOpen, FolderPlus, Pencil, Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { GroupId, VaultGroup, VaultTab } from "@/domain/library/types";
 import { categoryColor } from "@/domain/library/categoryColor";
+import { groupColorBackground } from "@/domain/library/collectionColor";
 import { CollectionColorPicker } from "./CollectionColorPicker";
 import { CollectionCategoryToggle } from "./CollectionCategoryToggle";
+import { CollectionNameEditor } from "./CollectionNameEditor";
 import { HideDurationMenu } from "@/domain/library/components/shared/HideDurationMenu";
 
 /** Interaction handlers for CollectionBoardProps. */
@@ -27,8 +29,9 @@ type CollectionBoardProps = {
   tabs: VaultTab[];
   actions: CollectionBoardActions;
   search: CollectionBoardSearch;
-  onColorChange: (id: string, color: string) => void;
+  onColorChange: (id: string, color: string | undefined) => void;
   onCategoryToggle: (id: string) => void;
+  onRename: (id: string, name: string) => void;
 };
 
 /**
@@ -44,6 +47,7 @@ export function CollectionBoard({
   search: { query, matchedTabIds },
   onColorChange,
   onCategoryToggle,
+  onRename,
 }: CollectionBoardProps) {
   return (
     <div
@@ -56,22 +60,22 @@ export function CollectionBoard({
         );
         return (
           <CollectionCard key={group.id} group={group}>
-            <div className="flex items-start gap-3">
+            <header
+              className="flex items-start gap-3 px-5 py-4"
+              style={{
+                backgroundColor: groupColorBackground(group.details.accent, 18),
+              }}
+            >
               <CollectionCategoryToggle
                 name={group.details.name}
                 category={group.details.category}
                 onToggle={() => onCategoryToggle(group.id)}
               />
-              <Button
-                variant="ghost"
-                onClick={() => onBrowse(group.id)}
-                data-testid={`group-browse-${group.id}`}
-                className="flex min-w-0 flex-1 shrink items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e95224]"
-              >
-                <span className="truncate text-[15px] font-bold tracking-[-0.025em] text-[#26342c]">
-                  {group.details.name}
-                </span>
-              </Button>
+              <CollectionNameEditor
+                name={group.details.name}
+                onRename={name => onRename(group.id, name)}
+                className="flex-1 text-[15px] font-bold tracking-[-0.025em] text-[#26342c]"
+              />
               <CollectionColorPicker
                 name={group.details.name}
                 color={group.details.accent}
@@ -118,8 +122,8 @@ export function CollectionBoard({
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
-            </div>
-            <div className="mt-5 flex flex-1 flex-wrap content-start gap-2">
+            </header>
+            <div className="flex flex-1 flex-wrap content-start gap-2 p-5">
               {groupTabs.map((tab, index) => (
                 <SortableCollectionTab
                   key={tab.id}
@@ -137,7 +141,7 @@ export function CollectionBoard({
                 </span>
               ) : null}
             </div>
-            <div className="mt-5 flex items-center justify-between border-t border-[#e8e3d8] pt-3 font-mono text-[9px] uppercase tracking-[0.08em] text-[#858980]">
+            <div className="flex items-center justify-between border-t border-[#e8e3d8] px-5 pb-5 pt-3 font-mono text-[9px] uppercase tracking-[0.08em] text-[#858980]">
               <span>{groupTabs.length} tabs</span>
               <span style={{ color: categoryColor(group.details.category) }}>
                 {group.details.category}
@@ -204,7 +208,10 @@ function CollectionCard({
       ref={ref}
       data-testid={`group-card-${group.id}`}
       data-drop-active={active ? "true" : "false"}
-      className="group flex min-h-[210px] min-w-0 flex-col border border-[#dcd7cc] bg-[#fffdf8] p-5 shadow-[0_10px_24px_rgba(24,38,31,0.035)] transition hover:border-[#c7c1b4] data-[drop-active=true]:border-[#e95224]"
+      style={{
+        backgroundColor: groupColorBackground(group.details.accent, 8),
+      }}
+      className="group flex min-h-[210px] min-w-0 flex-col border border-[#dcd7cc] bg-[#fffdf8] shadow-[0_10px_24px_rgba(24,38,31,0.035)] transition hover:border-[#c7c1b4] data-[drop-active=true]:border-[#e95224]"
     >
       {children}
     </article>

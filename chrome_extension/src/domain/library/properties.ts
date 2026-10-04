@@ -3,6 +3,7 @@ import type {
   CustomPropertySchema,
   CustomPropertyType,
   PersistedVault,
+  VaultTab,
 } from "./types";
 
 /**
@@ -95,6 +96,31 @@ export function changePropertyDefinition(
   if (definition === null) delete propertySchema[name];
   else propertySchema[name] = definition;
   return { ...vault, propertySchema };
+}
+
+/** Remove one stored value without materializing a default or changing other tabs. @param {VaultTab} tab - Saved tab or editor draft. @param {string} name - Case-sensitive stored key, declared or undeclared. @returns {VaultTab} Updated tab, or the original tab when the key is absent. */
+export function unsetTabProperty(tab: VaultTab, name: string): VaultTab {
+  if (!Object.hasOwn(tab.annotations.customProperties, name)) return tab;
+  const customProperties = { ...tab.annotations.customProperties };
+  delete customProperties[name];
+  return { ...tab, annotations: { ...tab.annotations, customProperties } };
+}
+
+/** Remove a property definition and its values throughout the local library. Persistence stages all changed tabs and the schema deletion in the same sync batch. @param {PersistedVault} vault - Current library, including hidden and archived tabs. @param {string} name - Case-sensitive key, declared or undeclared. @returns {PersistedVault} Library without the definition or any stored values for the key. */
+export function removePropertyEverywhere(
+  vault: PersistedVault,
+  name: string
+): PersistedVault {
+  const propertySchema = { ...vault.propertySchema };
+  delete propertySchema[name];
+  return {
+    ...vault,
+    propertySchema,
+    library: {
+      ...vault.library,
+      tabs: vault.library.tabs.map(tab => unsetTabProperty(tab, name)),
+    },
+  };
 }
 /** Resolve a declared property without materializing a default. @param {Record<string, unknown>} raw - Stored overrides. @param {CustomPropertySchema} schema - Current definitions. @param {string} name - Property name. @returns {unknown} Valid value or default. */
 export function resolveProperty(

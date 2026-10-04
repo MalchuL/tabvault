@@ -81,6 +81,24 @@ async def validate_property_values(
     return success(await service.validation())
 
 
+@router.delete("/values/{property_name:path}", response_model=SuccessResponseDTO[PropertySchemaDTO])
+async def delete_property_everywhere(
+    property_name: str,
+    service: Annotated[CustomPropertyService, Depends(get_custom_property_service)],
+) -> SuccessResponseDTO[PropertySchemaDTO]:
+    """Remove a keyed property definition and all stored tab values.
+
+    Args:
+        property_name (str): Case-sensitive key, including an undeclared raw key.
+        service (Annotated[CustomPropertyService, Depends(get_custom_property_service)]):
+            Request-scoped service owning the atomic deletion.
+
+    Returns:
+        SuccessResponseDTO[PropertySchemaDTO]: Remaining definitions after deletion.
+    """
+    return success(await service.delete_everywhere(property_name))
+
+
 @router.post("/repair", response_model=SuccessResponseDTO[PropertyRepairDTO])
 async def repair_property_values(
     service: Annotated[CustomPropertyService, Depends(get_custom_property_service)],

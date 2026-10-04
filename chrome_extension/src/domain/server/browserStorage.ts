@@ -2,7 +2,7 @@
 
 import {
   emptyBrowserVault,
-  isPersistedVault,
+  parseBrowserVault,
   type PersistedVault,
 } from "@/domain/library/codec";
 
@@ -41,7 +41,7 @@ export async function inspectBrowserVault(): Promise<BrowserVaultInspection> {
     const stored = await globalThis.chrome.storage.local.get(storageKey);
     const raw: unknown = stored[storageKey];
     if (raw === undefined) return { status: "empty" };
-    const vault = isPersistedVault(raw) ? raw : null;
+    const vault = parseBrowserVault(raw);
     return vault
       ? { status: "compatible", vault }
       : { status: "incompatible", raw, storageKey };
@@ -50,7 +50,7 @@ export async function inspectBrowserVault(): Promise<BrowserVaultInspection> {
   if (raw === null) return { status: "empty" };
   try {
     const value: unknown = JSON.parse(raw);
-    const vault = isPersistedVault(value) ? value : null;
+    const vault = parseBrowserVault(value);
     return vault
       ? { status: "compatible", vault }
       : { status: "incompatible", raw, storageKey };
@@ -73,23 +73,24 @@ export async function readBrowserVault() {
 }
 
 /**
- * Reject invalid vaults before they can replace a recoverable local copy.
+ * Reject invalid vaults and persist only supported library fields.
  *
  * @param {PersistedVault} vault - Schema-v5 library to persist.
  * @returns {Promise<void>} Resolves once the validated vault is stored.
  * @throws {Error} When the vault fails schema validation.
  */
 export async function writeBrowserVault(vault: PersistedVault) {
-  if (!isPersistedVault(vault))
+  const current = parseBrowserVault(vault);
+  if (!current)
     throw new Error("Refusing to persist an invalid schema-v5 vault");
   if (globalThis.chrome?.storage?.local)
     await globalThis.chrome.storage.local.set({
-      [TABVAULT_STORAGE_KEY]: vault,
+      [TABVAULT_STORAGE_KEY]: current,
     });
   else
     globalThis.localStorage.setItem(
       TABVAULT_STORAGE_KEY,
-      JSON.stringify(vault)
+      JSON.stringify(current)
     );
 }
 

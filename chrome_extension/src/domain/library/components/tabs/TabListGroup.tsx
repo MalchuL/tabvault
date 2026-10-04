@@ -12,25 +12,29 @@ import {
   Trash2,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { groupColorBackground } from "@/domain/library/collectionColor";
 import { CollectionCategoryToggle } from "../collections/CollectionCategoryToggle";
 import { CollectionColorPicker } from "../collections/CollectionColorPicker";
+import { CollectionNameEditor } from "../collections/CollectionNameEditor";
 import { HideDurationMenu } from "@/domain/library/components/shared/HideDurationMenu";
 
 /**
  * Register a list group as a tab drop destination.
  * The drop gap reserves space for the dragged tab unless dropping is disabled.
- * @param {{ groupId: string; groupName: string; dropGapHeight: number; disabled: boolean; children: ReactNode; }} props - Group identity, reserved drop height, disabled state, and contents.
+ * @param {{ groupId: string; groupName: string; groupColor?: string; dropGapHeight: number; disabled: boolean; children: ReactNode; }} props - Group identity and color, reserved drop height, disabled state, and contents.
  * @returns {React.ReactElement} Droppable list section.
  */
 export function DroppableGroup({
   groupId,
   groupName,
+  groupColor,
   dropGapHeight,
   disabled,
   children,
 }: {
   groupId: string;
   groupName: string;
+  groupColor?: string;
   dropGapHeight: number;
   disabled: boolean;
   children: ReactNode;
@@ -54,7 +58,13 @@ export function DroppableGroup({
   return (
     <section
       ref={ref}
-      style={{ paddingBottom: dropGapHeight }}
+      style={{
+        paddingBottom: dropGapHeight,
+        backgroundColor:
+          groupColor !== undefined && !active
+            ? groupColorBackground(groupColor, 8)
+            : undefined,
+      }}
       data-testid={`tab-group-${groupId}`}
       data-drop-active={active ? "true" : "false"}
       data-drop-gap-height={dropGapHeight}
@@ -82,11 +92,12 @@ type GroupSeparatorCollapse = {
 };
 /** Interaction handlers for GroupSeparatorProps. */
 type GroupSeparatorActions = {
+  onRename?: (groupId: string, name: string) => void;
   onOpen?: (groupId: string) => void;
   onShare?: (groupId: string) => void;
   onDelete?: (groupId: string) => void;
   onEdit?: (groupId: string) => void;
-  onColorChange?: (groupId: string, color: string) => void;
+  onColorChange?: (groupId: string, color: string | undefined) => void;
   onCategoryToggle?: (groupId: string) => void;
 };
 /** Archive and hidden state for GroupSeparatorProps. */
@@ -113,6 +124,7 @@ export function GroupSeparator({
   group: { groupId, groupName, groupCategory, groupColor, tabCount },
   collapse: { collapsible, collapsed, onToggle },
   actions: {
+    onRename,
     onOpen,
     onShare,
     onDelete,
@@ -125,6 +137,12 @@ export function GroupSeparator({
   return (
     <div
       data-testid={`group-separator-${groupId}`}
+      style={{
+        backgroundColor:
+          groupColor !== undefined
+            ? groupColorBackground(groupColor, 18)
+            : undefined,
+      }}
       className="flex min-h-10 items-center justify-between gap-3 border-y border-[#dfdbd0] bg-[#f9f7f1] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.1em] text-[#777d75]"
     >
       <div className="flex min-w-0 items-center gap-1.5">
@@ -135,11 +153,13 @@ export function GroupSeparator({
             onToggle={() => onCategoryToggle?.(groupId)}
           />
         )}
-        {collapsible ? (
+        {collapsible && (
           <Button
+            type="button"
             variant="ghost"
             onClick={() => onToggle?.(groupId)}
-            className="h-auto min-w-0 shrink items-center gap-1.5 truncate px-0 py-0 hover:text-[#e95224]"
+            className="h-auto shrink-0 px-0 py-0 hover:text-[#e95224]"
+            aria-label={`${collapsed ? "Expand" : "Collapse"} ${groupName}`}
             aria-expanded={!collapsed}
           >
             {collapsed ? (
@@ -147,12 +167,18 @@ export function GroupSeparator({
             ) : (
               <ChevronDown className="h-3 w-3 shrink-0" />
             )}
-            <span className="truncate">{groupName}</span>
           </Button>
-        ) : (
-          <span>{groupName}</span>
         )}
-        {groupColor !== undefined && onColorChange && (
+        <CollectionNameEditor
+          name={groupName}
+          className="font-mono text-[11px]"
+          onRename={
+            groupId !== "unassigned" && onRename
+              ? name => onRename(groupId, name)
+              : undefined
+          }
+        />
+        {groupId !== "unassigned" && onColorChange && (
           <CollectionColorPicker
             name={groupName}
             color={groupColor}

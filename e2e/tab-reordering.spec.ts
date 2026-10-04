@@ -69,11 +69,11 @@ test("group hide is client-orchestrated and category colors are deterministic", 
   await openSchemaV5Library(page);
   const manualIndicator = page
     .getByTestId("group-separator-research")
-    .getByRole("button", { name: "Unpin Research to session", exact: true });
+    .getByRole("button", { name: "Change Research to Session", exact: true });
   const sessionIndicator = page
     .getByTestId("group-separator-session")
     .getByRole("button", {
-      name: "Pin Session Aug 23 13:00 as manual",
+      name: "Change Session Aug 23 13:00 to Manual",
       exact: true,
     });
   await expect(manualIndicator).toBeVisible();
@@ -229,11 +229,13 @@ test("empty Session groups remain until explicitly deleted", async ({
   await page
     .getByTestId("tab-row-t-duplicate")
     .getByLabel("Move Agents can organize the web better than we can")
-    .selectOption("research");
+    .click();
+  await page.getByRole("menuitem", { name: "Research", exact: true }).click();
   await page
     .getByTestId("tab-row-advanced-new")
     .getByLabel("Move New title")
-    .selectOption("research");
+    .click();
+  await page.getByRole("menuitem", { name: "Research", exact: true }).click();
 
   await expect(page.getByTestId("group-separator-session")).toContainText(
     "0 tabs"

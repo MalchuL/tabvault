@@ -1,8 +1,9 @@
 import type { VaultGroup } from "@/domain/library/types";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Search } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import { Search, X } from "lucide-react";
+import { useRef, type KeyboardEvent } from "react";
 
 /** Search state and handlers for LibrarySearchInputProps. */
 type LibrarySearchInputSearch = {
@@ -24,7 +25,8 @@ type LibrarySearchInputProps = {
 };
 /**
  * Show library search, collection filtering, and index state in one input row.
- * The workspace owns query state and keyboard navigation.
+ * The workspace owns query state and keyboard navigation. Clearing the query
+ * returns focus to the input so the user can immediately start another search.
  * @param {LibrarySearchInputProps} props - Search values and callbacks owned by the workspace.
  * @returns {React.ReactElement} Search and filter controls.
  */
@@ -32,10 +34,12 @@ export function LibrarySearchInput({
   search: { query, activeResultId, onQueryChange, onKeyDown },
   filter: { searchGroupFilter, groups, onGroupFilterChange },
 }: LibrarySearchInputProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <label className="flex h-10 items-center gap-3 border-b border-[#bcb6a8] bg-[#fffdf8] px-4 transition focus-within:border-[#e95224] focus-within:shadow-[0_8px_24px_rgba(24,38,31,0.04)]">
+    <div className="flex h-10 items-center gap-3 border-b border-[#bcb6a8] bg-[#fffdf8] px-4 transition focus-within:border-[#e95224] focus-within:shadow-[0_8px_24px_rgba(24,38,31,0.04)]">
       <Search className="h-4 w-4 text-[#e95224]" />
       <Input
+        ref={inputRef}
         value={query}
         onChange={event => onQueryChange(event.target.value)}
         onKeyDown={onKeyDown}
@@ -66,6 +70,22 @@ export function LibrarySearchInput({
           ↑↓ navigate · ↵ open
         </span>
       )}
-    </label>
+      {query && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Clear search"
+          title="Clear search"
+          className="text-[#6f756d] hover:text-[#e95224]"
+          onClick={() => {
+            onQueryChange("");
+            inputRef.current?.focus();
+          }}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
   );
 }

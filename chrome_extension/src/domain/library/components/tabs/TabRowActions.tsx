@@ -1,7 +1,12 @@
 import type { VaultGroup } from "@/domain/library/types";
 import { Button } from "@/components/ui/button";
-import { NativeSelect } from "@/components/ui/native-select";
-import { Eye, MoreHorizontal, Trash2 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Eye, FolderInput, MoreHorizontal, Trash2 } from "lucide-react";
 import { HideDurationMenu } from "@/domain/library/components/shared/HideDurationMenu";
 import type { TabListItem } from "@/domain/library/components/tabs/TabList";
 import type { TabViewMode } from "@/domain/library/types";
@@ -54,17 +59,11 @@ export function TabRowActions({
     : "";
   return (
     <>
-      <ManualGroupMoveSelect
+      <ManualGroupMoveMenu
         tab={tab}
         groups={groups}
         onMove={onMove}
-        className={
-          compact
-            ? "max-w-24 py-1 text-right"
-            : standard
-              ? "max-w-[120px] py-1 pr-4 text-right"
-              : "max-w-[120px] py-1 pr-1 text-right"
-        }
+        className={`${actionClassName} hover:bg-[#fff0ea] hover:text-[#e95224]${compactFocusClassName}`}
       />
       <Button
         variant="ghost"
@@ -111,10 +110,10 @@ export function TabRowActions({
 /**
  * Offer manual groups as destinations for a saved tab.
  * Session and automatic groups are not user-selected move targets.
- * @param {{ tab: TabListItem; groups: Array<{ id: string; name: string; category?: string }>; onMove: (id: string, groupId: string | null) => void; className: string; }} props - Tab, available groups, move handler, and layout classes.
- * @returns {React.ReactElement | null} Group destination selector, or null when no manual group exists.
+ * @param {{ tab: TabListItem; groups: Array<Pick<VaultGroup, "id" | "details">>; onMove: (id: string, groupId: string | null) => void; className: string; }} props - Tab, available groups, move handler, and button classes.
+ * @returns {React.ReactElement | null} Icon button and destination menu, or null when no manual group exists.
  */
-function ManualGroupMoveSelect({
+function ManualGroupMoveMenu({
   tab,
   groups,
   onMove,
@@ -129,32 +128,39 @@ function ManualGroupMoveSelect({
     group => group.details.category === "manual"
   );
   if (!manualGroups.length) return null;
-  const currentManualGroupId = manualGroups.some(
-    group => group.id === tab.placement.groupId
-  )
-    ? tab.placement.groupId
-    : "";
-
   return (
-    <NativeSelect
-      aria-label={`Move ${tab.content.title}`}
-      value={currentManualGroupId ?? ""}
-      onChange={event => onMove(tab.id, event.target.value)}
-      className={`h-auto appearance-none border-0 bg-transparent px-0 shadow-none font-mono text-[9px] uppercase tracking-[0.06em] text-[#8a8e85] outline-none hover:text-[#e95224] ${className}`}
-    >
-      <option value="" disabled>
-        Move to…
-      </option>
-      {manualGroups.map(group => (
-        <option
-          key={group.id}
-          value={group.id}
-          disabled={group.id === tab.placement.groupId}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          type="button"
+          aria-label={`Move ${tab.content.title}`}
+          title="Move to…"
+          className={className}
+          onClick={event => event.stopPropagation()}
+          onPointerDown={event => event.stopPropagation()}
         >
-          {group.details.name}
-        </option>
-      ))}
-    </NativeSelect>
+          <FolderInput className="size-3.5" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="border-[#d9d3c6] bg-[#fffdf8] text-[#26342c]"
+        onClick={event => event.stopPropagation()}
+      >
+        {manualGroups.map(group => (
+          <DropdownMenuItem
+            key={group.id}
+            disabled={group.id === tab.placement.groupId}
+            onSelect={() => onMove(tab.id, group.id)}
+            className="font-mono text-[11px] focus:bg-[#fff0ea] focus:text-[#e95224]"
+          >
+            {group.details.name}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -10,7 +10,7 @@ import {
 import type { VaultGroup } from "@/domain/library/types";
 import { CollectionColorPicker } from "./CollectionColorPicker";
 import {
-  isGroupColor,
+  isCollectionColor,
   regenerateGroupColor,
 } from "@/domain/library/collectionColor";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ type EditCollectionDialogProps = {
 };
 
 /**
- * Edit a collection name, description, category, and Chrome group color.
+ * Edit a collection name, description, category, and optional preset or custom color.
  * Categories change only when explicitly selected.
  * @param {EditCollectionDialogProps} props - Current collection, category choices, and edit/save/close callbacks.
  * @returns {React.ReactElement} Collection editor dialog.
@@ -47,6 +47,15 @@ export function EditCollectionDialog({
         aria-labelledby={undefined}
         aria-label="Edit collection"
         className="max-w-sm gap-0 rounded-none border-[#ded9cd] bg-[#fffdf8] p-5 shadow-[0_24px_70px_rgba(24,38,31,0.25)]"
+        onEscapeKeyDown={event => {
+          // Dialog and popover use separate Radix layers; closing the palette must preserve the draft.
+          if (
+            document.querySelector(
+              '[data-slot="popover-content"][data-state="open"]'
+            )
+          )
+            event.preventDefault();
+        }}
       >
         <DialogHeading eyebrow="Collection" title="Edit shelf" />
         <DialogDescription className="sr-only">
@@ -78,16 +87,19 @@ export function EditCollectionDialog({
             <CollectionColorPicker
               name={collection.details.name}
               color={collection.details.accent}
-              onChange={accent =>
+              onChange={accent => {
+                const details = { ...collection.details };
+                if (accent === undefined) delete details.accent;
+                else details.accent = accent;
                 onChange({
                   ...collection,
-                  details: { ...collection.details, accent },
-                })
-              }
+                  details,
+                });
+              }}
             />
           </div>
         </div>
-        {!isGroupColor(collection.details.accent) && (
+        {!isCollectionColor(collection.details.accent) && (
           <div className="mt-3">
             <p role="alert" className="text-sm text-[#a33b21]">
               Color is incorrect.

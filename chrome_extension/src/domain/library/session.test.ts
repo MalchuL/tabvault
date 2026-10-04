@@ -14,7 +14,6 @@ it("uses one capture instant for the session name and stored timestamps", () => 
       name: "Session Sep 04 03:07",
       description: "Captured from the browser",
       category: "session",
-      accent: "#829b65",
     },
     timestamps: {
       createdAt: capturedAt.toISOString(),

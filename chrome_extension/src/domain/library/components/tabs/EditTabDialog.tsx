@@ -12,6 +12,7 @@ import { DialogHeading, Field } from "../shared/DialogParts";
 import {
   matchesPropertyType,
   resolveProperty,
+  unsetTabProperty,
 } from "@/domain/library/properties";
 import type {
   CustomPropertySchema,
@@ -254,18 +255,10 @@ export function EditTabDialog({
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      const values = { ...tab.annotations.customProperties };
-                      delete values[name];
                       const draft = { ...drafts };
                       delete draft[name];
                       setDrafts(draft);
-                      onChange({
-                        ...tab,
-                        annotations: {
-                          ...tab.annotations,
-                          customProperties: values,
-                        },
-                      });
+                      onChange(unsetTabProperty(tab, name));
                     }}
                   >
                     Use default for {name}
@@ -284,6 +277,13 @@ export function EditTabDialog({
                 <pre className="overflow-auto text-xs">
                   {JSON.stringify(value, null, 2)}
                 </pre>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onChange(unsetTabProperty(tab, name))}
+                >
+                  Remove {name} from this tab
+                </Button>
               </div>
             ))}
         </section>

@@ -100,7 +100,7 @@ The server keeps the latest **30 backups in total**, combining JSON snapshots an
 - Search matches titles, original URLs, tags, and resolved custom properties. Quick Clean archives exact duplicates; advanced deduplication previews type-based merge policies.
 - Edit tab contains a schema-driven custom-property editor. Missing overrides use defaults; resetting removes the override. Undeclared raw values remain stored.
 - Note, Agent Review, and Viewed are custom properties. Clients declare conventions on demand without changing an incompatible existing definition. The server assigns no special meaning to these names.
-- Local only keeps changes in browser storage. Backend preferred persists changes locally first, then synchronizes tabs, groups, tags, definitions, values, and positions in one transaction. Preferences and saved views stay local.
+- Local only keeps changes in browser storage. Backend preferred persists changes locally first, then synchronizes tabs, groups, tags, definitions, values, and positions in one transaction. Display preferences stay local.
 - Active tabs are archived before permanent removal. Deleting a collection archives and unassigns its members. Hidden records remain inaccessible through MCP.
 - The extension commits a complete capture before closing source tabs. It uses `tabs`, `storage`, `sidePanel`, and `alarms`; the alarm retries pending sync work.
 

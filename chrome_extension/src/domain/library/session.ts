@@ -25,7 +25,7 @@ export function sessionName(date = new Date()): string {
  * Create the collection used by a browser capture at one consistent instant.
  *
  * @param {Date} date - Local date used to name and timestamp the session.
- * @returns {VaultGroup} New session collection with one consistent timestamp.
+ * @returns {VaultGroup} New session collection without a color and with one consistent timestamp.
  */
 export function createSessionGroup(date = new Date()): VaultGroup {
   const timestamp = date.toISOString();
@@ -35,7 +35,6 @@ export function createSessionGroup(date = new Date()): VaultGroup {
       name: sessionName(date),
       description: "Captured from the browser",
       category: "session",
-      accent: "green",
     },
     placement: { position: 0 },
     timestamps: { createdAt: timestamp, updatedAt: timestamp },

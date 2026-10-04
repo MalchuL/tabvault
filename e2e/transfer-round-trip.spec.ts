@@ -55,7 +55,6 @@ for (const mode of ["merge", "replace"] as const) {
     const exported = await downloadTransfer(page, "Browser JSON", testInfo);
     const target = emptyVault();
     target.preferences.tabView = "groups";
-    target.library.savedSearches[0].name = "Destination view";
     await openTransfer(page, target);
     await page.getByRole("button", { name: mode, exact: true }).click();
     if (mode === "replace") page.once("dialog", dialog => dialog.accept());
@@ -72,9 +71,7 @@ for (const mode of ["merge", "replace"] as const) {
       true
     );
     expect(restored.preferences).toEqual(target.preferences);
-    expect(restored.library.savedSearches).toEqual(
-      target.library.savedSearches
-    );
+    expect(restored.library).not.toHaveProperty("savedSearches");
     expect(restored.sync.generation).toBeNull();
     expect(
       Object.keys(restored.sync.pending).length,
@@ -578,10 +575,8 @@ for (const extension of ["md", "markdown"]) {
     for (const group of browserDocument.library.groups) {
       expect(
         group.details.color,
-        "Markdown collections receive a browser display color"
-      ).toBeTruthy();
-      // Markdown supplies no color; its browser-only fallback is outside the round trip.
-      group.details.color = null;
+        "Markdown collections preserve no color"
+      ).toBeNull();
     }
     await expectSameDocument(browserDocument, browserExpected);
     // Re-export preserves the readable interchange even though original backup metadata was lost.

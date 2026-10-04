@@ -30,6 +30,7 @@ import {
   emptyBrowserVault,
   fromServerDocument,
   isPersistedVault,
+  parseBrowserVault,
   toServerDocument,
 } from "@/domain/library/codec";
 import { useLibrary } from "@/domain/library/library-context";
@@ -166,9 +167,9 @@ export default function Transfer() {
         if (markdown) throw new Error("Markdown import requires the API.");
         if (!parsedJson)
           throw new Error("The JSON document could not be read.");
-        const nextVault = isPersistedVault(parsedJson)
-          ? parsedJson
-          : fromServerDocument(parsedJson, emptyBrowserVault());
+        const nextVault =
+          parseBrowserVault(parsedJson) ??
+          fromServerDocument(parsedJson, emptyBrowserVault());
         if (
           importMode === "replace" &&
           !window.confirm(
@@ -181,10 +182,7 @@ export default function Transfer() {
             ? {
                 ...current,
                 propertySchema: nextVault.propertySchema,
-                library: {
-                  ...nextVault.library,
-                  savedSearches: current.library.savedSearches,
-                },
+                library: nextVault.library,
               }
             : mergeLibrary(current, nextVault)
         );

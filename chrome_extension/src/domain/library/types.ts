@@ -20,8 +20,8 @@ export type VaultGroup = {
     name: string;
     description: string;
     category: string;
-    /** Chrome group color; unrecognized imported values remain available for explicit repair. */
-    accent: string;
+    /** Optional preset or custom hex; absence uses default styling, while incorrect imports remain available for repair. */
+    accent?: string;
   };
   placement: { position: number };
   timestamps: RecordTimes;
@@ -50,12 +50,6 @@ export type VaultTag = {
   createdAt: string;
   updatedAt: string;
 };
-export type SavedSearch = {
-  id: string;
-  name: string;
-  query: string;
-  groupId: "all" | GroupId;
-};
 export type ResourceKind = "tab" | "group" | "tag" | "property";
 export type PendingChange = {
   kind: ResourceKind;
@@ -76,7 +70,6 @@ export type PersistedVault = {
     tabs: VaultTab[];
     vaultGroups: VaultGroup[];
     tags: VaultTag[];
-    savedSearches: SavedSearch[];
   };
   preferences: { tabView: LibraryViewMode };
   sync: SyncMetadata;

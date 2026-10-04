@@ -14,7 +14,7 @@ The server validates and stages prerequisites before tabs, applies deletions las
 
 The client removes only the tokens actually acknowledged, then overlays edits made while the request was in flight. Failed requests and lost responses retain pending changes. Permanent tab/group tombstones defeat stale upserts. Tag/property deletion keeps a timestamp so newer explicit recreation is possible. Group deletion archives and unassigns members; tag deletion detaches links and updates affected tab timestamps.
 
-Resource-specific HTTP/MCP writes use the same stored timestamps and tombstones, so browser sync observes them. Positions live on records; no separate persisted order lists exist. Saved views and display preferences remain local.
+Resource-specific HTTP/MCP writes use the same stored timestamps and tombstones, so browser sync observes them. Positions live on records; no separate persisted order lists exist. Display preferences remain local.
 
 The extension owns sync in extension contexts. Other browser contexts use a shared sync lock. Startup, reconnection, explicit refresh, and periodic checks retry durable pending work. User refresh intervals control clean-state polling; pending work remains retryable when periodic refresh is off.
 
@@ -40,7 +40,7 @@ Browser JSON includes hidden and archived tabs. Server JSON follows the public e
 
 Merge keeps existing property definitions and adds missing ones in both storage modes; an import cannot silently change an existing definition's type or default. Newer tab, group, and tag timestamps win, and ties retain the destination record. Replace adopts the imported definitions and removes destination-only portable records. Browser-local imports create durable pending changes and can advance modification timestamps. Server imports preserve supplied record timestamps.
 
-Markdown preserves active tab IDs, original URLs, titles, tag links, raw custom properties, property definitions, collection names, and descriptions. It omits hidden and archived tabs, unused tag catalog entries, and tag descriptions; collection IDs, categories, colors, positions, and timestamps are not a full backup. On import, collections receive new IDs and the `manual` category. Both `.md` and `.markdown` files use this parser. Browser preferences, saved views, display colors/icons, and sync bookkeeping are outside the portable export contract.
+Markdown preserves active tab IDs, original URLs, titles, tag links, raw custom properties, property definitions, collection names, and descriptions. It omits hidden and archived tabs, unused tag catalog entries, and tag descriptions; collection IDs, categories, colors, positions, and timestamps are not a full backup. On import, collections receive new IDs and the `manual` category. Both `.md` and `.markdown` files use this parser. Browser preferences, display colors/icons, and sync bookkeeping are outside the portable export contract.
 
 ## Inspecting UI transfer tests
 
@@ -51,7 +51,7 @@ Run `pnpm test:e2e:transfer` for the focused suite, or `pnpm test:e2e --workers=
 | Browser JSON export              | Every portable field; hidden and archived tabs; distinct occurrences of an identical URL; no storage mutation                                         |
 | Offline merge and replace        | Exported bytes imported through the file picker; persistence after reload; re-export; repeated import without duplicate identities or timestamp drift |
 | Raw recovery JSON                | Settings-style browser vault files use the same import flow                                                                                           |
-| Local replacement                | Destination-only records and definitions disappear; destination preferences and saved views remain                                                    |
+| Local replacement                | Destination-only records and definitions disappear; destination display preferences remain                                                            |
 | Merge conflicts in both modes    | Newer imports win; older and equal timestamps lose; unrelated records and existing definition meanings survive                                        |
 | Authenticated server imports     | Browser JSON survives merge/replace, server persistence, browser cache adoption, reload, and repeat import; requests use the configured API key       |
 | Server JSON                      | Exact exported records survive server and offline browser imports; hidden-tab omission is explicitly asserted                                         |

@@ -44,6 +44,26 @@ it.each(["browser", "extension"])(
     expect(await readBrowserVault()).toBeUndefined();
     await writeBrowserVault(emptyBrowserVault());
     expect(await readBrowserVault()).toEqual(emptyBrowserVault());
+    const previous = {
+      ...emptyBrowserVault(),
+      library: {
+        ...emptyBrowserVault().library,
+        savedSearches: [
+          { id: "old", name: "Docs", query: "docs", groupId: "all" },
+        ],
+      },
+    };
+    values["tabvault-v3"] =
+      mode === "extension" ? previous : JSON.stringify(previous);
+    const previousBytes = values["tabvault-v3"];
+    expect(await readBrowserVault()).toEqual(emptyBrowserVault());
+    expect(values["tabvault-v3"]).toEqual(previousBytes);
+    await writeBrowserVault(previous);
+    const persisted =
+      mode === "extension"
+        ? values["tabvault-v3"]
+        : JSON.parse(values["tabvault-v3"] as string);
+    expect(persisted).toEqual(emptyBrowserVault());
     await writeStorageMode("backend");
     expect(await readStorageMode()).toBe("backend");
     await writeLocalServerUrl("http://localhost:47821/");

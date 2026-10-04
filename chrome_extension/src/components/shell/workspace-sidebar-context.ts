@@ -20,6 +20,7 @@ type LibrarySidebarBridgeConnection = {
 };
 /** Interaction handlers for LibrarySidebarBridge. */
 type LibrarySidebarBridgeActions = {
+  onResetSearch: () => void;
   onOpenTags: () => void;
   onRefreshLibrary: () => void;
   onCaptureTab?: () => void;
@@ -64,6 +65,7 @@ export function useRegisterLibrarySidebar(bridge: LibrarySidebarBridge) {
         isRefreshing: bridge.connection.isRefreshing,
       },
       actions: {
+        onResetSearch: () => bridgeRef.current.actions.onResetSearch(),
         onOpenTags: () => bridgeRef.current.actions.onOpenTags(),
         onRefreshLibrary: () => bridgeRef.current.actions.onRefreshLibrary(),
         onCaptureTab: canCapture
