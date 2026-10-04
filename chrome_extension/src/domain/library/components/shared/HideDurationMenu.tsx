@@ -40,7 +40,7 @@ export function HideDurationMenu({
           variant="ghost"
           size="icon-sm"
           type="button"
-          className="rounded p-1 text-[#7b8078] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+          className="rounded p-1 text-[#626a60] hover:bg-[#fff0ea] hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
           aria-label={`${action} ${target}`}
           title={`${action} ${target}`}
         >
@@ -51,7 +51,7 @@ export function HideDurationMenu({
         align="end"
         className="w-48 border-[#d9d3c6] bg-[#fffdf8] p-3 text-[#26342c] shadow-xl"
       >
-        <p className="mb-2 truncate font-mono text-[9px] uppercase tracking-[0.09em] text-[#737970]">
+        <p className="mb-2 truncate text-sm text-[#626a60]">
           {action} {target} for
         </p>
         <div className="grid grid-cols-2 gap-1.5">
@@ -64,7 +64,7 @@ export function HideDurationMenu({
                 onSelect(duration);
                 setOpen(false);
               }}
-              className="rounded border border-[#ddd7ca] bg-[#f9f7f1] px-2 py-1.5 text-left font-mono text-[9px] uppercase text-[#617066] hover:border-[#e95224] hover:bg-[#fff0ea] hover:text-[#c84b26]"
+              className="rounded border border-[#ddd7ca] bg-[#f9f7f1] px-2 py-1.5 text-left text-sm text-[#596353] hover:border-[#e95224] hover:bg-[#fff0ea] hover:text-[#c84b26]"
             >
               {label}
             </Button>

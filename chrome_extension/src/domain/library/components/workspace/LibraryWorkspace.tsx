@@ -104,9 +104,16 @@ export function LibraryWorkspace() {
         : !t.lifecycle.archived && !isCurrentlyHidden(t, now)
   );
   const filtered = pageTabs.filter(
-    t => filter === "all" || t.placement.groupId === filter
+    t => filter === "all" || (t.placement.groupId ?? "unassigned") === filter
   );
-  const visible = searchTabs(sortTabs(filtered, vault), query, vault);
+  // Tag clicks use an exact tag filter rather than matching unrelated title text.
+  const visible = query.startsWith("#")
+    ? sortTabs(filtered, vault).filter(tab =>
+        tab.annotations.tags.some(
+          tag => tag.toLowerCase() === query.slice(1).toLowerCase()
+        )
+      )
+    : searchTabs(sortTabs(filtered, vault), query, vault);
   const visibleGroups = groups.filter(
     g =>
       (filter === "all" || g.id === filter) &&
@@ -444,8 +451,9 @@ export function LibraryWorkspace() {
               search={{
                 query,
                 visibleCount: visible.length,
-                searchStatusCopy:
-                  "Search titles, URLs, tags, and custom properties.",
+                searchStatusCopy: query.startsWith("#")
+                  ? `Tabs tagged ${query}`
+                  : "Search titles, URLs, tags, and custom properties.",
               }}
               page={{
                 isAllTabsPage: !archived && !hidden,
@@ -529,14 +537,17 @@ export function LibraryWorkspace() {
                 onColorChange={(id, color) =>
                   run(mutate(v => setCollectionColor(v, id, color)))
                 }
-                tabs={sortTabs(pageTabs, vault)}
+                tabs={sortTabs(filtered, vault)}
                 search={{
                   query,
                   matchedTabIds: new Set(visible.map(t => t.id)),
                 }}
                 actions={{
-                  onOpen: g => run(openGroup(g.id)),
-                  onShare: g => run(shareGroup(g.id)),
+                  onOpen: {
+                    group: id => run(openGroup(id)),
+                    tab: tab => run(open(tab)),
+                  },
+                  onShare: id => run(shareGroup(id)),
                   onDelete: removeGroup,
                   onEdit: g => setEditingGroup(structuredClone(g)),
                   onBrowse: id => {
@@ -603,7 +614,10 @@ export function LibraryWorkspace() {
                   onViewedChange: (id, value) =>
                     run(mutate(v => setViewed(v, id, value))),
                   onDelete: t => run(removeTab(t)),
-                  onOpenTagManager: () => setShowTags(true),
+                  onFilterTag: tag => {
+                    setQuery(`#${tag}`);
+                    setActiveIndex(0);
+                  },
                 }}
                 lifecycle={{
                   lifecycleMode: lifecycle,
