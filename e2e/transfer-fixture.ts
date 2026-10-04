@@ -148,14 +148,6 @@ export function transferVault(): PersistedVault {
       updatedAt: "2026-08-23T10:00:00.000Z",
     });
   }
-  vault.library.savedSearches = [
-    {
-      id: "local-view",
-      name: "My local view",
-      query: "product",
-      groupId: "all",
-    },
-  ];
   vault.preferences.tabView = "compact";
   return vault;
 }

@@ -337,6 +337,27 @@ export function moveTab(
     },
   };
 }
+/** Rename one collection while retaining its category, other metadata, and tab membership. @param {PersistedVault} vault - Current library. @param {string} id - Collection identity. @param {string} name - New name, trimmed before storage. @returns {PersistedVault} Library with the renamed collection. @throws {Error} Name is empty or whitespace-only. */
+export function renameGroup(
+  vault: PersistedVault,
+  id: string,
+  name: string
+): PersistedVault {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Enter a collection name");
+  return {
+    ...vault,
+    library: {
+      ...vault.library,
+      vaultGroups: vault.library.vaultGroups.map(group =>
+        group.id === id
+          ? { ...group, details: { ...group.details, name: trimmed } }
+          : group
+      ),
+    },
+  };
+}
+
 /** Add, rename, or remove a tag and update every occurrence atomically. @param {PersistedVault} vault - Library. @param {string} name - Existing or new name. @param {{name?:string;description?:string}|null} value - New metadata, or confirmed detachment/deletion. @returns {PersistedVault} Catalog and links changed together. */
 export function changeTag(
   vault: PersistedVault,

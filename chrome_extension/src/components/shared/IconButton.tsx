@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 /**
  * Compact action with a visible tooltip and an accessible name.
  *
- * @param {ComponentProps<"button"> & { label: string }} props - Component properties and callbacks.
+ * @param {ComponentProps<"button"> & { label: string }} props - Button properties and callbacks; title supplies tooltip text when provided, otherwise label is used.
  * @returns {JSX.Element} Accessible icon-only button.
  */
 export function IconButton({
@@ -36,7 +36,9 @@ export function IconButton({
           {children}
         </Button>
       </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
+      <TooltipContent className="max-w-xs">
+        {props.title ?? label}
+      </TooltipContent>
     </Tooltip>
   );
 }

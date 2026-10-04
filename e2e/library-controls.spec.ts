@@ -5,61 +5,56 @@ async function saved(page: Page) {
   return page.evaluate(() => JSON.parse(localStorage.getItem("tabvault-v3")!));
 }
 
-test("saved views retain their query and collection and can be deleted", async ({
+test("search works without saved views and old saved searches are discarded on the next write", async ({
   page,
 }) => {
   await openSchemaV5Library(page);
-  const query = page.getByLabel("Search your TabVault library");
-  const filter = page.getByLabel("Filter search by collection");
-  const views = page.getByRole("button", { name: /^Views/ });
-  await query.fill("Protocol");
-  await filter.selectOption("research");
-  await views.click();
-  await page
-    .getByPlaceholder("Protocol", { exact: true })
-    .fill("Protocol research");
-  await page.getByRole("button", { name: "Save view", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Save view", exact: true })
-  ).toHaveCount(0);
-  await expect
-    .poll(async () => (await saved(page)).library.savedSearches)
-    .toEqual([
+  // Commit once so normal tag/catalog and display normalization precedes the comparison.
+  const compact = page.getByRole("button", {
+    name: "Compact tab view",
+    exact: true,
+  });
+  await compact.click();
+  await expect(compact).toHaveAttribute("aria-pressed", "true");
+  const before = await saved(page);
+  await page.evaluate(() => {
+    const vault = JSON.parse(localStorage.getItem("tabvault-v3")!);
+    vault.library.savedSearches = [
       {
-        id: expect.any(String),
+        id: "old",
         name: "Protocol research",
         query: "Protocol",
         groupId: "research",
       },
-    ]);
-
+    ];
+    localStorage.setItem("tabvault-v3", JSON.stringify(vault));
+  });
   await page.reload();
-  await query.fill("Agents");
-  await filter.selectOption("all");
-  await views.click();
-  await page
-    .getByRole("button", { name: "Protocol research Research", exact: true })
-    .click();
-  await expect(query).toHaveValue("Protocol");
-  await expect(filter).toHaveValue("research");
+  const query = page.getByLabel("Search your TabVault library");
+  await query.fill("Protocol");
+  await page.getByLabel("Filter search by collection").selectOption("research");
   await expect(page.getByTestId("tab-row-t-research")).toBeVisible();
+  await expect(page.getByTestId("tab-row-t-1001")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Views/ })).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Save view", exact: true })
   ).toHaveCount(0);
-
-  await views.click();
+  await expect(page.getByRole("button", { name: /saved search/ })).toHaveCount(
+    0
+  );
   await page
-    .getByRole("button", { name: "Delete Protocol research saved search" })
+    .getByRole("button", { name: "Standard tab view", exact: true })
     .click();
   await expect
-    .poll(async () => (await saved(page)).library.savedSearches)
-    .toEqual([]);
+    .poll(async () => "savedSearches" in (await saved(page)).library)
+    .toBe(false);
+  const after = await saved(page);
+  expect(after.library).toEqual(before.library);
+  expect(after.propertySchema).toEqual(before.propertySchema);
   await page.reload();
   await query.fill("Protocol");
-  await views.click();
-  await expect(
-    page.getByRole("button", { name: "Delete Protocol research saved search" })
-  ).toHaveCount(0);
+  await expect(page.getByTestId("tab-row-t-research")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Views/ })).toHaveCount(0);
 });
 
 for (const view of ["Standard", "Compact"]) {
@@ -134,7 +129,7 @@ test("collapsed groups stay still when dragging starts and cancels", async ({
   await openSchemaV5Library(page);
   await page
     .getByTestId("group-separator-session")
-    .getByRole("button", { name: "Session Aug 23 13:00", exact: true })
+    .getByRole("button", { name: "Collapse Session Aug 23 13:00", exact: true })
     .click();
   const group = page.getByTestId("tab-group-session");
   const before = await group.boundingBox();

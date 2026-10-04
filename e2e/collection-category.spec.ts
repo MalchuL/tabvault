@@ -14,39 +14,47 @@ for (const view of [
   "Compact tab view",
   "Collection-group board view",
 ]) {
-  test(`${view}: pin toggles session/manual, retains category colors, and persists without changing tabs`, async ({
+  test(`${view}: category control toggles session/manual, retains category colors, and persists without changing tabs`, async ({
     page,
   }, testInfo) => {
     await openSchemaV5Library(page);
     await page.getByRole("button", { name: view, exact: true }).click();
     const before = await readVault(page);
-    const pin = page.getByRole("button", {
-      name: "Pin Session Aug 23 13:00 as manual",
+    const toManual = page.getByRole("button", {
+      name: "Change Session Aug 23 13:00 to Manual",
       exact: true,
     });
-    const unpin = page.getByRole("button", {
-      name: "Unpin Session Aug 23 13:00 to session",
+    const toSession = page.getByRole("button", {
+      name: "Change Session Aug 23 13:00 to Session",
       exact: true,
     });
     const manual = page.getByRole("button", {
-      name: "Unpin Research to session",
+      name: "Change Research to Session",
       exact: true,
     });
-    const sessionColor = await pin.evaluate(
+    const sessionColor = await toManual.evaluate(
       element => getComputedStyle(element).color
     );
     const manualColor = await manual.evaluate(
       element => getComputedStyle(element).color
     );
     expect(sessionColor).not.toBe(manualColor);
-    await expect(pin).toHaveAttribute("aria-pressed", "false");
-    await expect(pin.locator("svg")).toHaveClass(/lucide-pin-off/);
-    await pin.click();
-    await expect(unpin).toHaveAttribute("aria-pressed", "true");
-    await expect(unpin.locator("svg")).toHaveClass(/lucide-pin(?!-off)/);
-    await expect(unpin).toHaveCSS("color", manualColor);
-    const pinned = await readVault(page);
-    const group = pinned.library.vaultGroups.find(
+    await expect(toManual).toHaveAttribute("aria-pressed", "false");
+    await expect(toManual.locator("svg")).toHaveClass(/lucide-clock/);
+    await toManual.hover();
+    await expect(page.getByRole("tooltip")).toHaveText(
+      "Session collection: tabs captured together. Click to change to Manual."
+    );
+    await toManual.click();
+    await expect(toSession).toHaveAttribute("aria-pressed", "true");
+    await expect(toSession.locator("svg")).toHaveClass(/lucide-hand/);
+    await expect(toSession).toHaveCSS("color", manualColor);
+    await manual.hover();
+    await expect(page.getByRole("tooltip")).toHaveText(
+      "Manual collection: curated for reuse. Click to change to Session."
+    );
+    const changed = await readVault(page);
+    const group = changed.library.vaultGroups.find(
       group => group.id === "session"
     )!;
     const original = before.library.vaultGroups.find(
@@ -58,29 +66,29 @@ for (const view of [
     expect(Date.parse(group.timestamps.updatedAt)).toBeGreaterThan(
       Date.parse(original.timestamps.updatedAt)
     );
-    expect(pinned.library.tabs).toEqual(before.library.tabs);
+    expect(changed.library.tabs).toEqual(before.library.tabs);
     expect(
-      pinned.library.vaultGroups.filter(group => group.id !== "session")
+      changed.library.vaultGroups.filter(group => group.id !== "session")
     ).toEqual(
       before.library.vaultGroups.filter(group => group.id !== "session")
     );
     expect(
-      Object.values(pinned.sync.pending).find(
+      Object.values(changed.sync.pending).find(
         change => change.kind === "group" && change.id === "session"
       )!.data
     ).toMatchObject({
       details: { category: "manual", color: original.details.accent },
     });
-    await testInfo.attach(`pinned-${view}.png`, {
+    await testInfo.attach(`manual-${view}.png`, {
       body: await page.screenshot(),
       contentType: "image/png",
     });
     await page.reload();
-    await expect(unpin).toHaveAttribute("aria-pressed", "true");
-    await unpin.focus();
+    await expect(toSession).toHaveAttribute("aria-pressed", "true");
+    await toSession.focus();
     await page.keyboard.press("Space");
-    await expect(pin).toHaveAttribute("aria-pressed", "false");
-    await expect(pin).toHaveCSS("color", sessionColor);
+    await expect(toManual).toHaveAttribute("aria-pressed", "false");
+    await expect(toManual).toHaveCSS("color", sessionColor);
     const restored = await readVault(page);
     expect(
       restored.library.vaultGroups.find(group => group.id === "session")!
@@ -89,10 +97,14 @@ for (const view of [
     expect(restored.library.tabs).toEqual(before.library.tabs);
     // Virtual Unassigned and custom categories must not be silently reclassified.
     await expect(
-      page.getByRole("button", { name: /(?:Pin|Unpin) \[Unassigned\]/ })
+      page.getByRole("button", {
+        name: /Change \[Unassigned\] to (?:Manual|Session)/,
+      })
     ).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: /(?:Pin|Unpin) Empty shelf/ })
+      page.getByRole("button", {
+        name: /Change Empty shelf to (?:Manual|Session)/,
+      })
     ).toHaveCount(0);
     await expect(
       page.locator("span[title='Category: custom-category']")
@@ -113,7 +125,7 @@ test("category icons fit narrow screens in list and board views", async ({
     await page.getByRole("button", { name: view, exact: true }).click();
     await expect(
       page.getByRole("button", {
-        name: "Pin Session Aug 23 13:00 as manual",
+        name: "Change Session Aug 23 13:00 to Manual",
         exact: true,
       })
     ).toBeVisible();
@@ -125,21 +137,21 @@ test("category icons fit narrow screens in list and board views", async ({
   }
 });
 
-test("pinning updates Quick Move destinations and works on hidden collections", async ({
+test("category changes update Quick Move destinations and works on hidden collections", async ({
   page,
 }) => {
   await openSchemaV5Library(page);
   await expect(page.getByTestId("collection-drop-session")).toHaveCount(0);
   await page
     .getByRole("button", {
-      name: "Pin Session Aug 23 13:00 as manual",
+      name: "Change Session Aug 23 13:00 to Manual",
       exact: true,
     })
     .click();
   await expect(page.getByTestId("collection-drop-session")).toBeVisible();
   await page
     .getByRole("button", {
-      name: "Unpin Session Aug 23 13:00 to session",
+      name: "Change Session Aug 23 13:00 to Session",
       exact: true,
     })
     .click();
@@ -147,21 +159,24 @@ test("pinning updates Quick Move destinations and works on hidden collections", 
   await page.getByRole("button", { name: /^Hidden \d/ }).click();
   const before = await readVault(page);
   await page
-    .getByRole("button", { name: "Unpin Research to session", exact: true })
+    .getByRole("button", { name: "Change Research to Session", exact: true })
     .click();
   await expect(
-    page.getByRole("button", { name: "Pin Research as manual", exact: true })
+    page.getByRole("button", { name: "Change Research to Manual", exact: true })
   ).toBeVisible();
   expect((await readVault(page)).library.tabs).toEqual(before.library.tabs);
   await page
-    .getByRole("button", { name: "Pin Research as manual", exact: true })
+    .getByRole("button", { name: "Change Research to Manual", exact: true })
     .click();
   await expect(
-    page.getByRole("button", { name: "Unpin Research to session", exact: true })
+    page.getByRole("button", {
+      name: "Change Research to Session",
+      exact: true,
+    })
   ).toBeVisible();
 });
 
-test("pin changes synchronize to the authenticated API and survive reload", async ({
+test("category changes synchronize to the authenticated API and survive reload", async ({
   page,
   server,
 }) => {
@@ -171,7 +186,7 @@ test("pin changes synchronize to the authenticated API and survive reload", asyn
   const before = await serverDocument(server);
   await page
     .getByRole("button", {
-      name: "Pin Session Aug 23 13:00 as manual",
+      name: "Change Session Aug 23 13:00 to Manual",
       exact: true,
     })
     .click();
@@ -195,7 +210,7 @@ test("pin changes synchronize to the authenticated API and survive reload", asyn
   await page.reload();
   await page
     .getByRole("button", {
-      name: "Unpin Session Aug 23 13:00 to session",
+      name: "Change Session Aug 23 13:00 to Session",
       exact: true,
     })
     .click();

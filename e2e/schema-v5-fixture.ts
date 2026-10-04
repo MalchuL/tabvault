@@ -288,7 +288,6 @@ export const schemaV5Vault = {
         },
       },
     ],
-    savedSearches: [],
     tags: [
       {
         name: "product",

@@ -12,7 +12,6 @@ export type {
   VaultTab,
   VaultGroup,
   LibraryViewMode,
-  SavedSearch,
 } from "./types";
 export const LIBRARY_REFRESH_INTERVALS = [
   { seconds: 0, label: "Off" },
@@ -26,7 +25,7 @@ export function emptyBrowserVault(): PersistedVault {
   return {
     schemaVersion: 5,
     propertySchema: {},
-    library: { tabs: [], vaultGroups: [], tags: [], savedSearches: [] },
+    library: { tabs: [], vaultGroups: [], tags: [] },
     preferences: { tabView: "standard" },
     sync: { generation: null, pending: {}, propertyTimes: {} },
   };
@@ -164,10 +163,6 @@ export function isPersistedVault(value: unknown): value is PersistedVault {
           g => g.id === t.placement.groupId
         )
     ) &&
-    Array.isArray(library.savedSearches) &&
-    library.savedSearches.every(
-      s => isRecord(s) && strings([s.id, s.name, s.query, s.groupId])
-    ) &&
     ["standard", "compact", "groups"].includes(
       String(value.preferences.tabView)
     ) &&
@@ -184,6 +179,19 @@ export function isPersistedVault(value: unknown): value is PersistedVault {
         (c.data === null || isRecord(c.data))
     )
   );
+}
+
+/** Load supported library fields from valid v5 data, excluding obsolete browser metadata. The input and persisted bytes remain untouched. @param {unknown} value - Parsed browser data. @returns {PersistedVault | null} Valid vault containing current library fields, or null for incompatible data. */
+export function parseBrowserVault(value: unknown): PersistedVault | null {
+  if (!isPersistedVault(value)) return null;
+  return {
+    ...value,
+    library: {
+      tabs: value.library.tabs,
+      vaultGroups: value.library.vaultGroups,
+      tags: value.library.tags,
+    },
+  };
 }
 export type PortableTab = Omit<VaultTab, "content"> & {
   content: { title: string; url: string };
@@ -243,7 +251,6 @@ export function fromServerDocument(
     ...local,
     propertySchema: d.propertySchema,
     library: {
-      ...local.library,
       tabs: d.library.tabs.map(t => ({
         ...t,
         content: {

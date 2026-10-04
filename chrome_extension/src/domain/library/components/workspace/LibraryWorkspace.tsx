@@ -12,6 +12,7 @@ import {
   toggleCollectionCategory,
   deleteTab,
   moveTab,
+  renameGroup,
   setViewed,
   updateTab,
 } from "@/domain/library/operations";
@@ -22,12 +23,7 @@ import {
   sortTabs,
   sortGroups,
 } from "@/domain/library/selectors";
-import type {
-  SavedSearch,
-  VaultGroup,
-  VaultTab,
-  TabPatch,
-} from "@/domain/library/types";
+import type { VaultGroup, VaultTab, TabPatch } from "@/domain/library/types";
 import {
   LibraryHeader,
   LibraryResultSummary,
@@ -35,7 +31,6 @@ import {
   LibraryEmptyState,
 } from "./LibraryWorkspaceParts";
 import { LibrarySearchInput } from "./LibrarySearchInput";
-import { LibrarySavedViews } from "./LibrarySavedViews";
 import { useLibraryDrag } from "./useLibraryDrag";
 import { TabList, TabDragPreview } from "../tabs/TabList";
 import { EditTabDialog } from "../tabs/EditTabDialog";
@@ -63,7 +58,8 @@ import {
 } from "@/domain/server/browserStorage";
 import { createSessionGroup } from "@/domain/library/session";
 import {
-  isGroupColor,
+  chromeGroupColor,
+  isCollectionColor,
   regenerateGroupColor,
   setCollectionColor,
 } from "@/domain/library/collectionColor";
@@ -79,7 +75,7 @@ export function LibraryWorkspace() {
     hidden = location === "/hidden";
   const board = tabView === "groups" && !archived && !hidden;
   const drag = useLibraryDrag({ vault, mutate, list: !board });
-  const { tabs, vaultGroups, savedSearches } = drag.preview.library;
+  const { tabs, vaultGroups } = drag.preview.library;
   const groups = sortGroups(vaultGroups);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -92,8 +88,6 @@ export function LibraryWorkspace() {
     Boolean(sessionStorage.getItem(LIBRARY_OPEN_TAGS_FLAG))
   );
   const [newTag, setNewTag] = useState("");
-  const [showViews, setShowViews] = useState(false);
-  const [viewName, setViewName] = useState("");
   const [storageMode, setStorageMode] = useState<StorageMode>("local");
   const [refreshing, setRefreshing] = useState(false);
   const [cleaning, setCleaning] = useState(false);
@@ -153,6 +147,11 @@ export function LibraryWorkspace() {
       isRefreshing: refreshing,
     },
     actions: {
+      onResetSearch: () => {
+        setQuery("");
+        setFilter("all");
+        setActiveIndex(0);
+      },
       onOpenTags: () => setShowTags(true),
       onRefreshLibrary: () => run(refresh()),
       onCaptureTab: isExtensionContext() ? () => run(capture()) : undefined,
@@ -236,7 +235,7 @@ export function LibraryWorkspace() {
     if (!members.length) return;
     const collection = groups.find(g => g.id === id);
     const color = collection?.details.accent ?? "grey";
-    if (!isGroupColor(color)) {
+    if (!isCollectionColor(color)) {
       toast.error("Color is incorrect", {
         action: {
           label: "Regenerate color",
@@ -250,7 +249,7 @@ export function LibraryWorkspace() {
       members.map(t => t.content.url),
       {
         title: collection?.details.name ?? "[Unassigned]",
-        color,
+        color: chromeGroupColor(color),
       }
     );
     await mutate(v =>
@@ -393,12 +392,6 @@ export function LibraryWorkspace() {
       setActiveIndex(0);
     }
   };
-  const savedView = (view: SavedSearch) => {
-    setShowViews(false);
-    setQuery(view.query);
-    setFilter(view.groupId);
-    setActiveIndex(0);
-  };
   const withGroup = (id: string, action: (group: VaultGroup) => void) => {
     const group = groups.find(g => g.id === id);
     if (group) action(group);
@@ -485,48 +478,6 @@ export function LibraryWorkspace() {
               />
               {!archived && !hidden && <CollectionDropShelf groups={groups} />}
             </div>
-            <LibrarySavedViews
-              query={query}
-              picker={{
-                showSavedSearches: showViews,
-                onToggleSavedSearches: () => setShowViews(!showViews),
-              }}
-              draft={{
-                savedSearchName: viewName,
-                onNameChange: setViewName,
-                onSave: () => {
-                  dispatch({
-                    type: "update",
-                    group: "library",
-                    key: "savedSearches",
-                    value: current => [
-                      ...current,
-                      {
-                        id: crypto.randomUUID(),
-                        name: viewName || query,
-                        query,
-                        groupId: filter,
-                      },
-                    ],
-                  });
-                  setViewName("");
-                  setShowViews(false);
-                },
-              }}
-              views={{
-                savedSearches,
-                groups,
-                onApply: savedView,
-                onDelete: id =>
-                  dispatch({
-                    type: "update",
-                    group: "library",
-                    key: "savedSearches",
-                    value: current => current.filter(v => v.id !== id),
-                  }),
-              }}
-              undo={{ undoLabel: undefined, onUndo: () => undefined }}
-            />
             {undo && (
               <Button
                 variant="ghost"
@@ -569,6 +520,9 @@ export function LibraryWorkspace() {
             {board ? (
               <CollectionBoard
                 groups={visibleGroups}
+                onRename={(id, name) =>
+                  run(mutate(v => renameGroup(v, id, name)))
+                }
                 onCategoryToggle={id =>
                   run(mutate(v => toggleCollectionCategory(v, id)))
                 }
@@ -620,6 +574,8 @@ export function LibraryWorkspace() {
                       return next;
                     }),
                   actions: {
+                    onRename: (id, name) =>
+                      run(mutate(v => renameGroup(v, id, name))),
                     onOpen: id => run(openGroup(id)),
                     onShare: id => run(shareGroup(id)),
                     onDelete: id => withGroup(id, removeGroup),

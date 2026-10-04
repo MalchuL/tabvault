@@ -69,11 +69,11 @@ test("group hide is client-orchestrated and category colors are deterministic", 
   await openSchemaV5Library(page);
   const manualIndicator = page
     .getByTestId("group-separator-research")
-    .getByRole("button", { name: "Unpin Research to session", exact: true });
+    .getByRole("button", { name: "Change Research to Session", exact: true });
   const sessionIndicator = page
     .getByTestId("group-separator-session")
     .getByRole("button", {
-      name: "Pin Session Aug 23 13:00 as manual",
+      name: "Change Session Aug 23 13:00 to Manual",
       exact: true,
     });
   await expect(manualIndicator).toBeVisible();

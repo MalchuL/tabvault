@@ -1,6 +1,85 @@
 import { expect, test } from "@playwright/test";
 import { openSchemaV5Library } from "./schema-v5-fixture";
 
+for (const width of [1440, 390]) {
+  test(`search can be cleared with the X button at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await openSchemaV5Library(page);
+    const search = page.getByRole("textbox", {
+      name: "Search your TabVault library",
+    });
+    const clear = page.getByRole("button", {
+      name: "Clear search",
+      exact: true,
+    });
+    await expect(clear).toHaveCount(0);
+    await search.fill("Protocol");
+    await expect(page.getByTestId("tab-row-t-1001")).toHaveCount(0);
+    await expect(clear).toBeInViewport();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true);
+    await clear.click();
+    await expect(search).toHaveValue("");
+    await expect(search).toBeFocused();
+    await expect(clear).toHaveCount(0);
+    await expect(page.getByTestId("tab-row-t-1001")).toBeVisible();
+    await search.fill("Protocol");
+    await search.press("Tab");
+    await page.keyboard.press("Tab");
+    await expect(clear).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(search).toHaveValue("");
+    await expect(search).toBeFocused();
+  });
+}
+
+test("sidebar destinations clear search even when the selected page is already open", async ({
+  page,
+}) => {
+  await openSchemaV5Library(page);
+  const sidebar = page.getByTestId("workspace-sidebar");
+  const search = page.getByRole("textbox", {
+    name: "Search your TabVault library",
+  });
+  for (const [destination, tabId] of [
+    [/^All Tabs/, "t-1001"],
+    [/^Archive \d/, "t-archived"],
+    [/^Archive \d/, "t-archived"],
+    [/^Hidden \d/, "t-hidden"],
+    [/^Hidden \d/, "t-hidden"],
+    [/^All Tabs/, "t-1001"],
+  ] as const) {
+    await search.fill("no matching tab");
+    await page
+      .getByLabel("Filter search by collection")
+      .selectOption("research");
+    await sidebar.getByRole("button", { name: destination }).click();
+    await expect(search).toHaveValue("");
+    await expect(page.getByLabel("Filter search by collection")).toHaveValue(
+      "all"
+    );
+    await expect(page.getByTestId(`tab-row-${tabId}`)).toBeVisible();
+  }
+  await search.fill("no matching tab");
+  await sidebar.getByRole("button", { name: /^Tags/ }).click();
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+  await expect(search).toHaveValue("");
+  await expect(page.getByTestId("tab-row-t-1001")).toBeVisible();
+  await search.fill("no matching tab");
+  await sidebar.getByRole("button", { name: "Dashboard", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Dashboard", exact: true })
+  ).toBeVisible();
+  await sidebar.getByRole("button", { name: /^All Tabs/ }).click();
+  await expect(search).toHaveValue("");
+  await expect(page.getByTestId("tab-row-t-1001")).toBeVisible();
+});
+
 test("sidebar stays visible while a new page loads", async ({ page }) => {
   await openSchemaV5Library(page);
   const sidebar = page.getByTestId("workspace-sidebar");

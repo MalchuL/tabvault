@@ -8,6 +8,7 @@ import type { GroupId, VaultGroup, VaultTab } from "@/domain/library/types";
 import { categoryColor } from "@/domain/library/categoryColor";
 import { CollectionColorPicker } from "./CollectionColorPicker";
 import { CollectionCategoryToggle } from "./CollectionCategoryToggle";
+import { CollectionNameEditor } from "./CollectionNameEditor";
 import { HideDurationMenu } from "@/domain/library/components/shared/HideDurationMenu";
 
 /** Interaction handlers for CollectionBoardProps. */
@@ -29,6 +30,7 @@ type CollectionBoardProps = {
   search: CollectionBoardSearch;
   onColorChange: (id: string, color: string) => void;
   onCategoryToggle: (id: string) => void;
+  onRename: (id: string, name: string) => void;
 };
 
 /**
@@ -44,6 +46,7 @@ export function CollectionBoard({
   search: { query, matchedTabIds },
   onColorChange,
   onCategoryToggle,
+  onRename,
 }: CollectionBoardProps) {
   return (
     <div
@@ -62,16 +65,11 @@ export function CollectionBoard({
                 category={group.details.category}
                 onToggle={() => onCategoryToggle(group.id)}
               />
-              <Button
-                variant="ghost"
-                onClick={() => onBrowse(group.id)}
-                data-testid={`group-browse-${group.id}`}
-                className="flex min-w-0 flex-1 shrink items-center gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e95224]"
-              >
-                <span className="truncate text-[15px] font-bold tracking-[-0.025em] text-[#26342c]">
-                  {group.details.name}
-                </span>
-              </Button>
+              <CollectionNameEditor
+                name={group.details.name}
+                onRename={name => onRename(group.id, name)}
+                className="flex-1 text-[15px] font-bold tracking-[-0.025em] text-[#26342c]"
+              />
               <CollectionColorPicker
                 name={group.details.name}
                 color={group.details.accent}

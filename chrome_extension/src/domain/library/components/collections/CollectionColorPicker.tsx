@@ -1,6 +1,7 @@
-import { Palette } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
@@ -9,11 +10,11 @@ import {
 import {
   GROUP_COLORS,
   groupColorSwatch,
-  isGroupColor,
+  isCollectionColor,
   regenerateGroupColor,
 } from "@/domain/library/collectionColor";
 
-/** Pick a Chrome group color and explicitly repair incorrect stored values. The palette closes after selection; persistence belongs to the owner. @param {{name: string; color: string; onChange: (color: string) => void}} props - Collection name, persisted color, and owner update callback. @returns {React.ReactElement} Accessible palette control. */
+/** Show a collection's color swatch and offer presets or a native custom picker. Preset selection closes the palette; custom selection keeps it open for adjustment. Persistence belongs to the owner. @param {{name: string; color: string; onChange: (color: string) => void}} props - Collection name, persisted color, and owner update callback. @returns {React.ReactElement} Accessible swatch and palette control. */
 export function CollectionColorPicker({
   name,
   color,
@@ -23,7 +24,7 @@ export function CollectionColorPicker({
   color: string;
   onChange: (color: string) => void;
 }) {
-  const valid = isGroupColor(color);
+  const valid = isCollectionColor(color);
   const [open, setOpen] = useState(false);
   return (
     <Popover modal open={open} onOpenChange={setOpen}>
@@ -34,15 +35,20 @@ export function CollectionColorPicker({
           aria-label={`Choose color for ${name}`}
           title={valid ? `Color: ${color}` : "Color is incorrect"}
         >
-          <Palette
-            className="h-3.5 w-3.5"
-            style={{ color: groupColorSwatch(color) }}
+          <span
+            aria-hidden="true"
+            className="h-5 w-5 shrink-0 rounded-sm border border-black/15"
+            style={{ backgroundColor: groupColorSwatch(color) }}
           />
         </Button>
       </PopoverTrigger>
       <PopoverContent
         className="z-[60] w-64 bg-[#fffdf8]"
         aria-label={`Color for ${name}`}
+        onEscapeKeyDown={event => {
+          event.preventDefault();
+          setOpen(false);
+        }}
       >
         <p className="mb-3 text-sm font-semibold">Collection color</p>
         {!valid && (
@@ -69,7 +75,7 @@ export function CollectionColorPicker({
               key={value}
               variant="outline"
               aria-label={`Set color to ${value}`}
-              aria-pressed={color === value}
+              aria-pressed={groupColorSwatch(color).toLowerCase() === swatch}
               onClick={() => {
                 onChange(value);
                 setOpen(false);
@@ -84,6 +90,15 @@ export function CollectionColorPicker({
             </Button>
           ))}
         </div>
+        <Label className="mt-4 flex items-center justify-between gap-3 border-t pt-3">
+          <span className="text-sm">Custom color</span>
+          <Input
+            type="color"
+            value={groupColorSwatch(color)}
+            onChange={event => onChange(event.target.value)}
+            className="w-14 cursor-pointer p-1"
+          />
+        </Label>
       </PopoverContent>
     </Popover>
   );

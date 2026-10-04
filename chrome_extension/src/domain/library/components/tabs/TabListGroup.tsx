@@ -14,6 +14,7 @@ import {
 import type { ReactNode } from "react";
 import { CollectionCategoryToggle } from "../collections/CollectionCategoryToggle";
 import { CollectionColorPicker } from "../collections/CollectionColorPicker";
+import { CollectionNameEditor } from "../collections/CollectionNameEditor";
 import { HideDurationMenu } from "@/domain/library/components/shared/HideDurationMenu";
 
 /**
@@ -82,6 +83,7 @@ type GroupSeparatorCollapse = {
 };
 /** Interaction handlers for GroupSeparatorProps. */
 type GroupSeparatorActions = {
+  onRename?: (groupId: string, name: string) => void;
   onOpen?: (groupId: string) => void;
   onShare?: (groupId: string) => void;
   onDelete?: (groupId: string) => void;
@@ -113,6 +115,7 @@ export function GroupSeparator({
   group: { groupId, groupName, groupCategory, groupColor, tabCount },
   collapse: { collapsible, collapsed, onToggle },
   actions: {
+    onRename,
     onOpen,
     onShare,
     onDelete,
@@ -135,11 +138,13 @@ export function GroupSeparator({
             onToggle={() => onCategoryToggle?.(groupId)}
           />
         )}
-        {collapsible ? (
+        {collapsible && (
           <Button
+            type="button"
             variant="ghost"
             onClick={() => onToggle?.(groupId)}
-            className="h-auto min-w-0 shrink items-center gap-1.5 truncate px-0 py-0 hover:text-[#e95224]"
+            className="h-auto shrink-0 px-0 py-0 hover:text-[#e95224]"
+            aria-label={`${collapsed ? "Expand" : "Collapse"} ${groupName}`}
             aria-expanded={!collapsed}
           >
             {collapsed ? (
@@ -147,11 +152,17 @@ export function GroupSeparator({
             ) : (
               <ChevronDown className="h-3 w-3 shrink-0" />
             )}
-            <span className="truncate">{groupName}</span>
           </Button>
-        ) : (
-          <span>{groupName}</span>
         )}
+        <CollectionNameEditor
+          name={groupName}
+          className="font-mono text-[11px]"
+          onRename={
+            groupId !== "unassigned" && onRename
+              ? name => onRename(groupId, name)
+              : undefined
+          }
+        />
         {groupColor !== undefined && onColorChange && (
           <CollectionColorPicker
             name={groupName}

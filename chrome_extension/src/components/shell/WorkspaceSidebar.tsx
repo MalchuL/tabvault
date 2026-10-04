@@ -89,10 +89,12 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
     location.startsWith("/collections");
   const closeAndGo = useCallback(
     (href: string) => {
+      // Reset even when the user selects the route that is already open.
+      bridge?.actions.onResetSearch();
       setOpen(false);
       setLocation(href);
     },
-    [setLocation]
+    [bridge, setLocation]
   );
 
   /**
@@ -103,6 +105,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
   const openTags = () => {
     setOpen(false);
     if (bridge) {
+      bridge.actions.onResetSearch();
       bridge.actions.onOpenTags();
       return;
     }

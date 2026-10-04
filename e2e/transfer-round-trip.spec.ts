@@ -55,7 +55,6 @@ for (const mode of ["merge", "replace"] as const) {
     const exported = await downloadTransfer(page, "Browser JSON", testInfo);
     const target = emptyVault();
     target.preferences.tabView = "groups";
-    target.library.savedSearches[0].name = "Destination view";
     await openTransfer(page, target);
     await page.getByRole("button", { name: mode, exact: true }).click();
     if (mode === "replace") page.once("dialog", dialog => dialog.accept());
@@ -72,9 +71,7 @@ for (const mode of ["merge", "replace"] as const) {
       true
     );
     expect(restored.preferences).toEqual(target.preferences);
-    expect(restored.library.savedSearches).toEqual(
-      target.library.savedSearches
-    );
+    expect(restored.library).not.toHaveProperty("savedSearches");
     expect(restored.sync.generation).toBeNull();
     expect(
       Object.keys(restored.sync.pending).length,

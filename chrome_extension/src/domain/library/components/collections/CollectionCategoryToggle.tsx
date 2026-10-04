@@ -1,9 +1,10 @@
-import { Pin, PinOff } from "lucide-react";
+import { Clock, Hand } from "lucide-react";
 import { IconButton } from "@/components/shared/IconButton";
 import { categoryColor } from "@/domain/library/categoryColor";
 
 /**
- * Switch manual and session collections using their existing category colors.
+ * Show a hand for curated manual collections and a clock for captured sessions.
+ * The tooltip explains the current category and the change performed on click.
  * Custom categories retain their colored marker and require an explicit edit.
  * @param {{name: string; category: string; onToggle: () => void}} props - Collection name, current category, and persistence callback.
  * @returns {React.ReactElement} Accessible category toggle or custom-category marker.
@@ -25,13 +26,17 @@ export function CollectionCategoryToggle({
         title={`Category: ${category}`}
       />
     );
-  const pinned = category === "manual";
-  const Icon = pinned ? Pin : PinOff;
+  const manual = category === "manual";
+  const Icon = manual ? Hand : Clock;
   return (
     <IconButton
-      label={pinned ? `Unpin ${name} to session` : `Pin ${name} as manual`}
-      title={`Category: ${category}`}
-      aria-pressed={pinned}
+      label={`Change ${name} to ${manual ? "Session" : "Manual"}`}
+      title={
+        manual
+          ? "Manual collection: curated for reuse. Click to change to Session."
+          : "Session collection: tabs captured together. Click to change to Manual."
+      }
+      aria-pressed={manual}
       onClick={onToggle}
       className="size-6 shrink-0 p-1"
       style={{ color: categoryColor(category) }}
