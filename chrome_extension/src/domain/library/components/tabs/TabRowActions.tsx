@@ -6,7 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Eye, FolderInput, MoreHorizontal, Trash2 } from "lucide-react";
+import { Archive, Eye, FolderInput, Pencil, Trash2 } from "lucide-react";
 import { HideDurationMenu } from "@/domain/library/components/shared/HideDurationMenu";
 import type { TabListItem } from "@/domain/library/components/tabs/TabList";
 import type { TabViewMode } from "@/domain/library/types";
@@ -51,9 +51,8 @@ export function TabRowActions({
   const standard = viewMode === "standard";
   const destructiveAction =
     lifecycleMode === "archived" ? "Permanently delete" : "Archive";
-  const actionClassName = compact
-    ? "size-6 shrink-0 rounded p-1 text-[#92958d]"
-    : `size-6${standard ? " mt-0.5" : ""} rounded p-0.5 text-[#aaa9a1]`;
+  const actionClassName = `size-8 shrink-0 rounded p-1 text-[#626a60]${standard ? " mt-0.5" : ""}`;
+  const ArchiveIcon = lifecycleMode === "archived" ? Trash2 : Archive;
   const compactFocusClassName = compact
     ? " focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#e95224]"
     : "";
@@ -76,9 +75,9 @@ export function TabRowActions({
         onPointerDown={compact ? event => event.stopPropagation() : undefined}
         className={`${actionClassName} ${compact ? "hover:bg-[#fff0ea]" : "hover:bg-[#efede6]"} hover:text-[#e95224]${compactFocusClassName}`}
         aria-label={`Edit ${tab.content.title}`}
-        title={compact ? `Edit ${tab.content.title}` : undefined}
+        title={`Edit ${tab.content.title}`}
       >
-        <MoreHorizontal className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
+        <Pencil className="size-4" />
       </Button>
       <TabLifecycleActions
         tab={tab}
@@ -101,7 +100,7 @@ export function TabRowActions({
         aria-label={`${destructiveAction} ${tab.content.title}`}
         title={`${destructiveAction} ${tab.content.title}`}
       >
-        <Trash2 className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
+        <ArchiveIcon className="size-4" />
       </Button>
     </>
   );
@@ -154,7 +153,7 @@ function ManualGroupMoveMenu({
             key={group.id}
             disabled={group.id === tab.placement.groupId}
             onSelect={() => onMove(tab.id, group.id)}
-            className="font-mono text-[11px] focus:bg-[#fff0ea] focus:text-[#e95224]"
+            className="text-sm focus:bg-[#fff0ea] focus:text-[#c1431b]"
           >
             {group.details.name}
           </DropdownMenuItem>
@@ -191,7 +190,7 @@ function TabLifecycleActions({
         variant="ghost"
         type="button"
         onClick={() => onRestore?.(tab)}
-        className="rounded px-1.5 py-1 font-mono text-[8px] uppercase text-[#56815d] hover:bg-[#edf2ea]"
+        className="rounded px-2 py-1 text-sm text-[#365e3d] hover:bg-[#edf2ea]"
       >
         Restore
       </Button>

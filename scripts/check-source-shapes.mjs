@@ -16,7 +16,7 @@ function sourceFiles(directory) {
 }
 const files = [
   ...sourceFiles("chrome_extension/src"),
-  ...sourceFiles("shared"),
+  ...(fs.existsSync("shared") ? sourceFiles("shared") : []),
 ].filter(file => !file.endsWith(".test.ts"));
 const config = ts.readConfigFile("tsconfig.json", ts.sys.readFile).config;
 const options = ts.convertCompilerOptionsFromJson(

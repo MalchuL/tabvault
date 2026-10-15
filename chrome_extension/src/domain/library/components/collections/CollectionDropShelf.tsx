@@ -20,9 +20,7 @@ export function CollectionDropShelf({ groups }: { groups: VaultGroup[] }) {
       data-testid="collection-drop-shelf"
       className="flex flex-wrap items-center gap-1.5 border-b border-[#dfdbd0] bg-[#f9f7f1] px-3 py-1.5"
     >
-      <span className="font-mono text-[8px] uppercase tracking-[0.1em] text-[#9a9c95]">
-        Quick move
-      </span>
+      <span className="text-xs text-[#626a60]">Drag tabs to move:</span>
       {manualGroups.map(group => (
         <CollectionDropChip key={group.id} group={group} />
       ))}
@@ -49,7 +47,7 @@ function CollectionDropChip({ group }: { group: VaultGroup }) {
       ref={ref}
       data-testid={`collection-drop-${group.id}`}
       data-drop-active={isDropTarget ? "true" : "false"}
-      className={`flex items-center gap-1.5 rounded border px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.06em] transition ${isDropTarget ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#d9d3c6] bg-[#fffdf8] text-[#7a7e76]"}`}
+      className={`flex items-center gap-1.5 rounded border px-1.5 py-0.5 text-xs transition ${isDropTarget ? "border-[#e95224] bg-[#fff0ea] text-[#c84b26]" : "border-[#d9d3c6] bg-[#fffdf8] text-[#596353]"}`}
       aria-label={`Drop a tab into ${group.details.name}`}
     >
       <span

@@ -43,16 +43,19 @@ export function ViewedCheckbox({
   const definition = vault.propertySchema.viewed;
   if (hidden || (definition && definition.type !== "boolean")) return null;
   return (
-    <Checkbox
-      aria-label={`Mark ${tab.content.title} as viewed`}
-      checked={
-        resolveProperty(
-          tab.annotations.customProperties,
-          vault.propertySchema,
-          "viewed"
-        ) === true
-      }
-      onCheckedChange={value => onChange(tab.id, value === true)}
-    />
+    <label className="flex shrink-0 items-center gap-2 text-xs text-[#596353]">
+      <Checkbox
+        aria-label={`Mark ${tab.content.title} as viewed`}
+        checked={
+          resolveProperty(
+            tab.annotations.customProperties,
+            vault.propertySchema,
+            "viewed"
+          ) === true
+        }
+        onCheckedChange={value => onChange(tab.id, value === true)}
+      />
+      <span>Viewed</span>
+    </label>
   );
 }

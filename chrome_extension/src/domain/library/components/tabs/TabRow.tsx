@@ -12,7 +12,7 @@ export type TabActions = {
   onOpen: (tab: VaultTab, url?: string) => void;
   onViewedChange: (id: string, viewed: boolean) => void;
   onDelete: (tab: VaultTab) => void;
-  onOpenTagManager: () => void;
+  onFilterTag: (tag: string) => void;
 };
 export type TabLifecycleActions = {
   lifecycleMode: "visible" | "hidden" | "archived";
@@ -55,7 +55,7 @@ export function SortableTabRow({
       data-tab-id={tab.id}
       data-dragging={isDragging ? "true" : "false"}
       onMouseEnter={navigation.onActive}
-      className={`group flex items-center gap-3 border-b border-[#dfdbd0] px-3 ${compact ? "h-[45px]" : "min-h-24 py-3"} ${isDragging ? "opacity-0" : ""} ${navigation.active ? "bg-[#fff7f1]" : "hover:bg-[#fffdf8]"}`}
+      className={`group flex flex-wrap items-center gap-3 border-b border-[#dfdbd0] px-3 py-3 sm:flex-nowrap ${compact ? "sm:h-[45px] sm:py-0" : "min-h-24"} ${isDragging ? "opacity-0" : ""} ${navigation.active ? "bg-[#fff7f1]" : "hover:bg-[#fffdf8]"}`}
     >
       <Button
         ref={handleRef}
@@ -75,7 +75,7 @@ export function SortableTabRow({
           rel="noreferrer"
           onClick={event => openSavedLink(event, tab, actions.onOpen)}
           onAuxClick={event => openSavedLink(event, tab, actions.onOpen)}
-          className="block truncate text-[13px] font-semibold hover:underline"
+          className="line-clamp-2 break-words text-[15px] font-semibold leading-6 hover:underline sm:block sm:truncate"
         >
           {tab.content.title}
         </a>
@@ -88,15 +88,15 @@ export function SortableTabRow({
                   {new Date(tab.lifecycle.hiddenUntil).toLocaleString()}
                 </p>
               )}
-            <p className="truncate text-xs text-[#84877f]">
+            <p className="truncate text-[13px] text-[#626a60]">
               {tab.content.domain}
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-x-2">
               {tab.annotations.tags.slice(0, 3).map(tag => (
                 <button
                   key={tag}
-                  className="text-xs text-[#687067]"
-                  onClick={actions.onOpenTagManager}
+                  className="break-all text-[13px] text-[#596353] hover:underline"
+                  onClick={() => actions.onFilterTag(tag)}
                 >
                   #{tag}
                 </button>
@@ -105,23 +105,25 @@ export function SortableTabRow({
           </>
         )}
       </div>
-      <ViewedCheckbox
-        tab={tab}
-        hidden={lifecycle.lifecycleMode === "hidden"}
-        onChange={actions.onViewedChange}
-      />
-      <span
-        data-tab-drag-space
-        data-testid={`tab-drag-space-${tab.id}`}
-        className="h-6 min-w-5 touch-none cursor-grab"
-      />
-      <TabRowActions
-        tab={tab}
-        viewMode={presentation.viewMode}
-        groups={groups}
-        actions={actions}
-        lifecycle={lifecycle}
-      />
+      <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
+        <ViewedCheckbox
+          tab={tab}
+          hidden={lifecycle.lifecycleMode === "hidden"}
+          onChange={actions.onViewedChange}
+        />
+        <span
+          data-tab-drag-space
+          data-testid={`tab-drag-space-${tab.id}`}
+          className="hidden h-6 min-w-5 touch-none cursor-grab sm:block"
+        />
+        <TabRowActions
+          tab={tab}
+          viewMode={presentation.viewMode}
+          groups={groups}
+          actions={actions}
+          lifecycle={lifecycle}
+        />
+      </div>
     </article>
   );
 }

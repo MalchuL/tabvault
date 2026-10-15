@@ -1,9 +1,16 @@
 import { Button } from "@/components/ui/button";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Archive,
   ArrowDownToLine,
-  Boxes,
+  Menu,
   Eye,
   LayoutDashboard,
   LayoutList,
@@ -69,6 +76,14 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const { vault, synchronize } = useLibrary();
   const [open, setOpen] = useState(false);
+  const navigationTrigger = useRef<HTMLButtonElement>(null);
+  const closeNavigation = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    closeNavigation.current?.focus();
+    const trigger = navigationTrigger.current;
+    return () => trigger?.focus();
+  }, [open]);
   const [bridge, setBridge] = useState<LibrarySidebarBridge | null>(null);
   const [isRefreshingFallback, setIsRefreshingFallback] = useState(false);
   const extensionContext = isExtensionContext();
@@ -173,17 +188,24 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
           Skip to content
         </a>
         <Button
+          ref={navigationTrigger}
           variant="ghost"
           type="button"
           onClick={() => setOpen(true)}
           className="fixed left-4 top-4 z-40 rounded-md border border-[#ded9cd] bg-[#fffdf8] p-2 shadow-sm lg:hidden"
           aria-label="Open navigation"
+          aria-expanded={open}
+          aria-controls="workspace-navigation"
         >
-          <Boxes className="h-4 w-4" />
+          <Menu className="h-4 w-4" />
         </Button>
         <aside
+          id="workspace-navigation"
+          onKeyDown={event => {
+            if (event.key === "Escape") setOpen(false);
+          }}
           data-testid="workspace-sidebar"
-          className={`fixed inset-y-0 left-0 z-50 flex w-[224px] flex-col border-r border-[#ded9cd] bg-[#f9f7f1]/95 px-3 py-4 backdrop-blur-xl transition-transform duration-200 lg:translate-x-0 ${open ? "translate-x-0 shadow-[16px_0_50px_rgba(24,38,31,0.14)]" : "-translate-x-full"}`}
+          className={`fixed inset-y-0 left-0 z-50 w-[224px] flex-col border-r border-[#ded9cd] bg-[#f9f7f1]/95 px-3 py-4 backdrop-blur-xl ${open ? "flex shadow-[16px_0_50px_rgba(24,38,31,0.14)]" : "hidden lg:flex"}`}
         >
           <div className="flex items-center justify-between px-2">
             <div className="flex items-center gap-2.5">
@@ -199,6 +221,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
               </div>
             </div>
             <Button
+              ref={closeNavigation}
               variant="ghost"
               type="button"
               onClick={() => setOpen(false)}
@@ -250,7 +273,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
                 className={browseClass(isAllTabsPage)}
               >
                 <LayoutList className="h-3.5 w-3.5" /> All Tabs{" "}
-                <span className="ml-auto font-mono text-[10px] text-[#a2a49c]">
+                <span className="ml-auto text-xs text-[#626a60]">
                   {stats.activeCount}
                 </span>
               </Button>
@@ -263,7 +286,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
                   className={browseClass(location === "/archive")}
                 >
                   <Archive className="h-3.5 w-3.5" /> Archive{" "}
-                  <span className="ml-auto font-mono text-[10px] text-[#a2a49c]">
+                  <span className="ml-auto text-xs text-[#626a60]">
                     {stats.archivedCount}
                   </span>
                 </Button>
@@ -277,7 +300,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
                   className={browseClass(location === "/hidden")}
                 >
                   <Eye className="h-3.5 w-3.5" /> Hidden{" "}
-                  <span className="ml-auto font-mono text-[10px] text-[#a2a49c]">
+                  <span className="ml-auto text-xs text-[#626a60]">
                     {stats.hiddenCount}
                   </span>
                 </Button>
@@ -310,7 +333,7 @@ export function WorkspaceSidebar({ children }: { children: ReactNode }) {
               >
                 <Tag className="h-3.5 w-3.5" />
                 <span className="text-[13px] font-semibold">Tags</span>
-                <span className="ml-auto font-mono text-[10px] text-[#a2a49c]">
+                <span className="ml-auto text-xs text-[#626a60]">
                   {stats.tagCount}
                 </span>
               </Button>

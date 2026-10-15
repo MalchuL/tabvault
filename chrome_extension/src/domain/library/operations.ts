@@ -262,14 +262,14 @@ export function setViewed(
       })
     : vault;
 }
-/** Capture one session without URL deduplication. @param {PersistedVault} vault - Existing library. @param {{url:string;title?:string}[]} sources - Capturable browser pages. @returns {PersistedVault} Session and occurrences to persist before closing tabs. */
+/** Capture pages without URL deduplication, placing a single tab first in Unassigned and multiple tabs in a new session. @param {PersistedVault} vault - Existing library. @param {{url:string;title?:string}[]} sources - Capturable browser pages. @returns {PersistedVault} Occurrences and optional session to persist before closing tabs. */
 export function captureTabs(
   vault: PersistedVault,
   sources: Array<{ url: string; title?: string }>
 ): PersistedVault {
   if (!sources.length) return vault;
-  const group = createSessionGroup();
-  const now = group.timestamps.createdAt;
+  const group = sources.length > 1 ? createSessionGroup() : null;
+  const now = group?.timestamps.createdAt ?? new Date().toISOString();
   const tabs: VaultTab[] = sources.map((source, position) => ({
     id: crypto.randomUUID(),
     content: {
@@ -280,7 +280,7 @@ export function captureTabs(
       icon: "T",
     },
     annotations: { customProperties: {}, tags: [] },
-    placement: { groupId: group.id, position },
+    placement: { groupId: group?.id ?? null, position },
     timestamps: { createdAt: now, updatedAt: now },
     lifecycle: { archived: false, archivedAt: null, hiddenUntil: null },
   }));
@@ -288,14 +288,29 @@ export function captureTabs(
     ...vault,
     library: {
       ...vault.library,
-      vaultGroups: [
-        group,
-        ...vault.library.vaultGroups.map(g => ({
-          ...g,
-          placement: { position: g.placement.position + 1 },
-        })),
+      vaultGroups: group
+        ? [
+            group,
+            ...vault.library.vaultGroups.map(g => ({
+              ...g,
+              placement: { position: g.placement.position + 1 },
+            })),
+          ]
+        : vault.library.vaultGroups,
+      tabs: [
+        ...tabs,
+        ...vault.library.tabs.map(tab =>
+          !group && tab.placement.groupId === null
+            ? {
+                ...tab,
+                placement: {
+                  ...tab.placement,
+                  position: tab.placement.position + 1,
+                },
+              }
+            : tab
+        ),
       ],
-      tabs: [...tabs, ...vault.library.tabs],
     },
   };
 }

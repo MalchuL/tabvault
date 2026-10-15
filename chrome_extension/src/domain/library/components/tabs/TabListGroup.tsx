@@ -143,51 +143,64 @@ export function GroupSeparator({
             ? groupColorBackground(groupColor, 18)
             : undefined,
       }}
-      className="flex min-h-10 items-center justify-between gap-3 border-y border-[#dfdbd0] bg-[#f9f7f1] px-3 py-2 font-mono text-[9px] uppercase tracking-[0.1em] text-[#777d75]"
+      className="flex min-h-10 items-start justify-between gap-3 border-y border-[#dfdbd0] bg-[#f9f7f1] px-3 py-2 text-xs text-[#626a60]"
     >
-      <div className="flex min-w-0 items-center gap-1.5">
-        {groupCategory && (
-          <CollectionCategoryToggle
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+        <div className="grid min-w-0 flex-1 grid-cols-[24px_32px_minmax(0,1fr)_32px] items-center gap-1.5">
+          {collapsible ? (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => onToggle?.(groupId)}
+              className="size-6 p-0 hover:text-[#e95224]"
+              aria-label={`${collapsed ? "Expand" : "Collapse"} ${groupName}`}
+              aria-expanded={!collapsed}
+            >
+              {collapsed ? (
+                <ChevronRight className="size-4" />
+              ) : (
+                <ChevronDown className="size-4" />
+              )}
+            </Button>
+          ) : (
+            <span aria-hidden="true" />
+          )}
+          {groupId !== "unassigned" && onColorChange ? (
+            <CollectionColorPicker
+              name={groupName}
+              color={groupColor}
+              onChange={color => onColorChange(groupId, color)}
+            />
+          ) : (
+            <span
+              className="flex size-8 items-center justify-center"
+              aria-hidden="true"
+            >
+              <FolderOpen className="size-4" />
+            </span>
+          )}
+          <CollectionNameEditor
             name={groupName}
-            category={groupCategory}
-            onToggle={() => onCategoryToggle?.(groupId)}
+            className="text-sm font-semibold leading-5"
+            onRename={
+              groupId !== "unassigned" && onRename
+                ? name => onRename(groupId, name)
+                : undefined
+            }
           />
-        )}
-        {collapsible && (
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onToggle?.(groupId)}
-            className="h-auto shrink-0 px-0 py-0 hover:text-[#e95224]"
-            aria-label={`${collapsed ? "Expand" : "Collapse"} ${groupName}`}
-            aria-expanded={!collapsed}
-          >
-            {collapsed ? (
-              <ChevronRight className="h-3 w-3 shrink-0" />
-            ) : (
-              <ChevronDown className="h-3 w-3 shrink-0" />
-            )}
-          </Button>
-        )}
-        <CollectionNameEditor
-          name={groupName}
-          className="font-mono text-[11px]"
-          onRename={
-            groupId !== "unassigned" && onRename
-              ? name => onRename(groupId, name)
-              : undefined
-          }
-        />
-        {groupId !== "unassigned" && onColorChange && (
-          <CollectionColorPicker
-            name={groupName}
-            color={groupColor}
-            onChange={color => onColorChange(groupId, color)}
-          />
-        )}
+          {groupCategory ? (
+            <CollectionCategoryToggle
+              name={groupName}
+              category={groupCategory}
+              onToggle={() => onCategoryToggle?.(groupId)}
+            />
+          ) : (
+            <span aria-hidden="true" />
+          )}
+        </div>
         {collapsible && (
           <div
-            className="flex shrink-0 items-center gap-0.5 border-l border-[#d9d3c6] pl-1.5"
+            className="flex w-full shrink-0 items-center gap-0.5 sm:w-auto sm:border-l sm:border-[#d9d3c6] sm:pl-1.5"
             aria-label={`${groupName} collection actions`}
           >
             {lifecycleMode === "hidden" && (
@@ -219,7 +232,7 @@ export function GroupSeparator({
               size="icon-sm"
               type="button"
               onClick={() => onOpen?.(groupId)}
-              className="size-6 rounded p-1 text-[#7b8078] hover:bg-white hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+              className="size-6 rounded p-1 text-[#626a60] hover:bg-white hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
               aria-label={`Open all tabs in ${groupName}`}
               title="Open all tabs"
             >
@@ -230,7 +243,7 @@ export function GroupSeparator({
               size="icon-sm"
               type="button"
               onClick={() => onShare?.(groupId)}
-              className="size-6 rounded p-1 text-[#7b8078] hover:bg-white hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+              className="size-6 rounded p-1 text-[#626a60] hover:bg-white hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
               aria-label={`Copy ${groupName} as Markdown`}
               title="Copy as Markdown"
             >
@@ -242,7 +255,7 @@ export function GroupSeparator({
               type="button"
               onClick={() => onEdit?.(groupId)}
               disabled={groupId === "unassigned"}
-              className="size-6 rounded p-1 text-[#7b8078] hover:bg-white hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
+              className="size-6 rounded p-1 text-[#626a60] hover:bg-white hover:text-[#e95224] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224]"
               aria-label={`Edit ${groupName}`}
               title="Edit collection"
             >
@@ -254,7 +267,7 @@ export function GroupSeparator({
               type="button"
               onClick={() => onDelete?.(groupId)}
               disabled={groupId === "unassigned"}
-              className="size-6 rounded p-1 text-[#7b8078] hover:bg-white hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] disabled:cursor-not-allowed disabled:opacity-35"
+              className="size-6 rounded p-1 text-[#626a60] hover:bg-white hover:text-[#c84b26] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#e95224] disabled:cursor-not-allowed disabled:opacity-35"
               aria-label={
                 groupId === "unassigned"
                   ? "Unassigned is virtual"
@@ -271,7 +284,7 @@ export function GroupSeparator({
           </div>
         )}
       </div>
-      <span className="shrink-0">{tabCount} tabs</span>
+      <span className="shrink-0 pt-2">{tabCount} tabs</span>
     </div>
   );
 }

@@ -46,6 +46,7 @@ it("classifies lifecycle, canonical order, and text search including defaults", 
 it("orders collections by newest creation date regardless of positions or membership", () => {
   const vault = captureTabs(emptyBrowserVault(), [
     { url: "https://example.com" },
+    { url: "https://example.org" },
   ]);
   const base = vault.library.vaultGroups[0];
   const makeGroup = (id: string, createdAt: string, position: number) => ({

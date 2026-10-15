@@ -21,10 +21,14 @@ export function CollectionCategoryToggle({
   if (category !== "manual" && category !== "session")
     return (
       <span
-        className="h-2 w-2 shrink-0 rounded-full"
-        style={{ backgroundColor: categoryColor(category) }}
+        className="flex size-8 shrink-0 items-center justify-center"
         title={`Category: ${category}`}
-      />
+      >
+        <span
+          className="size-2 rounded-full"
+          style={{ backgroundColor: categoryColor(category) }}
+        />
+      </span>
     );
   const manual = category === "manual";
   const Icon = manual ? Hand : Clock;
@@ -38,7 +42,7 @@ export function CollectionCategoryToggle({
       }
       aria-pressed={manual}
       onClick={onToggle}
-      className="size-6 shrink-0 p-1"
+      className="size-8 shrink-0 p-1"
       style={{ color: categoryColor(category) }}
     >
       <Icon className="h-3.5 w-3.5" />

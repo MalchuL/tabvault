@@ -47,10 +47,10 @@ export function CollectionNameEditor({
       type="button"
       variant="ghost"
       title="Click to rename collection"
-      className={`h-auto min-w-0 shrink truncate px-0 py-0 text-left hover:text-[#e95224] ${className}`}
+      className={`h-auto min-w-0 shrink justify-start whitespace-normal px-0 py-0 text-left hover:text-[#e95224] ${className}`}
       onClick={() => setEditing(true)}
     >
-      <span className="truncate">{name}</span>
+      <span className="line-clamp-2 break-words">{name}</span>
     </Button>
   );
 }
