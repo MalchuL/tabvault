@@ -178,10 +178,18 @@ test("offline capture remains durable and retryable", async () => {
   await import("../dist/public/background.js?offline");
   const result = await capture(h.listener(), [
     { id: 1, url: "https://example.com" },
+    { id: 2, url: "chrome://settings" },
   ]);
   assert.equal(result.savedCount, 1);
+  assert.equal(result.skippedCount, 1);
   assert.equal(result.serverSynced, false);
-  assert.equal(Object.keys(h.storage["tabvault-v3"].sync.pending).length, 2);
+  const vault = h.storage["tabvault-v3"];
+  assert.deepEqual(vault.library.vaultGroups, []);
+  assert.deepEqual(vault.library.tabs[0].placement, {
+    groupId: null,
+    position: 0,
+  });
+  assert.equal(Object.keys(vault.sync.pending).length, 1);
   assert.deepEqual(h.closed, [1]);
 });
 test("legacy storage is preserved and capture closes nothing", async () => {

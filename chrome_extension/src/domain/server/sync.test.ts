@@ -90,7 +90,16 @@ it("serializes concurrent local commands and retries a lost response without los
   ]);
   const current = (await readBrowserVault())!;
   expect(current.library.tabs).toHaveLength(2);
-  expect(Object.keys(current.sync.pending)).toHaveLength(4);
+  expect(current.library.vaultGroups).toEqual([]);
+  expect(
+    [...current.library.tabs]
+      .sort((a, b) => a.placement.position - b.placement.position)
+      .map(t => t.placement)
+  ).toEqual([
+    { groupId: null, position: 0 },
+    { groupId: null, position: 1 },
+  ]);
+  expect(Object.keys(current.sync.pending)).toHaveLength(2);
   const request = vi
     .fn()
     .mockRejectedValueOnce(new Error("offline"))
